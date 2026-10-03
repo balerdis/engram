@@ -107,10 +107,12 @@ claude --plugin-dir ./plugin/claude-code
 plugin/claude-code/
 ├── .claude-plugin/plugin.json     # Plugin manifest
 ├── .mcp.json                      # Registers engram MCP server
-├── hooks/hooks.json               # SessionStart + SubagentStop + SessionEnd lifecycle hooks
+├── hooks/hooks.json               # SessionStart + UserPromptSubmit + SubagentStop + SessionEnd lifecycle hooks
 ├── scripts/
 │   ├── session-start.sh           # Ensures server, creates session, imports chunks, injects context
 │   ├── post-compaction.sh         # Injects previous context + recovery instructions
+│   ├── user-prompt-submit.sh      # Captures each prompt to /prompts (async, silent)
+│   ├── user-prompt-submit.ps1     # Optional Windows-native fallback for the same capture
 │   ├── subagent-stop.sh           # Passive capture trigger on subagent completion
 │   └── session-end.sh             # Marks the session ended on SessionEnd (keeps any stored summary)
 └── skills/memory/SKILL.md         # Memory Protocol (when to save, search, close, recover)
@@ -128,6 +130,8 @@ plugin/claude-code/
 1. Injects the previous session context + compacted summary
 2. Tells the agent: "FIRST ACTION REQUIRED — call `mem_session_summary` with this content before doing anything else"
 3. This ensures no work is lost when context is compressed
+
+**On user prompt submit** (`UserPromptSubmit`, async): posts each prompt to `POST /prompts` so `mem_save` can attach it. It prints nothing (no notices) and never blocks the prompt. Prompts are stored as typed: the server strips only `<private>` tags and does no credential redaction. `scripts/user-prompt-submit.ps1` is the Windows-native fallback with the same behaviour.
 
 **On session end** (`SessionEnd`): marks the session as ended through the HTTP API. Claude Code gives this hook a ~1.5s budget, so the request is capped at 1s and an empty body keeps any summary already stored.
 
@@ -241,7 +245,7 @@ Old clients that read only the `result` string continue to work — these fields
 
 `mem_save` accepts `capture_prompt` as an optional boolean. The default is `true`: if the same MCP process lifecycle already has the current user prompt for the same project and session, Engram best-effort stores it in `user_prompts` using exact project + session + content dedupe. Passing `capture_prompt=false` skips that prompt capture path and is intended for automated artifacts such as SDD progress saves.
 
-If no current prompt is available to the MCP process, or if best-effort prompt capture fails, `mem_save` still succeeds and no prompt is invented from the observation content. Plugins/protocol hooks that can observe user prompts must feed that prompt context before relying on automatic capture. Calling `mem_save_prompt` in the same MCP process records the prompt and makes it available to later `mem_save` calls for the same project/session; a different MCP process lifecycle does not inherit that in-memory prompt context.
+If no current prompt is available to the MCP process, or if best-effort prompt capture fails, `mem_save` still succeeds and no prompt is invented from the observation content. Plugins/protocol hooks that can observe user prompts must feed that prompt context before relying on automatic capture (the Claude Code plugin's `UserPromptSubmit` hook stores each prompt via `POST /prompts`). Calling `mem_save_prompt` in the same MCP process records the prompt and makes it available to later `mem_save` calls for the same project/session; a different MCP process lifecycle does not inherit that in-memory prompt context.
 
 ---
 

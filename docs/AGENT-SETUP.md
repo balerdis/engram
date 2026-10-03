@@ -294,7 +294,7 @@ Add to your `.claude/settings.json` (project) or `~/.claude/settings.json` (glob
 
 With bare MCP, add a [Surviving Compaction](#surviving-compaction-recommended) prompt to your `CLAUDE.md` so the agent remembers to use Engram after context resets.
 
-> **Windows note:** The Claude Code plugin hooks use bash scripts. On Windows, Claude Code runs hooks through Git Bash (bundled with [Git for Windows](https://gitforwindows.org/)) or WSL. **Option C (Bare MCP)** remains the no-hook fallback and works natively on Windows without any shell dependency. Windows usernames containing spaces (e.g. `C:\Users\John Doe\...`) are supported — all hook commands quote `${CLAUDE_PLUGIN_ROOT}` so the path is passed as a single argument even when it contains spaces.
+> **Windows note:** The Claude Code plugin hooks use bash scripts. On Windows, Claude Code runs hooks through Git Bash (bundled with [Git for Windows](https://gitforwindows.org/)) or WSL. The `UserPromptSubmit` hook captures each prompt to `/prompts` (stored as typed; only `<private>` tags are stripped, no credential redaction) and prints no notices; if Git Bash is blocked by Defender/EDR, `scripts/user-prompt-submit.ps1` is a native PowerShell fallback. **Option C (Bare MCP)** remains the no-hook fallback and works natively on Windows without any shell dependency. Windows usernames containing spaces (e.g. `C:\Users\John Doe\...`) are supported — all hook commands quote `${CLAUDE_PLUGIN_ROOT}` so the path is passed as a single argument even when it contains spaces.
 
 See [Plugins → Claude Code Plugin](PLUGINS.md#claude-code-plugin) for details on what the plugin provides.
 

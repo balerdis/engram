@@ -232,7 +232,7 @@ engram/
 │       ├── .claude-plugin/plugin.json
 │       ├── .mcp.json
 │       ├── hooks/hooks.json
-│       ├── scripts/                # session-start, post-compaction, subagent-stop, session-end
+│       ├── scripts/                # session-start, post-compaction, user-prompt-submit, subagent-stop, session-end
 │       └── skills/memory/SKILL.md
 ├── skills/                         # Contributor AI skills (repo-wide standards + Engram-specific guardrails)
 ├── setup.sh                        # Links repo skills into .claude/.codex/.gemini (project-local)

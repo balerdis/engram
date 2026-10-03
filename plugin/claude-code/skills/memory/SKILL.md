@@ -24,6 +24,9 @@ plugin-scoped (`mcp__plugin_engram_engram__...`) server ids.
 
 Also deferred (load with ToolSearch if needed): `mem_capture_passive`
 
+The plugin's `UserPromptSubmit` hook records each user prompt automatically (for `mem_save`
+prompt attachment); you do not need to call `mem_save_prompt` for ordinary prompts.
+
 ## PROACTIVE SAVE TRIGGERS (mandatory — do NOT wait for user to ask)
 
 Call `mem_save` IMMEDIATELY and WITHOUT BEING ASKED after any of these:

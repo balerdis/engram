@@ -2351,10 +2351,16 @@ func TestClaudeCodePluginHooksLifecycle(t *testing.T) {
 		t.Fatalf("parse Claude Code hooks config: %v", err)
 	}
 
-	for _, gone := range []string{"UserPromptSubmit", "Stop"} {
-		if _, ok := cfg.Hooks[gone]; ok {
-			t.Fatalf("hooks.json must not register %s", gone)
-		}
+	if _, ok := cfg.Hooks["Stop"]; ok {
+		t.Fatalf("hooks.json must not register Stop")
+	}
+
+	prompt := cfg.Hooks["UserPromptSubmit"]
+	if len(prompt) != 1 || len(prompt[0].Hooks) != 1 {
+		t.Fatalf("expected one UserPromptSubmit command hook, got %#v", prompt)
+	}
+	if got := prompt[0].Hooks[0]; got.Command != "\"${CLAUDE_PLUGIN_ROOT}/scripts/user-prompt-submit.sh\"" || !got.Async || got.Timeout <= 0 || got.Timeout > 5 {
+		t.Fatalf("UserPromptSubmit must be the async prompt-capture script with a small timeout, got %#v", got)
 	}
 
 	end := cfg.Hooks["SessionEnd"]

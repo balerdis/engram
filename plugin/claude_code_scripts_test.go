@@ -44,8 +44,13 @@ func runHookScript(t *testing.T, script, stdin string) (paths []string, bodies [
 	cmd := exec.Command("bash", path)
 	cmd.Stdin = strings.NewReader(stdin)
 	cmd.Env = append(os.Environ(), "ENGRAM_PORT="+port)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("%s failed: %v\n%s", script, err, out)
+	var stdout strings.Builder
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("%s failed: %v\n%s", script, err, stdout.String())
+	}
+	if script == "user-prompt-submit.sh" && stdout.Len() != 0 {
+		t.Fatalf("%s must print nothing, got %q", script, stdout.String())
 	}
 
 	mu.Lock()
@@ -93,5 +98,62 @@ func TestSessionEndHookEndsSessionWithEmptyBody(t *testing.T) {
 	}
 	if bodies[0] != "{}" {
 		t.Fatalf("body = %q, want {}", bodies[0])
+	}
+}
+
+func TestUserPromptSubmitHookPostsPromptSilently(t *testing.T) {
+	input, _ := json.Marshal(map[string]string{
+		"session_id": "sess-p",
+		"prompt":     "fix the login bug",
+		"cwd":        t.TempDir(),
+	})
+	paths, bodies := runHookScript(t, "user-prompt-submit.sh", string(input))
+	if len(paths) != 1 || paths[0] != "/prompts" {
+		t.Fatalf("expected exactly one POST /prompts, got %v", paths)
+	}
+	var got map[string]string
+	if err := json.Unmarshal([]byte(bodies[0]), &got); err != nil {
+		t.Fatalf("body is not JSON: %v (%s)", err, bodies[0])
+	}
+	if got["session_id"] != "sess-p" || got["content"] != "fix the login bug" {
+		t.Fatalf("unexpected payload %v", got)
+	}
+}
+
+func TestUserPromptSubmitHookSendsNothingWithoutPromptOrSession(t *testing.T) {
+	for name, in := range map[string]map[string]string{
+		"no prompt":  {"session_id": "sess-p"},
+		"no session": {"prompt": "hello"},
+	} {
+		input, _ := json.Marshal(in)
+		if paths, _ := runHookScript(t, "user-prompt-submit.sh", string(input)); len(paths) != 0 {
+			t.Fatalf("%s: expected no requests, got %v", name, paths)
+		}
+	}
+}
+
+func TestUserPromptSubmitHookIsSilentAndExitsZeroWhenServerDown(t *testing.T) {
+	for _, bin := range []string{"bash", "jq", "curl"} {
+		if _, err := exec.LookPath(bin); err != nil {
+			t.Skipf("%s not available", bin)
+		}
+	}
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, port, _ := net.SplitHostPort(l.Addr().String())
+	_ = l.Close()
+
+	cmd := exec.Command("bash", filepath.Join(repoRoot(t), "plugin", "claude-code", "scripts", "user-prompt-submit.sh"))
+	cmd.Stdin = strings.NewReader(`{"session_id":"s","prompt":"hi"}`)
+	cmd.Env = append(os.Environ(), "ENGRAM_PORT="+port)
+	var stdout strings.Builder
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("hook must exit 0 with the server down: %v", err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("hook must print nothing, got %q", stdout.String())
 	}
 }
