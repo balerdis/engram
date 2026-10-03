@@ -4842,7 +4842,7 @@ type DeleteProjectResult struct {
 // Returns ErrProjectNotFound when no sessions or observations exist for the
 // given project name.
 func (s *Store) DeleteProject(project string, hardDelete bool) (*DeleteProjectResult, error) {
-	project = strings.TrimSpace(project)
+	project, _ = NormalizeProject(strings.TrimSpace(project))
 	if project == "" {
 		return nil, fmt.Errorf("project name must not be empty")
 	}

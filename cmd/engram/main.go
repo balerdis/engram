@@ -636,6 +636,8 @@ func main() {
 		cmdSave(cfg)
 	case "delete":
 		cmdDelete(cfg)
+	case "purge":
+		cmdPurge(cfg)
 	case "timeline":
 		cmdTimeline(cfg)
 	case "conflicts":
@@ -2660,6 +2662,10 @@ Commands:
   delete project <name> [--hard]
                      Cascade-delete a project: soft-deletes observations (or hard if --hard),
                      removes prompts; with --hard also removes sessions
+  purge              Hard-delete test-run leftovers: dry-run by default; --yes executes after a backup
+                       --project NAME  --session ID  --since DATE  --until DATE   (AND-ed, one required;
+                       DATE = YYYY-MM-DD or RFC3339, both bounds inclusive)
+                       [--yes] [--include-pinned] [--json]   (cloud-enrolled projects are refused)
   timeline <obs_id>  Show chronological context around an observation [--before N] [--after N]
   conflicts <sub>   Inspect and manage memory conflict relations
                        list     [--project P]  [--status S]  [--since RFC3339]  [--limit N]
