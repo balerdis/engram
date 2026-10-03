@@ -4850,13 +4850,21 @@ func (s *Store) DeleteProject(project string, hardDelete bool) (*DeleteProjectRe
 	result := &DeleteProjectResult{Project: project, HardDelete: hardDelete}
 
 	err := s.withTx(func(tx *sql.Tx) error {
+		// Match every raw spelling that normalises to this name, so legacy rows
+		// stored un-normalised (e.g. "Lab") stay reachable.
+		variants, err := projectVariants(tx, project)
+		if err != nil {
+			return fmt.Errorf("delete project: list name variants: %w", err)
+		}
+		in := "(" + purgePlaceholders(len(variants)) + ")"
+		vargs := purgeArgs(variants)
 		// Existence check: at least one session or observation must exist.
 		var sessionCount int
-		if err := tx.QueryRow(`SELECT COUNT(*) FROM sessions WHERE project = ?`, project).Scan(&sessionCount); err != nil {
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM sessions WHERE project IN `+in, vargs...).Scan(&sessionCount); err != nil {
 			return fmt.Errorf("delete project: count sessions: %w", err)
 		}
 		var obsCount int
-		if err := tx.QueryRow(`SELECT COUNT(*) FROM observations WHERE project = ?`, project).Scan(&obsCount); err != nil {
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM observations WHERE project IN `+in, vargs...).Scan(&obsCount); err != nil {
 			return fmt.Errorf("delete project: count observations: %w", err)
 		}
 		if sessionCount == 0 && obsCount == 0 {
@@ -4870,12 +4878,12 @@ func (s *Store) DeleteProject(project string, hardDelete bool) (*DeleteProjectRe
 				UPDATE memory_relations
 				SET judgment_status = 'orphaned',
 				    updated_at      = datetime('now')
-				WHERE source_id IN (SELECT sync_id FROM observations WHERE project = ?)
-				   OR target_id IN (SELECT sync_id FROM observations WHERE project = ?)
-			`, project, project); err != nil {
+				WHERE source_id IN (SELECT sync_id FROM observations WHERE project IN `+in+`)
+				   OR target_id IN (SELECT sync_id FROM observations WHERE project IN `+in+`)
+			`, append(append([]any{}, vargs...), vargs...)...); err != nil {
 				return fmt.Errorf("delete project: orphan relations: %w", err)
 			}
-			res, err := s.execHook(tx, `DELETE FROM observations WHERE project = ?`, project)
+			res, err := s.execHook(tx, `DELETE FROM observations WHERE project IN `+in, vargs...)
 			if err != nil {
 				return fmt.Errorf("delete project: hard-delete observations: %w", err)
 			}
@@ -4885,8 +4893,8 @@ func (s *Store) DeleteProject(project string, hardDelete bool) (*DeleteProjectRe
 				UPDATE observations
 				SET deleted_at = datetime('now'),
 				    updated_at = datetime('now')
-				WHERE project = ? AND deleted_at IS NULL
-			`, project)
+				WHERE project IN `+in+` AND deleted_at IS NULL
+			`, vargs...)
 			if err != nil {
 				return fmt.Errorf("delete project: soft-delete observations: %w", err)
 			}
@@ -4894,7 +4902,7 @@ func (s *Store) DeleteProject(project string, hardDelete bool) (*DeleteProjectRe
 		}
 
 		// 2. Delete prompts for the project (no soft-delete mechanism exists).
-		res, err := s.execHook(tx, `DELETE FROM user_prompts WHERE project = ?`, project)
+		res, err := s.execHook(tx, `DELETE FROM user_prompts WHERE project IN `+in, vargs...)
 		if err != nil {
 			return fmt.Errorf("delete project: delete prompts: %w", err)
 		}
@@ -4904,7 +4912,7 @@ func (s *Store) DeleteProject(project string, hardDelete bool) (*DeleteProjectRe
 		//    reference sessions via a NOT NULL FK and soft-deleted rows are still
 		//    present in the table.
 		if hardDelete {
-			res, err = s.execHook(tx, `DELETE FROM sessions WHERE project = ?`, project)
+			res, err = s.execHook(tx, `DELETE FROM sessions WHERE project IN `+in, vargs...)
 			if err != nil {
 				return fmt.Errorf("delete project: delete sessions: %w", err)
 			}

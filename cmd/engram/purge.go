@@ -28,7 +28,13 @@ CLI only. Selectors are combined with AND; at least one is required.
   --json            Machine-readable output
 
 With --yes a backup is written first (path printed); if it fails nothing is
-deleted. Projects enrolled in cloud sync are always refused. sync_chunks is
+deleted. The backup is engram-purge-<timestamp>.db under the data dir's
+backups/ folder (mode 0600, it holds the purged data in clear text); it is
+verified (integrity check and row counts) before anything is deleted.
+Relations touching a purged observation are removed even if the other end is
+kept: the plan reports how many of them point at observations that survive.
+Rows whose date cannot be read are never selected by --since/--until; the
+plan warns about how many were skipped. Projects enrolled in cloud sync are always refused. sync_chunks is
 never touched. When only --project is given, the project's sync state rows
 are removed too.
 `)
@@ -143,6 +149,9 @@ func cmdPurge(cfg store.Config) {
 func printPurge(plan *store.PurgePlan, result *store.PurgeResult) {
 	if plan.Empty() {
 		fmt.Println("Nothing matched the selection; nothing to purge.")
+		for _, w := range plan.Warnings {
+			fmt.Printf("WARNING: %s\n", w)
+		}
 		return
 	}
 	counts := plan.Counts

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"database/sql"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -80,5 +82,49 @@ func TestCmdPurgeEnrolledRefusal(t *testing.T) {
 	_, stderr := captureOutput(t, func() { cmdPurge(cfg) })
 	if exited != 1 || !strings.Contains(stderr, "enrolled") || !strings.Contains(stderr, "nothing was deleted") {
 		t.Fatalf("exit=%d stderr=%q", exited, stderr)
+	}
+}
+
+func TestCmdPurgeUnreadableDateWarningHumanAndJSON(t *testing.T) {
+	cfg := testConfig(t)
+	seedPurgeCLI(t, cfg)
+	corruptObservationDate(t, cfg, "lab", "garbage")
+
+	withArgs(t, "engram", "purge", "--project", "lab", "--since", "2026-01-01")
+	stdout, _ := captureOutput(t, func() { cmdPurge(cfg) })
+	if !strings.Contains(stdout, "rows with an unreadable date were not selected by the date filter") {
+		t.Fatalf("human output missing warning: %q", stdout)
+	}
+	withArgs(t, "engram", "purge", "--project", "lab", "--since", "2026-01-01", "--json")
+	stdout, _ = captureOutput(t, func() { cmdPurge(cfg) })
+	if !strings.Contains(stdout, "rows with an unreadable date were not selected by the date filter") || !strings.Contains(stdout, `"unreadable_date_rows": 1`) {
+		t.Fatalf("json output missing warning: %q", stdout)
+	}
+}
+
+func TestPurgeHelpMentionsRelationsAndBackup(t *testing.T) {
+	_, stderr := captureOutput(t, func() { printPurgeUsage() })
+	for _, want := range []string{"Relations touching a purged observation are removed even if the other end is", "engram-purge-<timestamp>.db"} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("usage missing %q: %q", want, stderr)
+		}
+	}
+}
+
+func TestShouldCheckForUpdatesSkipsPurge(t *testing.T) {
+	if shouldCheckForUpdates([]string{"purge", "--project", "x"}) {
+		t.Fatal("purge must not trigger the update check")
+	}
+}
+
+func corruptObservationDate(t *testing.T, cfg store.Config, project, ts string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", filepath.Join(cfg.DataDir, "engram.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`UPDATE observations SET created_at=? WHERE project=?`, ts, project); err != nil {
+		t.Fatal(err)
 	}
 }

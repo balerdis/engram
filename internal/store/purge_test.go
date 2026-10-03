@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -457,5 +458,236 @@ func TestDeleteProjectNormalizesName(t *testing.T) {
 	}
 	if res.Project != "lab" || res.ObservationsDeleted != 3 {
 		t.Fatalf("result = %+v", res)
+	}
+}
+
+func purgeLabObsIDs(t *testing.T, s *Store) []int64 {
+	t.Helper()
+	rows, err := s.db.Query(`SELECT id FROM observations WHERE project='lab' ORDER BY id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		_ = rows.Scan(&id)
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+func TestPurgeUnreadableDatesNeverMatchDateBounds(t *testing.T) {
+	s := newTestStore(t)
+	purgeSeed(t, s)
+	ids := purgeLabObsIDs(t, s)
+	for i, ts := range []string{"garbage", "", "2020-01-01 00:00:00"} {
+		if _, err := s.db.Exec(`UPDATE observations SET created_at=? WHERE id=?`, ts, ids[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	plan, err := s.PurgePlan(PurgeSelector{Project: "lab", Since: "2026-01-01"}, PurgeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Counts.Observations != 0 {
+		t.Fatalf("since: unreadable dates must not match, got %d observations", plan.Counts.Observations)
+	}
+	if plan.UnreadableDateRows != 2 {
+		t.Fatalf("UnreadableDateRows = %d, want 2", plan.UnreadableDateRows)
+	}
+	found := false
+	for _, w := range plan.Warnings {
+		if strings.Contains(w, "2 rows with an unreadable date were not selected by the date filter") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("missing unreadable-date warning: %v", plan.Warnings)
+	}
+	plan, err = s.PurgePlan(PurgeSelector{Project: "lab", Until: "2026-12-31"}, PurgeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Counts.Observations != 1 {
+		t.Fatalf("until: only the readable 2020 row may match, got %d", plan.Counts.Observations)
+	}
+	// Without a date bound nothing is skipped and no warning is raised.
+	plan, err = s.PurgePlan(PurgeSelector{Project: "lab"}, PurgeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.UnreadableDateRows != 0 || plan.Counts.Observations != 3 {
+		t.Fatalf("no date bound: unreadable=%d obs=%d", plan.UnreadableDateRows, plan.Counts.Observations)
+	}
+}
+
+func TestPurgeReportsRelationsToUnselectedObservations(t *testing.T) {
+	s := newTestStore(t)
+	purgeSeed(t, s)
+	syncID := func(project string) string {
+		var id string
+		if err := s.db.QueryRow(`SELECT sync_id FROM observations WHERE project=? ORDER BY id LIMIT 1`, project).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	lab, keep := syncID("lab"), syncID("keep")
+	if _, err := s.db.Exec(`INSERT INTO memory_relations (sync_id, source_id, target_id) VALUES ('rel-x', ?, ?)`, lab, keep); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := s.PurgePlan(PurgeSelector{Project: "lab"}, PurgeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Counts.Relations != 1 || plan.RelationsToKept != 1 {
+		t.Fatalf("relations=%d toKept=%d, want 1/1", plan.Counts.Relations, plan.RelationsToKept)
+	}
+	res, err := s.Purge(PurgeSelector{Project: "lab"}, PurgeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Plan.RelationsToKept != 1 {
+		t.Fatalf("result plan RelationsToKept = %d", res.Plan.RelationsToKept)
+	}
+	if purgeCount(t, s, `SELECT COUNT(*) FROM memory_relations`) != 0 {
+		t.Fatal("relation should be deleted")
+	}
+	if purgeCount(t, s, `SELECT COUNT(*) FROM observations WHERE project='keep'`) != 1 {
+		t.Fatal("kept observation must survive")
+	}
+}
+
+func TestDeleteProjectCoversLegacyNameVariants(t *testing.T) {
+	for _, hard := range []bool{true, false} {
+		s := newTestStore(t)
+		purgeSeed(t, s)
+		// Legacy rows stored un-normalised.
+		if _, err := s.db.Exec(`UPDATE sessions SET project='Lab' WHERE id='s-lab2'`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.db.Exec(`UPDATE observations SET project='Lab' WHERE session_id='s-lab2'`); err != nil {
+			t.Fatal(err)
+		}
+		res, err := s.DeleteProject("lab", hard)
+		if err != nil {
+			t.Fatalf("hard=%v: %v", hard, err)
+		}
+		if res.ObservationsDeleted != 3 {
+			t.Fatalf("hard=%v: observations deleted = %d, want 3 (%+v)", hard, res.ObservationsDeleted, res)
+		}
+		if hard {
+			if res.SessionsDeleted != 2 || purgeCount(t, s, `SELECT COUNT(*) FROM observations WHERE LOWER(project)='lab'`) != 0 {
+				t.Fatalf("hard delete incomplete: %+v", res)
+			}
+		} else if purgeCount(t, s, `SELECT COUNT(*) FROM observations WHERE LOWER(project)='lab' AND deleted_at IS NULL`) != 0 {
+			t.Fatal("soft delete left live rows")
+		}
+		if purgeCount(t, s, `SELECT COUNT(*) FROM observations WHERE project='keep'`) != 1 {
+			t.Fatal("other project touched")
+		}
+	}
+}
+
+func TestPurgeBackupNameAndPermissions(t *testing.T) {
+	s := newTestStore(t)
+	purgeSeed(t, s)
+	res, err := s.Purge(PurgeSelector{Project: "lab"}, PurgeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := filepath.Base(res.BackupPath); !strings.HasPrefix(b, "engram-purge-") || !strings.HasSuffix(b, ".db") {
+		t.Fatalf("backup name = %q", b)
+	}
+	if fi, err := os.Stat(res.BackupPath); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("backup perms = %v (%v)", fi, err)
+	}
+	if fi, err := os.Stat(filepath.Dir(res.BackupPath)); err != nil || fi.Mode().Perm() != 0o700 {
+		t.Fatalf("new backup dir perms = %v (%v)", fi, err)
+	}
+}
+
+func TestPurgeBackupKeepsExistingDirMode(t *testing.T) {
+	s := newTestStore(t)
+	purgeSeed(t, s)
+	dir := filepath.Join(s.cfg.DataDir, "backups")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Purge(PurgeSelector{Project: "lab"}, PurgeOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Stat(dir); fi.Mode().Perm() != 0o755 {
+		t.Fatalf("existing dir mode changed to %v", fi.Mode().Perm())
+	}
+}
+
+func TestPurgeAbortsWhenBackupVerificationFails(t *testing.T) {
+	s := newTestStore(t)
+	purgeSeed(t, s)
+	orig := s.hooks.exec
+	s.hooks.exec = func(db execer, query string, args ...any) (sql.Result, error) {
+		r, err := orig(db, query, args...)
+		if err == nil && strings.Contains(query, "VACUUM INTO") {
+			// Corrupt the freshly written backup.
+			if werr := os.WriteFile(args[0].(string), []byte(strings.Repeat("not a database", 500)), 0o600); werr != nil {
+				t.Fatal(werr)
+			}
+		}
+		return r, err
+	}
+	before := purgeTables(t, s)
+	_, err := s.Purge(PurgeSelector{Project: "lab"}, PurgeOptions{})
+	if err == nil || !strings.Contains(err.Error(), "backup verification failed") || !strings.Contains(err.Error(), "engram-purge-") {
+		t.Fatalf("expected verification failure naming the backup, got %v", err)
+	}
+	for k, v := range before {
+		if got := purgeCount(t, s, "SELECT COUNT(*) FROM "+k); got != v {
+			t.Fatalf("table %s changed despite failed verification", k)
+		}
+	}
+	matches, _ := filepath.Glob(filepath.Join(s.cfg.DataDir, "backups", "engram-purge-*.db"))
+	if len(matches) != 1 {
+		t.Fatalf("backup should be left in place, found %v", matches)
+	}
+}
+
+func TestVerifyPurgeBackupChecksRowCounts(t *testing.T) {
+	s := newTestStore(t)
+	purgeSeed(t, s)
+	path, err := s.purgeBackup()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyPurgeBackup(path, PurgeCounts{Observations: 4, Sessions: 3}); err != nil {
+		t.Fatalf("matching counts should verify: %v", err)
+	}
+	if err := verifyPurgeBackup(path, PurgeCounts{Observations: 5}); err == nil || !strings.Contains(err.Error(), "observations") {
+		t.Fatalf("too-high planned count must fail, got %v", err)
+	}
+}
+
+func TestPurgeDeleteFailureNamesBackup(t *testing.T) {
+	s := newTestStore(t)
+	purgeSeed(t, s)
+	orig := s.hooks.exec
+	s.hooks.exec = func(db execer, query string, args ...any) (sql.Result, error) {
+		if strings.HasPrefix(query, "DELETE FROM observations") {
+			return nil, errors.New("injected delete failure")
+		}
+		return orig(db, query, args...)
+	}
+	before := purgeTables(t, s)
+	_, err := s.Purge(PurgeSelector{Project: "lab"}, PurgeOptions{})
+	if err == nil || !strings.Contains(err.Error(), "the backup at ") || !strings.Contains(err.Error(), "holds the untouched data") {
+		t.Fatalf("expected backup-naming error, got %v", err)
+	}
+	for k, v := range before {
+		if got := purgeCount(t, s, "SELECT COUNT(*) FROM "+k); got != v {
+			t.Fatalf("table %s changed after failed delete", k)
+		}
 	}
 }

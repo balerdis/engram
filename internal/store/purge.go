@@ -4,6 +4,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -65,8 +68,14 @@ type PurgePlan struct {
 	Samples      []PurgeSample `json:"samples"`
 	// ExportedRows counts selected sessions/observations/prompts that predate
 	// the newest recorded sync chunk and so may live in .engram/chunks files.
-	ExportedRows int      `json:"possibly_exported_rows"`
-	Warnings     []string `json:"warnings"`
+	ExportedRows int `json:"possibly_exported_rows"`
+	// UnreadableDateRows counts rows that match the non-date selectors but whose
+	// timestamp cannot be parsed, so a --since/--until bound never selects them.
+	UnreadableDateRows int `json:"unreadable_date_rows"`
+	// RelationsToKept counts the relations being deleted that link to an
+	// observation outside the selection (that observation survives).
+	RelationsToKept int      `json:"relations_to_unselected_observations"`
+	Warnings        []string `json:"warnings"`
 }
 
 // Empty reports whether the selection matched nothing at all.
@@ -140,31 +149,43 @@ func (s *Store) purgeResolve(tx *sql.Tx, sel *PurgeSelector) (*purgeWhere, error
 	if sel.Project != "" {
 		norm, _ := NormalizeProject(sel.Project)
 		sel.Project = norm
-		seen := map[string]bool{norm: true}
-		w.variants = []string{norm}
-		rows, err := tx.Query(`SELECT project FROM sessions UNION SELECT project FROM observations UNION SELECT project FROM user_prompts`)
+		variants, err := projectVariants(tx, norm)
 		if err != nil {
-			return nil, fmt.Errorf("purge: list projects: %w", err)
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var p sql.NullString
-			if err := rows.Scan(&p); err != nil {
-				return nil, err
-			}
-			if !p.Valid || p.String == "" {
-				continue
-			}
-			if n, _ := NormalizeProject(p.String); n == norm && !seen[p.String] {
-				seen[p.String] = true
-				w.variants = append(w.variants, p.String)
-			}
-		}
-		if err := rows.Err(); err != nil {
 			return nil, err
 		}
+		w.variants = variants
 	}
 	return w, nil
+}
+
+// projectVariants returns norm plus every raw project spelling stored in
+// sessions, observations or prompts that normalises to norm (legacy rows
+// written before names were normalised, e.g. "Lab" for "lab").
+func projectVariants(tx *sql.Tx, norm string) ([]string, error) {
+	seen := map[string]bool{norm: true}
+	variants := []string{norm}
+	rows, err := tx.Query(`SELECT project FROM sessions UNION SELECT project FROM observations UNION SELECT project FROM user_prompts`)
+	if err != nil {
+		return nil, fmt.Errorf("list projects: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var p sql.NullString
+		if err := rows.Scan(&p); err != nil {
+			return nil, err
+		}
+		if !p.Valid || p.String == "" {
+			continue
+		}
+		if n, _ := NormalizeProject(p.String); n == norm && !seen[p.String] {
+			seen[p.String] = true
+			variants = append(variants, p.String)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return variants, nil
 }
 
 func purgePlaceholders(n int) string {
@@ -179,8 +200,14 @@ func purgeArgs(vals []string) []any {
 	return out
 }
 
-// clauses builds the AND-ed predicate for one row kind.
-func (w *purgeWhere) clauses(sel PurgeSelector, eff, session, ts string) (string, []any) {
+// purgeNormTS is the UTC-normalised form of a stored timestamp column. It is
+// NULL when the text is not a parseable date.
+func purgeNormTS(ts string) string {
+	return "strftime('%Y-%m-%d %H:%M:%S', " + ts + ")"
+}
+
+// baseClauses builds the project/session part of the predicate ("1=1" if none).
+func (w *purgeWhere) baseClauses(sel PurgeSelector, eff, session string) (string, []any) {
 	var parts []string
 	var args []any
 	if len(w.variants) > 0 {
@@ -191,7 +218,18 @@ func (w *purgeWhere) clauses(sel PurgeSelector, eff, session, ts string) (string
 		parts = append(parts, session+" = ?")
 		args = append(args, sel.SessionID)
 	}
-	norm := "COALESCE(strftime('%Y-%m-%d %H:%M:%S', " + ts + "), " + ts + ")"
+	if len(parts) == 0 {
+		return "1=1", nil
+	}
+	return strings.Join(parts, " AND "), args
+}
+
+// clauses builds the AND-ed predicate for one row kind. A row whose date is
+// unparseable (NULL after normalisation) never satisfies a date bound.
+func (w *purgeWhere) clauses(sel PurgeSelector, eff, session, ts string) (string, []any) {
+	base, args := w.baseClauses(sel, eff, session)
+	parts := []string{base}
+	norm := purgeNormTS(ts)
 	if w.sinceTS != "" {
 		parts = append(parts, norm+" >= ?")
 		args = append(args, w.sinceTS)
@@ -205,6 +243,13 @@ func (w *purgeWhere) clauses(sel PurgeSelector, eff, session, ts string) (string
 		args = append(args, w.untilTS)
 	}
 	return strings.Join(parts, " AND "), args
+}
+
+// unreadable builds the predicate for rows that match the non-date selectors
+// but whose date cannot be parsed; only meaningful when a date bound is set.
+func (w *purgeWhere) unreadable(sel PurgeSelector, eff, session, ts string) (string, []any) {
+	base, args := w.baseClauses(sel, eff, session)
+	return base + " AND " + purgeNormTS(ts) + " IS NULL", args
 }
 
 type purgeStep struct {
@@ -383,6 +428,38 @@ func (s *Store) purgeBuild(tx *sql.Tx, sel PurgeSelector, opts PurgeOptions) (*P
 		return nil, nil, err
 	}
 
+	// Relations that link to an observation which is NOT part of the selection.
+	if err := s.purgeCount(tx, `SELECT COUNT(*) FROM memory_relations WHERE sync_id IN (SELECT sync_id FROM purge_rel)
+		AND (source_id IN (SELECT sync_id FROM observations WHERE id NOT IN (SELECT id FROM purge_obs))
+		  OR target_id IN (SELECT sync_id FROM observations WHERE id NOT IN (SELECT id FROM purge_obs)))`, nil, &plan.RelationsToKept); err != nil {
+		return nil, nil, fmt.Errorf("purge: count relations to kept observations: %w", err)
+	}
+	if plan.RelationsToKept > 0 {
+		plan.Warnings = append(plan.Warnings, fmt.Sprintf(
+			"%d relation(s) to be deleted link to observations outside the selection; those observations are kept and lose the relation",
+			plan.RelationsToKept))
+	}
+
+	// Rows whose date cannot be read are never selected by a date bound.
+	if w.sinceTS != "" || w.untilTS != "" {
+		for _, q := range []struct{ table, eff, session, ts string }{
+			{"observations o", obsEff, "o.session_id", "o.created_at"},
+			{"user_prompts p", prEff, "p.session_id", "p.created_at"},
+			{"sessions ses", "ses.project", "ses.id", "ses.started_at"},
+		} {
+			c, a := w.unreadable(sel, q.eff, q.session, q.ts)
+			var n int
+			if err := s.purgeCount(tx, `SELECT COUNT(*) FROM `+q.table+` WHERE `+c, a, &n); err != nil {
+				return nil, nil, fmt.Errorf("purge: count unreadable dates: %w", err)
+			}
+			plan.UnreadableDateRows += n
+		}
+		if plan.UnreadableDateRows > 0 {
+			plan.Warnings = append(plan.Warnings, fmt.Sprintf(
+				"%d rows with an unreadable date were not selected by the date filter", plan.UnreadableDateRows))
+		}
+	}
+
 	// Samples.
 	rows, err := tx.Query(`SELECT id, COALESCE(title,''), COALESCE(project,''), created_at FROM observations WHERE id IN (SELECT id FROM purge_obs) ORDER BY id LIMIT 5`)
 	if err != nil {
@@ -498,11 +575,14 @@ func (s *Store) Purge(sel PurgeSelector, opts PurgeOptions) (*PurgeResult, error
 	if plan.Empty() {
 		return res, nil
 	}
-	backup, err := s.BackupSQLite()
+	backup, err := s.purgeBackup()
 	if err != nil {
 		return nil, fmt.Errorf("purge aborted, nothing deleted: backup failed: %w", err)
 	}
 	res.BackupPath = backup
+	if err := verifyPurgeBackup(backup, plan.Counts); err != nil {
+		return nil, fmt.Errorf("purge aborted, nothing deleted: backup verification failed (the backup file was left at %s): %w", backup, err)
+	}
 
 	err = s.withTx(func(tx *sql.Tx) error {
 		res.Deleted = PurgeCounts{}
@@ -525,10 +605,79 @@ func (s *Store) Purge(sel PurgeSelector, opts PurgeOptions) (*PurgeResult, error
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("purge failed, nothing was deleted; the backup at %s holds the untouched data: %w", backup, err)
 	}
 	if _, err := s.execHook(s.db, `PRAGMA wal_checkpoint(PASSIVE)`); err != nil {
 		res.Warnings = append(res.Warnings, "WAL checkpoint failed: "+err.Error())
 	}
 	return res, nil
+}
+
+// purgeBackup writes engram-purge-<timestamp>.db under <data dir>/backups. The
+// directory is created 0700 only when missing (an existing one is left alone)
+// and the file is 0600: it holds the purged data in clear text.
+func (s *Store) purgeBackup() (string, error) {
+	backupDir := filepath.Join(s.cfg.DataDir, "backups")
+	if _, err := os.Stat(backupDir); os.IsNotExist(err) {
+		if err := os.MkdirAll(backupDir, 0o700); err != nil {
+			return "", fmt.Errorf("create backup dir: %w", err)
+		}
+	}
+	path := filepath.Join(backupDir, "engram-purge-"+time.Now().UTC().Format("20060102T150405.000000000Z")+".db")
+	// VACUUM INTO accepts an existing empty file, so pre-create it with 0600.
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return "", fmt.Errorf("create backup file: %w", err)
+	}
+	f.Close()
+	if _, err := s.execHook(s.db, `VACUUM INTO ?`, path); err != nil {
+		_ = os.Remove(path)
+		return "", fmt.Errorf("backup sqlite database: %w", err)
+	}
+	return path, nil
+}
+
+// verifyPurgeBackup opens the backup read-only, runs integrity_check and makes
+// sure each purged table holds at least the planned number of rows.
+func verifyPurgeBackup(path string, planned PurgeCounts) error {
+	u := url.URL{Scheme: "file", Path: path, RawQuery: "mode=ro"}
+	db, err := sql.Open("sqlite", u.String())
+	if err != nil {
+		return fmt.Errorf("open backup: %w", err)
+	}
+	defer db.Close()
+	var verdict string
+	if err := db.QueryRow(`PRAGMA integrity_check`).Scan(&verdict); err != nil {
+		return fmt.Errorf("integrity_check: %w", err)
+	}
+	if verdict != "ok" {
+		return fmt.Errorf("integrity_check reported %q", verdict)
+	}
+	for _, t := range []struct {
+		table string
+		want  int
+	}{
+		{"sessions", planned.Sessions},
+		{"observations", planned.Observations},
+		{"user_prompts", planned.Prompts},
+		{"memory_relations", planned.Relations},
+		{"prompt_tombstones", planned.PromptTombstones},
+		{"sync_mutations", planned.SyncMutations},
+		{"sync_apply_deferred", planned.SyncApplyDeferred},
+		{"sync_state", planned.SyncState},
+		{"sync_enrolled_projects", planned.SyncEnrolled},
+		{"cloud_upgrade_state", planned.CloudUpgradeState},
+	} {
+		if t.want == 0 {
+			continue
+		}
+		var got int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM ` + t.table).Scan(&got); err != nil {
+			return fmt.Errorf("count %s in backup: %w", t.table, err)
+		}
+		if got < t.want {
+			return fmt.Errorf("backup has %d row(s) in %s, expected at least %d", got, t.table, t.want)
+		}
+	}
+	return nil
 }
