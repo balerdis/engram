@@ -60,7 +60,7 @@ Desde la 1.20.1, ningún flujo del binario ni del instalador lleva al original. 
   - `README.md`, `docs/INSTALLATION.md`, `docs/AGENT-SETUP.md` y `docs/PLUGINS.md` todavía ofrecen Homebrew.
   - `docs/engram-cloud/`, incluido su `docker-compose.ghcr.yml`, apunta a la imagen Docker del original, que el fork no publica.
 - El módulo Go y sus imports, a propósito (ver Decisiones).
-- El autor de los plugins sigue siendo el del original, como crédito de su código. El dueño del marketplace es el fork.
+- El autor de los plugins sigue siendo el del original, como crédito de su código. El dueño del marketplace es el fork. Cuando el fork modifique un plugin, Sergio Balerdi se suma a sus autores.
 - Un comentario en `internal/server/server.go` que cita un issue del original y las URLs de ejemplo de `internal/project/detect_test.go`. Son inertes.
 
 El fork tiene los issues y las discusiones deshabilitados, así que las plantillas de `.github/ISSUE_TEMPLATE/` no se usan. Dependabot tampoco corre en un fork hasta que se lo habilita a mano.
