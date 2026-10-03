@@ -3332,7 +3332,7 @@ func TestEndSessionEdgeCases(t *testing.T) {
 		t.Fatalf("expected ended_at to be set")
 	}
 	if sess.Summary != nil {
-		t.Fatalf("expected empty summary to persist as NULL, got %q", *sess.Summary)
+		t.Fatalf("expected empty summary on a fresh session to stay NULL, got %q", *sess.Summary)
 	}
 }
 
@@ -8828,5 +8828,37 @@ func TestSanitizeFTS(t *testing.T) {
 				t.Errorf("sanitizeFTS(%q) = %q, want %q", tc.input, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestEndSessionEmptySummaryKeepsStoredSummary(t *testing.T) {
+	s := newTestStore(t)
+
+	if err := s.CreateSession("s-keep", "engram", "/tmp/engram"); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if err := s.EndSession("s-keep", "first summary"); err != nil {
+		t.Fatalf("end with summary: %v", err)
+	}
+	if err := s.EndSession("s-keep", ""); err != nil {
+		t.Fatalf("end with empty summary: %v", err)
+	}
+	sess, err := s.GetSession("s-keep")
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if sess.Summary == nil || *sess.Summary != "first summary" {
+		t.Fatalf("summary = %v, want kept %q", sess.Summary, "first summary")
+	}
+
+	if err := s.EndSession("s-keep", "second summary"); err != nil {
+		t.Fatalf("end with new summary: %v", err)
+	}
+	sess, err = s.GetSession("s-keep")
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if sess.Summary == nil || *sess.Summary != "second summary" {
+		t.Fatalf("summary = %v, want replaced %q", sess.Summary, "second summary")
 	}
 }

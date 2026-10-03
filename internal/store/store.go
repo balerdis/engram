@@ -2027,10 +2027,12 @@ func (s *Store) CreateSession(id, project, directory string) error {
 	})
 }
 
+// EndSession marks a session ended. An empty summary keeps any stored summary;
+// a non-empty one replaces it.
 func (s *Store) EndSession(id string, summary string) error {
 	return s.withTx(func(tx *sql.Tx) error {
 		res, err := s.execHook(tx,
-			`UPDATE sessions SET ended_at = datetime('now'), summary = ? WHERE id = ?`,
+			`UPDATE sessions SET ended_at = datetime('now'), summary = COALESCE(?, summary) WHERE id = ?`,
 			nullableString(summary), id,
 		)
 		if err != nil {
