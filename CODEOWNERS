@@ -6,22 +6,22 @@
 # Docs: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
 
 # Default owner for everything not matched below
-*                              @Gentleman-Programming
+*                              @balerdis
 
 # Core store and server — highest sensitivity
-internal/store/                @Gentleman-Programming
-internal/server/               @Gentleman-Programming
+internal/store/                @balerdis
+internal/server/               @balerdis
 
 # CLI surface — user-facing, needs careful review
-cmd/                           @Gentleman-Programming
+cmd/                           @balerdis
 
 # GitHub infrastructure — workflows and templates
-.github/                       @Gentleman-Programming
+.github/                       @balerdis
 
 # Skills — these ship as agent instructions to users
-skills/                        @Gentleman-Programming
+skills/                        @balerdis
 
 # Release and build config — changes affect all platforms
-.goreleaser.yaml               @Gentleman-Programming
-go.mod                         @Gentleman-Programming
-go.sum                         @Gentleman-Programming
+.goreleaser.yaml               @balerdis
+go.mod                         @balerdis
+go.sum                         @balerdis
