@@ -14,42 +14,24 @@
 
 ## Homebrew (macOS / Linux)
 
-```bash
-brew install gentleman-programming/tap/engram
-```
-
-Upgrade to latest:
-
-```bash
-brew update && brew upgrade engram
-```
-
-> **Migrating from Cask?** If you installed engram before v1.0.1, it was distributed as a Cask. Uninstall first, then reinstall:
-> ```bash
-> brew uninstall --cask engram 2>/dev/null; brew install gentleman-programming/tap/engram
-> ```
-
-> **Keep `engram serve` running across `brew upgrade`?** On macOS, `brew upgrade engram` replaces the binary and kills any running `engram serve` process — autosync stops silently until you relaunch it. To make autosync survive upgrades and reboots, use the launchd template in [Running as a Service → Using launchd (macOS)](../DOCS.md#using-launchd-macos). Run `engram cloud status` afterwards: the `Local daemon:` line should report `running`.
+Homebrew is not available for this fork. Install through Pegasus Harness or DARQ, or download a release binary (see [Download binary](#download-binary-all-platforms)).
 
 ---
 
 ## Windows
 
-**Option A: Install via `go install` (recommended for technical users)**
+**Option A: Build from source (recommended for technical users)**
 
 If you have Go installed, this is the cleanest and most trustworthy path — the binary is compiled on your machine from source, so no antivirus will flag it:
 
-```powershell
-go install github.com/Gentleman-Programming/engram/cmd/engram@latest
-# Binary goes to %GOPATH%\bin\engram.exe (typically %USERPROFILE%\go\bin\)
-```
+> **Note:** the module path is intentionally still the upstream one, so `go install github.com/Gentleman-Programming/engram/cmd/engram@latest` would fetch the original project's latest release, not this fork. To build from source, use `git clone https://github.com/balerdis/engram && go build ./cmd/engram`.
 
 Ensure `%GOPATH%\bin` (or `%USERPROFILE%\go\bin`) is on your `PATH`.
 
 **Option B: Build from source**
 
 ```powershell
-git clone https://github.com/Gentleman-Programming/engram.git
+git clone https://github.com/balerdis/engram.git
 cd engram
 go install ./cmd/engram
 # Binary goes to %GOPATH%\bin\engram.exe (typically %USERPROFILE%\go\bin\)
@@ -78,7 +60,7 @@ go install ./cmd/engram
 
 **Option C: Download the prebuilt binary**
 
-1. Go to [GitHub Releases](https://github.com/Gentleman-Programming/engram/releases)
+1. Go to [GitHub Releases](https://github.com/balerdis/engram/releases)
 2. Download `engram_<version>_windows_amd64.zip` (or `arm64` for ARM devices)
 3. Extract `engram.exe` to a folder in your `PATH` (e.g. `C:\Users\<you>\bin\`)
 
@@ -120,7 +102,7 @@ Expand-Archive engram_*_windows_amd64.zip -DestinationPath "$env:USERPROFILE\bin
 ## Install from source (macOS / Linux)
 
 ```bash
-git clone https://github.com/Gentleman-Programming/engram.git
+git clone https://github.com/balerdis/engram.git
 cd engram
 go install ./cmd/engram
 # Binary goes to $GOPATH/bin (typically ~/go/bin/)
@@ -149,7 +131,7 @@ go install ./cmd/engram
 
 ## Download binary (all platforms)
 
-Grab the latest release for your platform from [GitHub Releases](https://github.com/Gentleman-Programming/engram/releases).
+Grab the latest release for your platform from [GitHub Releases](https://github.com/balerdis/engram/releases).
 
 | Platform | File |
 |----------|------|
@@ -164,7 +146,7 @@ Grab the latest release for your platform from [GitHub Releases](https://github.
 
 ## Requirements
 
-- **Go 1.24+** to build from source (not needed if installing via Homebrew or downloading a binary)
+- **Go 1.24+** to build from source (not needed if downloading a binary)
 - That's it. No runtime dependencies.
 
 The binary includes SQLite (via [modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite) — pure Go, no CGO). Works natively on **macOS**, **Linux**, and **Windows** (x86_64 and ARM64).

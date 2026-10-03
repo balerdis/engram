@@ -1226,7 +1226,7 @@ Interactive Bubbletea-based terminal UI. Launch with `engram tui`.
 
 ## Running as a Service
 
-Without a service supervisor, `engram serve` dies whenever the binary is replaced (e.g. on `brew upgrade engram`) or the host reboots, and autosync stops silently. The templates below restart it automatically. Use `engram cloud status` afterwards to confirm — the `Local daemon:` line should report `running on port 7437`.
+Without a service supervisor, `engram serve` dies whenever the binary is replaced (e.g. when it is upgraded) or the host reboots, and autosync stops silently. The templates below restart it automatically. Use `engram cloud status` afterwards to confirm — the `Local daemon:` line should report `running on port 7437`.
 
 ### Using systemd (Linux)
 
@@ -1256,7 +1256,9 @@ WantedBy=default.target
 
 ### Using launchd (macOS)
 
-This is the recommended setup for Homebrew users on macOS. With `KeepAlive=true`, launchd relaunches `engram serve` automatically after `brew upgrade engram` replaces the binary, so autosync survives upgrades.
+> Homebrew is not available for this fork; the binary comes from Pegasus Harness, DARQ or the releases page.
+
+With `KeepAlive=true`, launchd relaunches `engram serve` automatically after an upgrade replaces the binary, so autosync survives upgrades.
 
 1. Find your binary path: `which engram` (typically `/opt/homebrew/bin/engram` on Apple Silicon or `/usr/local/bin/engram` on Intel)
 2. Create the data dir if missing: `mkdir -p ~/.engram`
@@ -1305,7 +1307,7 @@ This is the recommended setup for Homebrew users on macOS. With `KeepAlive=true`
 
 To unload (stop and disable): `launchctl unload ~/Library/LaunchAgents/com.gentleman-programming.engram.plist`. To reload after editing the plist: unload, then load again.
 
-> **Note on `brew upgrade`:** launchd does not expand `$HOME` or `~` inside plist values, which is why the template uses literal absolute paths.
+> **Note on paths:** launchd does not expand `$HOME` or `~` inside plist values, which is why the template uses literal absolute paths.
 
 ### Using Windows Task Scheduler
 

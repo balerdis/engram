@@ -67,6 +67,8 @@ engram cloud upgrade status --project smoke-project
 
 ## Deploy with Official GHCR Image (Dokploy/Coolify/Portainer/VPS)
 
+> **Note:** the image referenced here is published by the original project, not by this fork.
+
 Do not build from source for production deploys. Use the published image:
 
 - `ghcr.io/gentleman-programming/engram:latest`

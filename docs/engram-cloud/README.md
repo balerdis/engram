@@ -34,6 +34,8 @@ Continue with full verification and expected outputs in [Quickstart](./quickstar
 
 ## Public Container Image (GHCR)
 
+> **Note:** the image referenced here is published by the original project, not by this fork.
+
 Engram Cloud publishes an official image at:
 
 - `ghcr.io/gentleman-programming/engram`

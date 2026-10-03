@@ -1,3 +1,5 @@
+> **Fork notice.** This repository is a fork of [engram](https://github.com/Gentleman-Programming/engram), frozen at 1.20 and maintained independently. It is distributed only as GitHub release assets, with no Homebrew, npm or Docker image from this fork. Fork decisions: [docs/arquitectura-engram.md](docs/arquitectura-engram.md).
+
 <p align="center">
   <img width="1024" alt="Engram — One Brain. Local or Cloud." src="assets/branding/engram-banner.png" />
 </p>
@@ -39,9 +41,10 @@ SQLite + FTS5 (~/.engram/engram.db)
 
 ### Install
 
-```bash
-brew install gentleman-programming/tap/engram
-```
+- Via Pegasus Harness or DARQ, which download and pin engram for you.
+- Or download a release binary from [github.com/balerdis/engram/releases](https://github.com/balerdis/engram/releases), verify it against `checksums.txt`, and put `engram` on your PATH.
+
+Homebrew is not available for this fork.
 
 Windows, Linux, and other install methods → [docs/INSTALLATION.md](docs/INSTALLATION.md)
 
@@ -49,7 +52,7 @@ Windows, Linux, and other install methods → [docs/INSTALLATION.md](docs/INSTAL
 
 | Agent                       | One-liner                                                                                    |
 | --------------------------- | -------------------------------------------------------------------------------------------- |
-| Claude Code                 | `claude plugin marketplace add Gentleman-Programming/engram && claude plugin install engram` |
+| Claude Code                 | `claude plugin marketplace add balerdis/engram && claude plugin install engram`                  |
 | Pi                          | `engram setup pi`                                                                            |
 | OpenCode                    | `engram setup opencode`                                                                      |
 | Gemini CLI                  | `engram setup gemini-cli`                                                                    |
@@ -88,6 +91,8 @@ engram setup pi
 ```
 
 It gives Pi persistent project memory, compaction recovery, and shared memory with other MCP agents through the same local-or-cloud Engram brain. The package is part of the Gentleman Programming agentic-coding ecosystem alongside Gentle-AI, SDD, skills, and Engram Cloud.
+
+The `gentle-engram` npm package is published by the original project, not by this fork.
 
 ### Setup FAQ
 
@@ -228,7 +233,7 @@ Try the new memory-conflict-surfacing features in **complete isolation** from yo
 ### Setup (4 commands)
 
 ```bash
-git clone https://github.com/Gentleman-Programming/engram.git engram-beta-repo
+git clone https://github.com/balerdis/engram.git engram-beta-repo
 cd engram-beta-repo && git checkout feat/memory-conflict-surfacing-cloud-sync
 docker compose -f docker-compose.beta.yml up -d
 go build -o ./engram-beta ./cmd/engram
@@ -334,7 +339,7 @@ Your production engram is fully untouched throughout.
 
 → [docs/BETA_TESTING.md](docs/BETA_TESTING.md)
 
-→ Report feedback: [issues with `beta-phase-2-3-4` label](https://github.com/Gentleman-Programming/engram/issues)
+→ Report feedback: [issues with `beta-phase-2-3-4` label](https://github.com/balerdis/engram/issues)
 
 ## CLI Reference
 

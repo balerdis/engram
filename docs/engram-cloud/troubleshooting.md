@@ -61,9 +61,9 @@ This error means the legacy chunk upload endpoint rejected a payload because the
 
 Upgrade both sides to `v1.14.8` or newer:
 
+Install the newer release binary from [github.com/balerdis/engram/releases](https://github.com/balerdis/engram/releases) (or update through Pegasus Harness or DARQ), then check it:
+
 ```bash
-brew update
-brew upgrade engram
 engram version
 ```
 

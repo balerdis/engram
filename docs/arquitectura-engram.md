@@ -57,8 +57,8 @@ Desde la 1.20.1, ningún flujo del binario ni del instalador lleva al original. 
 
 - El paquete npm `gentle-engram@0.1.8`, que `engram setup` instala para otra CLI, y los links de su manifiesto en `plugin/pi/package.json`. Está fijado a una versión, así que no cambia solo.
 - El README y los `.md` heredados: unos 50 archivos mencionan el original.
-  - `README.md`, `docs/INSTALLATION.md`, `docs/AGENT-SETUP.md` y `docs/PLUGINS.md` todavía ofrecen Homebrew.
-  - `docs/engram-cloud/`, incluido su `docker-compose.ghcr.yml`, apunta a la imagen Docker del original, que el fork no publica.
+  - Desde la 1.21.0, el README y la documentación ya no prometen Homebrew, la imagen ghcr ni el marketplace del original. Lo que queda son menciones históricas o créditos.
+  - `docs/engram-cloud/`, incluido su `docker-compose.ghcr.yml`, sigue nombrando la imagen Docker del original, que el fork no publica, pero ahora lo avisa en un banner.
 - El módulo Go y sus imports, a propósito (ver Decisiones).
 - El autor de los plugins sigue siendo el del original, como crédito de su código. El dueño del marketplace es el fork. Cuando el fork modifique un plugin, Sergio Balerdi se suma a sus autores.
 - Un comentario en `internal/server/server.go` que cita un issue del original y las URLs de ejemplo de `internal/project/detect_test.go`. Son inertes.
@@ -70,7 +70,7 @@ El fork tiene los issues y las discusiones deshabilitados, así que las plantill
 Las ideas se acumulan acá y se toman por release.
 
 - **Borrar las memorias de las corridas de prueba.** Las pruebas en vivo de Pegasus y DARQ dejan observaciones en la base real. Se podría borrar por proyecto, por sesión o por rango de fechas, mostrando antes lo que se va a borrar.
-- **Un README propio:** que diga que es un fork y que se instala con Pegasus o DARQ. Habría que limpiar también la documentación heredada que ofrece Homebrew o la imagen Docker del original.
+- **El SessionStart del plugin migra el nombre del proyecto.** En cada arranque, si el nombre de la carpeta difiere del remoto de git, llama a `/projects/migrate`, y eso podría fusionar proyectos de laboratorio. Se dejó como está a propósito en la 1.21.0, por decisión del usuario.
 - **Decidir qué hacer con lo del paquete npm `gentle-engram`** (ver la sección anterior).
 
 ## Releases

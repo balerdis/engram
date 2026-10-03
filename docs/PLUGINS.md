@@ -29,7 +29,7 @@
 For [OpenCode](https://opencode.ai) users, a thin TypeScript plugin adds enhanced session management on top of the MCP tools:
 
 ```bash
-# Install via engram (recommended — works from Homebrew or binary install)
+# Install via engram (recommended — works from any binary install)
 engram setup opencode
 
 # Or manually: cp plugin/opencode/engram.ts ~/.config/opencode/plugins/
@@ -80,10 +80,10 @@ For [Claude Code](https://docs.anthropic.com/en/docs/claude-code) users, a plugi
 
 ```bash
 # Install via Claude Code marketplace (recommended)
-claude plugin marketplace add Gentleman-Programming/engram
+claude plugin marketplace add balerdis/engram
 claude plugin install engram
 
-# Or via engram binary (works from Homebrew or binary install)
+# Or via engram binary (works from any binary install)
 engram setup claude-code
 
 # Or for local development/testing from the repo

@@ -1,3 +1,4 @@
+# The image referenced here is published by the original project, not by this fork.
 services:
   postgres:
     image: postgres:16-alpine
