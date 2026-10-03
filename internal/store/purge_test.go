@@ -477,6 +477,33 @@ func purgeLabObsIDs(t *testing.T, s *Store) []int64 {
 	return ids
 }
 
+// strftime accepts some non-dates (a bare number is a Julian day, "now" is the
+// current time); neither may satisfy a date bound.
+func TestPurgeDateLikeNonDatesNeverMatchDateBounds(t *testing.T) {
+	s := newTestStore(t)
+	purgeSeed(t, s)
+	ids := purgeLabObsIDs(t, s)
+	for i, ts := range []string{"2460000", "now", "2020-01-01 00:00:00"} {
+		if _, err := s.db.Exec(`UPDATE observations SET created_at=? WHERE id=?`, ts, ids[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	plan, err := s.PurgePlan(PurgeSelector{Project: "lab", Since: "2026-01-01"}, PurgeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Counts.Observations != 0 || plan.UnreadableDateRows != 2 {
+		t.Fatalf("since: got %d observations, %d unreadable; want 0 and 2", plan.Counts.Observations, plan.UnreadableDateRows)
+	}
+	plan, err = s.PurgePlan(PurgeSelector{Project: "lab", Until: "2026-12-31"}, PurgeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Counts.Observations != 1 {
+		t.Fatalf("until: only the readable 2020 row may match, got %d", plan.Counts.Observations)
+	}
+}
+
 func TestPurgeUnreadableDatesNeverMatchDateBounds(t *testing.T) {
 	s := newTestStore(t)
 	purgeSeed(t, s)

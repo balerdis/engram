@@ -201,9 +201,11 @@ func purgeArgs(vals []string) []any {
 }
 
 // purgeNormTS is the UTC-normalised form of a stored timestamp column. It is
-// NULL when the text is not a parseable date.
+// NULL when the text is not a parseable date. The GLOB guard matters because
+// strftime also accepts non-dates: a bare number is read as a Julian day and
+// the literal "now" as the current time, and either would pass a date bound.
 func purgeNormTS(ts string) string {
-	return "strftime('%Y-%m-%d %H:%M:%S', " + ts + ")"
+	return "(CASE WHEN " + ts + " GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*' THEN strftime('%Y-%m-%d %H:%M:%S', " + ts + ") END)"
 }
 
 // baseClauses builds the project/session part of the predicate ("1=1" if none).
