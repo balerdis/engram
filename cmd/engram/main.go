@@ -2721,6 +2721,8 @@ Environment:
   ENGRAM_TIMEZONE    Timezone for timestamp display in TUI and cloud dashboard.
                      Accepts any IANA zone name (e.g. America/New_York, Europe/Berlin).
                      Falls back to system local time when unset or invalid.
+  ENGRAM_NO_UPDATE_CHECK
+                     Set to 1, true or yes to skip the update check (no network request)
   ENGRAM_AGENT_CLI   LLM runner for conflicts scan --semantic (claude or opencode)
   ENGRAM_CLOUD_AUTOSYNC
                      Set to 1 to enable background autosync; also requires

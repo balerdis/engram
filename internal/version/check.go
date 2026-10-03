@@ -8,13 +8,12 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"runtime"
 	"strings"
 	"time"
 )
 
 const (
-	repoOwner = "Gentleman-Programming"
+	repoOwner = "balerdis"
 	repoName  = "engram"
 )
 
@@ -44,7 +43,14 @@ type githubRelease struct {
 
 // CheckLatest compares the running version against the latest GitHub release.
 // It distinguishes between up-to-date, update available, and check failures.
+//
+// When ENGRAM_NO_UPDATE_CHECK is truthy the check is skipped entirely: no HTTP
+// request is made and the result is an up-to-date status with no message, so
+// every caller (CLI and TUI) stays silent.
 func CheckLatest(current string) CheckResult {
+	if UpdateCheckDisabled() {
+		return CheckResult{Status: StatusUpToDate}
+	}
 	switch current {
 	case "":
 		return checkFailed("Could not check for updates: current version is unknown.")
@@ -100,8 +106,8 @@ func CheckLatest(current string) CheckResult {
 	return CheckResult{
 		Status: StatusUpdateAvailable,
 		Message: fmt.Sprintf(
-			"Update available: %s -> %s\nTo update:\n%s",
-			running, latest, updateInstructions(),
+			"Update available: %s -> %s\n%s",
+			running, latest, updateInstructions,
 		),
 	}
 }
@@ -146,16 +152,21 @@ func splitVersion(v string) [3]int {
 	return parts
 }
 
-// updateInstructions returns platform-appropriate update commands.
-func updateInstructions() string {
-	switch runtime.GOOS {
-	case "darwin":
-		return "  brew update && brew upgrade engram"
-	case "linux":
-		return "  brew update && brew upgrade engram\n  or: go install github.com/Gentleman-Programming/engram/cmd/engram@latest"
-	default:
-		return "  go install github.com/Gentleman-Programming/engram/cmd/engram@latest\n  or: https://github.com/Gentleman-Programming/engram/releases/latest"
+// updateInstructions is the OS-independent update notice body. engram is
+// distributed through the products that bundle it, not on its own.
+const updateInstructions = "To update:\n" +
+	"  pegasus update   (or: darq update)\n" +
+	"Release: https://github.com/" + repoOwner + "/" + repoName + "/releases/latest"
+
+// UpdateCheckDisabled reports whether ENGRAM_NO_UPDATE_CHECK opts out of the
+// update check. Truthy values are "1", "true" and "yes" (case-insensitive,
+// surrounding whitespace ignored).
+func UpdateCheckDisabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("ENGRAM_NO_UPDATE_CHECK"))) {
+	case "1", "true", "yes":
+		return true
 	}
+	return false
 }
 
 func githubToken() string {

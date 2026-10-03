@@ -91,6 +91,15 @@ func TestCheckLatest(t *testing.T) {
 		if !strings.Contains(result.Message, "Update available: 1.10.7 -> 1.10.8") || !strings.Contains(result.Message, "To update:") {
 			t.Fatalf("message = %q", result.Message)
 		}
+		want := "Update available: 1.10.7 -> 1.10.8\nTo update:\n  pegasus update   (or: darq update)\nRelease: https://github.com/balerdis/engram/releases/latest"
+		if result.Message != want {
+			t.Fatalf("message = %q, want %q", result.Message, want)
+		}
+		for _, banned := range []string{"brew", "go install", "Gentleman-Programming"} {
+			if strings.Contains(result.Message, banned) {
+				t.Fatalf("message mentions %q: %q", banned, result.Message)
+			}
+		}
 	})
 
 	t.Run("up to date", func(t *testing.T) {
@@ -218,9 +227,9 @@ func TestCheckLatestUsesGitHubToken(t *testing.T) {
 }
 
 func TestUpdateInstructions(t *testing.T) {
-	msg := updateInstructions()
-	if msg == "" {
-		t.Fatal("expected non-empty update instructions")
+	want := "To update:\n  pegasus update   (or: darq update)\nRelease: https://github.com/balerdis/engram/releases/latest"
+	if updateInstructions != want {
+		t.Fatalf("updateInstructions = %q, want %q", updateInstructions, want)
 	}
 }
 
@@ -248,4 +257,64 @@ func TestNonOKStatusMessage(t *testing.T) {
 	if got := nonOKStatusMessage(fmt.Sprintf("%d %s", http.StatusUnauthorized, http.StatusText(http.StatusUnauthorized))); !strings.Contains(got, "GH_TOKEN") {
 		t.Fatalf("message = %q", got)
 	}
+}
+
+func TestRepoOwnerIsFork(t *testing.T) {
+	if repoOwner != "balerdis" {
+		t.Fatalf("repoOwner = %q, want balerdis", repoOwner)
+	}
+	if !strings.Contains(githubLatestReleaseURL, "/repos/balerdis/engram/") && !strings.HasPrefix(githubLatestReleaseURL, "http://127.0.0.1") {
+		t.Fatalf("githubLatestReleaseURL = %q", githubLatestReleaseURL)
+	}
+}
+
+func TestUpdateCheckDisabled(t *testing.T) {
+	tests := []struct {
+		val  string
+		want bool
+	}{
+		{"1", true}, {"true", true}, {"TRUE", true}, {" Yes ", true},
+		{"", false}, {"0", false}, {"false", false}, {"no", false}, {"on", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.val, func(t *testing.T) {
+			t.Setenv("ENGRAM_NO_UPDATE_CHECK", tt.val)
+			if got := UpdateCheckDisabled(); got != tt.want {
+				t.Fatalf("UpdateCheckDisabled() with %q = %v, want %v", tt.val, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCheckLatestSkipsRequestWhenDisabled(t *testing.T) {
+	for _, val := range []string{"1", "true", "YES"} {
+		t.Run(val, func(t *testing.T) {
+			t.Setenv("ENGRAM_NO_UPDATE_CHECK", val)
+			hits := 0
+			withCheckServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				hits++
+				_, _ = w.Write([]byte(`{"tag_name":"v9.9.9"}`))
+			}))
+
+			result := CheckLatest("1.10.7")
+			if hits != 0 {
+				t.Fatalf("server hit %d times, want 0", hits)
+			}
+			if result.Status != StatusUpToDate || result.Message != "" {
+				t.Fatalf("result = %+v, want silent up-to-date", result)
+			}
+		})
+	}
+
+	t.Run("falsy value still checks", func(t *testing.T) {
+		t.Setenv("ENGRAM_NO_UPDATE_CHECK", "0")
+		hits := 0
+		withCheckServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			hits++
+			_, _ = w.Write([]byte(`{"tag_name":"v9.9.9"}`))
+		}))
+		if result := CheckLatest("1.10.7"); result.Status != StatusUpdateAvailable || hits != 1 {
+			t.Fatalf("result = %+v, hits = %d", result, hits)
+		}
+	})
 }
