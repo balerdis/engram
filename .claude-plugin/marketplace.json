@@ -3,8 +3,7 @@
   "name": "engram",
   "description": "Persistent memory for AI coding agents — agent-agnostic, single binary, zero dependencies",
   "owner": {
-    "name": "Gentleman Programming",
-    "email": "gentlemanprogramming.dev@gmail.com"
+    "name": "Sergio Balerdi"
   },
   "plugins": [
     {
