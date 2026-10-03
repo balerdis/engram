@@ -2331,132 +2331,7 @@ func TestClaudeCodeMemorySkillDoesNotHardcodePluginScopedToolSearch(t *testing.T
 	}
 }
 
-func TestClaudeCodeUserPromptHookUsesCurrentMCPServerID(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "plugin", "claude-code", "scripts", "user-prompt-submit.sh"))
-	if err != nil {
-		t.Fatalf("read user prompt hook: %v", err)
-	}
-	text := string(data)
-	if strings.Contains(text, "select:mcp__plugin_engram_engram__") {
-		t.Fatalf("user prompt hook must not hardcode plugin-scoped ToolSearch names")
-	}
-	for _, tool := range []string{
-		"mcp__engram__mem_save",
-		"mcp__engram__mem_search",
-		"mcp__engram__mem_context",
-		"mcp__engram__mem_current_project",
-		"mcp__engram__mem_judge",
-	} {
-		if !strings.Contains(text, tool) {
-			t.Fatalf("user prompt hook missing current ToolSearch name %q", tool)
-		}
-	}
-}
-
-func TestClaudeCodeUserPromptHookDefersProjectDetectionUntilNeeded(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "plugin", "claude-code", "scripts", "user-prompt-submit.sh"))
-	if err != nil {
-		t.Fatalf("read user prompt hook: %v", err)
-	}
-	text := string(data)
-
-	sessionParse := strings.Index(text, "SESSION_ID=$(echo \"$INPUT\" | jq -r '.session_id // empty')")
-	if sessionParse < 0 {
-		t.Fatalf("user prompt hook missing expected session parsing structure")
-	}
-	sessionKeyBranchRel := strings.Index(text[sessionParse:], "if [ -n \"$SESSION_ID\" ]; then")
-	sessionKeyBranch := -1
-	if sessionKeyBranchRel >= 0 {
-		sessionKeyBranch = sessionParse + sessionKeyBranchRel
-	}
-	if sessionParse < 0 || sessionKeyBranch < 0 {
-		t.Fatalf("user prompt hook missing expected session parsing/keying structure")
-	}
-	if preKey := text[sessionParse:sessionKeyBranch]; strings.Contains(preKey, "detect_project") {
-		t.Fatalf("user prompt hook must not detect project before session_id-first keying")
-	}
-
-	fallbackDetect := "PROJECT=$(detect_project \"$CWD\")\n  SAFE_PROJECT="
-	if !strings.Contains(text, fallbackDetect) {
-		t.Fatalf("user prompt hook should detect project only for the no-session_id fallback key")
-	}
-
-	subsequentMarker := strings.Index(text, "# SUBSEQUENT MESSAGES")
-	if subsequentMarker < 0 {
-		t.Fatalf("user prompt hook missing subsequent-message section")
-	}
-	if !strings.Contains(text[subsequentMarker:], "PROJECT=$(detect_project \"$CWD\")") {
-		t.Fatalf("user prompt hook should detect project for subsequent nudge logic after first-message handling")
-	}
-}
-
-func TestClaudeCodeUserPromptHookHasWindowsGitBashSafePath(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "plugin", "claude-code", "scripts", "user-prompt-submit.sh"))
-	if err != nil {
-		t.Fatalf("read user prompt hook: %v", err)
-	}
-	text := string(data)
-
-	safePath := strings.Index(text, "if is_windows_bash &&")
-	scriptDir := strings.Index(text, "SCRIPT_DIR=\"$(cd")
-	if safePath < 0 {
-		t.Fatalf("user prompt hook missing Windows Git Bash safe path")
-	}
-	if scriptDir < 0 || scriptDir < safePath {
-		t.Fatalf("Windows Git Bash safe path must run before dirname/pwd helper setup")
-	}
-
-	blockEnd := strings.Index(text[safePath:], "# Load shared helpers after the Windows-safe fast path")
-	if blockEnd < 0 {
-		t.Fatalf("Windows Git Bash safe path missing explicit end marker")
-	}
-	block := text[safePath : safePath+blockEnd]
-	for _, forkHeavy := range []string{"jq", "curl", "git ", "date ", "dirname", "touch", "$("} {
-		if strings.Contains(block, forkHeavy) {
-			t.Fatalf("Windows Git Bash safe path should avoid fork-heavy %q", forkHeavy)
-		}
-	}
-	if !strings.Contains(block, "printf '%s\\n' '{}'") {
-		t.Fatalf("Windows Git Bash subsequent prompts should degrade to a fast empty response")
-	}
-}
-
-func TestClaudeCodeUserPromptHookSanitizesWindowsSafeSessionKey(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "plugin", "claude-code", "scripts", "user-prompt-submit.sh"))
-	if err != nil {
-		t.Fatalf("read user prompt hook: %v", err)
-	}
-	text := string(data)
-	for _, want := range []string{
-		"sanitize_session_key_part()",
-		"[[ \"$char\" =~ [a-zA-Z0-9_-] ]]",
-		"SESSION_KEY=\"engram-claude-${JSON_VALUE}-tools-loaded\"",
-	} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("user prompt hook missing Windows session key sanitization fragment %q", want)
-		}
-	}
-}
-
-func TestClaudeCodeUserPromptHookIncludesPowerShellFallback(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "plugin", "claude-code", "scripts", "user-prompt-submit.ps1"))
-	if err != nil {
-		t.Fatalf("read PowerShell user prompt hook: %v", err)
-	}
-	text := string(data)
-	for _, want := range []string{
-		"[Console]::In.ReadToEnd()",
-		"ConvertFrom-Json",
-		"mcp__engram__mem_context",
-		"Write-EmptyHookResponse",
-	} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("PowerShell user prompt hook missing %q", want)
-		}
-	}
-}
-
-func TestClaudeCodeUserPromptSubmitHookTimeout(t *testing.T) {
+func TestClaudeCodePluginHooksLifecycle(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "plugin", "claude-code", "hooks", "hooks.json"))
 	if err != nil {
 		t.Fatalf("read Claude Code hooks config: %v", err)
@@ -2464,9 +2339,11 @@ func TestClaudeCodeUserPromptSubmitHookTimeout(t *testing.T) {
 
 	var cfg struct {
 		Hooks map[string][]struct {
-			Hooks []struct {
+			Matcher string `json:"matcher"`
+			Hooks   []struct {
 				Command string `json:"command"`
 				Timeout int    `json:"timeout"`
+				Async   bool   `json:"async"`
 			} `json:"hooks"`
 		} `json:"hooks"`
 	}
@@ -2474,16 +2351,30 @@ func TestClaudeCodeUserPromptSubmitHookTimeout(t *testing.T) {
 		t.Fatalf("parse Claude Code hooks config: %v", err)
 	}
 
-	entries := cfg.Hooks["UserPromptSubmit"]
-	if len(entries) != 1 || len(entries[0].Hooks) != 1 {
-		t.Fatalf("expected one UserPromptSubmit command hook, got %#v", entries)
+	for _, gone := range []string{"UserPromptSubmit", "Stop"} {
+		if _, ok := cfg.Hooks[gone]; ok {
+			t.Fatalf("hooks.json must not register %s", gone)
+		}
 	}
-	hook := entries[0].Hooks[0]
-	if hook.Command != "\"${CLAUDE_PLUGIN_ROOT}/scripts/user-prompt-submit.sh\"" {
-		t.Fatalf("unexpected UserPromptSubmit command %q", hook.Command)
+
+	end := cfg.Hooks["SessionEnd"]
+	if len(end) != 1 || len(end[0].Hooks) != 1 {
+		t.Fatalf("expected one SessionEnd command hook, got %#v", end)
 	}
-	if hook.Timeout != 2 {
-		t.Fatalf("UserPromptSubmit timeout = %d, want 2", hook.Timeout)
+	hook := end[0].Hooks[0]
+	if hook.Command != "\"${CLAUDE_PLUGIN_ROOT}/scripts/session-end.sh\"" {
+		t.Fatalf("unexpected SessionEnd command %q", hook.Command)
+	}
+	if hook.Async {
+		t.Fatalf("SessionEnd hook must be synchronous")
+	}
+	if hook.Timeout <= 0 || hook.Timeout > 2 {
+		t.Fatalf("SessionEnd timeout = %d, want 1..2", hook.Timeout)
+	}
+
+	start := cfg.Hooks["SessionStart"]
+	if len(start) != 2 || start[0].Matcher != "startup|resume|clear|fork" || start[1].Matcher != "compact" {
+		t.Fatalf("unexpected SessionStart matchers: %#v", start)
 	}
 }
 

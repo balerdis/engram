@@ -51,10 +51,13 @@ cat <<'PROTOCOL'
 
 You have engram memory tools. This protocol is MANDATORY and ALWAYS ACTIVE.
 
-### CORE TOOLS — always available, no ToolSearch needed
-mem_save, mem_search, mem_context, mem_session_summary, mem_get_observation, mem_save_prompt
+### TOOLS
+Under the Claude Code plugin the tools are named `mcp__plugin_engram_engram__<tool>`
+(for example `mcp__plugin_engram_engram__mem_save`). Claude Code may defer them: if a tool
+is not callable yet, load it with ToolSearch first (`select:mcp__plugin_engram_engram__mem_save`).
 
-Use ToolSearch for other tools: mem_update, mem_suggest_topic_key, mem_session_start, mem_session_end, mem_stats, mem_delete, mem_timeline, mem_capture_passive
+Core: mem_save, mem_search, mem_context, mem_session_summary, mem_get_observation, mem_save_prompt
+Also available: mem_update, mem_suggest_topic_key, mem_session_start, mem_session_end, mem_capture_passive
 
 ### PROACTIVE SAVE — do NOT wait for user to ask
 Call `mem_save` IMMEDIATELY after ANY of these:

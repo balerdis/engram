@@ -25,7 +25,12 @@ PROJECT=$(detect_project "$CWD")
 
 # Ensure engram server is running
 if ! curl -sf "${ENGRAM_URL}/health" --max-time 1 > /dev/null 2>&1; then
-  engram serve &>/dev/null &
+  # Detach fully (new session, no stdio) so the server outlives this hook.
+  if command -v setsid >/dev/null 2>&1; then
+    setsid engram serve </dev/null >/dev/null 2>&1 &
+  else
+    nohup engram serve </dev/null >/dev/null 2>&1 &
+  fi
   sleep 0.5
 fi
 
@@ -53,7 +58,7 @@ fi
 if [ -f "${CWD}/.engram/manifest.json" ]; then
   (
     cd "$CWD" 2>/dev/null || exit 0
-    IMPORT_LOCK="/tmp/engram-sync-import-$(printf '%s' "$CWD" | cksum | cut -d ' ' -f 1).lock"
+    IMPORT_LOCK="${TMPDIR:-/tmp}/engram-sync-import-$(printf '%s' "$CWD" | cksum | cut -d ' ' -f 1).lock"
     write_import_lock_info() {
       LOCK_INFO_TMP="$IMPORT_LOCK/info.$$"
       printf '%s %s\n' "$LOCK_PID" "$LOCK_NOW" > "$LOCK_INFO_TMP" 2>/dev/null \
@@ -154,10 +159,13 @@ cat <<'PROTOCOL'
 
 You have engram memory tools. This protocol is MANDATORY and ALWAYS ACTIVE.
 
-### CORE TOOLS — always available, no ToolSearch needed
-mem_save, mem_search, mem_context, mem_session_summary, mem_get_observation, mem_save_prompt
+### TOOLS
+Under the Claude Code plugin the tools are named `mcp__plugin_engram_engram__<tool>`
+(for example `mcp__plugin_engram_engram__mem_save`). Claude Code may defer them: if a tool
+is not callable yet, load it with ToolSearch first (`select:mcp__plugin_engram_engram__mem_save`).
 
-Use ToolSearch for other tools: mem_update, mem_suggest_topic_key, mem_session_start, mem_session_end, mem_stats, mem_delete, mem_timeline, mem_capture_passive
+Core: mem_save, mem_search, mem_context, mem_session_summary, mem_get_observation, mem_save_prompt
+Also available: mem_update, mem_suggest_topic_key, mem_session_start, mem_session_end, mem_capture_passive
 
 ### PROACTIVE SAVE — do NOT wait for user to ask
 Call `mem_save` IMMEDIATELY after ANY of these:

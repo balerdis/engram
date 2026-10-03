@@ -1,9 +1,9 @@
 {
   "name": "engram",
   "description": "Persistent memory for AI coding agents. Survives across sessions and compactions.",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "author": {
-    "name": "Gentleman Programming"
+    "name": "Gentleman Programming, Sergio Balerdi"
   },
   "homepage": "https://github.com/balerdis/engram",
   "repository": "https://github.com/balerdis/engram",

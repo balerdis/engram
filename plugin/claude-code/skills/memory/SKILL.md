@@ -10,8 +10,8 @@ This protocol is MANDATORY and ALWAYS ACTIVE — not something you activate on d
 
 ## AVAILABLE TOOLS
 
-Core tools are loaded automatically at session start by the UserPromptSubmit hook.
-They are available immediately — no manual ToolSearch needed.
+Under the plugin the tools are named `mcp__plugin_engram_engram__<tool>`. Claude Code may
+defer them; if a tool is not callable yet, load it with ToolSearch.
 
 - `mem_save`, `mem_search`, `mem_context`, `mem_session_summary`
 - `mem_get_observation`, `mem_suggest_topic_key`, `mem_update`
@@ -22,8 +22,7 @@ again and restart Claude Code. Setup repairs the durable MCP config and
 permissions allowlist for both current (`mcp__engram__...`) and older
 plugin-scoped (`mcp__plugin_engram_engram__...`) server ids.
 
-Admin tools (deferred — use ToolSearch only if needed):
-- `mem_stats`, `mem_delete`, `mem_timeline`, `mem_capture_passive`
+Also deferred (load with ToolSearch if needed): `mem_capture_passive`
 
 ## PROACTIVE SAVE TRIGGERS (mandatory — do NOT wait for user to ask)
 

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Engram — SubagentStop hook for Claude Code (async)
 #
-# Thin hook: reads the subagent output from stdin, POSTs it to
+# Thin hook: reads the subagent's last assistant message from the hook input, POSTs it to
 # the passive capture endpoint. All extraction logic lives in the
 # Go server — this script is intentionally minimal.
 
@@ -16,7 +16,7 @@ source "${SCRIPT_DIR}/_helpers.sh"
 INPUT=$(cat)
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty')
 CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
-OUTPUT=$(echo "$INPUT" | jq -r '.stdout // empty')
+OUTPUT=$(echo "$INPUT" | jq -r '.last_assistant_message // empty')
 PROJECT=$(detect_project "$CWD")
 
 # Nothing to capture if no output
