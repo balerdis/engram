@@ -91,7 +91,7 @@ func TestCheckLatest(t *testing.T) {
 		if !strings.Contains(result.Message, "Update available: 1.10.7 -> 1.10.8") || !strings.Contains(result.Message, "To update:") {
 			t.Fatalf("message = %q", result.Message)
 		}
-		want := "Update available: 1.10.7 -> 1.10.8\nTo update:\n  pegasus update   (or: darq update)\nRelease: https://github.com/balerdis/engram/releases/latest"
+		want := "Update available: 1.10.7 -> 1.10.8\nTo update:\n  pegasus upgrade, then pegasus update --cli <cli>\n  (DARQ: darq upgrade, then darq update --cli <cli>)\nRelease: https://github.com/balerdis/engram/releases/latest"
 		if result.Message != want {
 			t.Fatalf("message = %q, want %q", result.Message, want)
 		}
@@ -227,7 +227,7 @@ func TestCheckLatestUsesGitHubToken(t *testing.T) {
 }
 
 func TestUpdateInstructions(t *testing.T) {
-	want := "To update:\n  pegasus update   (or: darq update)\nRelease: https://github.com/balerdis/engram/releases/latest"
+	want := "To update:\n  pegasus upgrade, then pegasus update --cli <cli>\n  (DARQ: darq upgrade, then darq update --cli <cli>)\nRelease: https://github.com/balerdis/engram/releases/latest"
 	if updateInstructions != want {
 		t.Fatalf("updateInstructions = %q, want %q", updateInstructions, want)
 	}

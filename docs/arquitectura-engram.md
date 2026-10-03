@@ -23,7 +23,7 @@ Este documento reúne las decisiones, las reglas y las ideas del fork. Lo que es
 | `main` es la única rama y es la línea 1.20 del fork. | El fork no sigue al original. |
 | La versión sube a 1.20.x con arreglos y a 1.21.0 con funciones nuevas. | Sigue semver dentro de la línea congelada. |
 | El módulo Go sigue siendo `github.com/Gentleman-Programming/engram`. | Renombrarlo toca unos 200 imports y solo sirve para `go install`, que no se usa. |
-| El aviso de actualización mira las releases del fork, se actualiza con `pegasus update` o `darq update`, y `ENGRAM_NO_UPDATE_CHECK` lo apaga. | El aviso del original recomendaba saltar a la 3.x con `brew upgrade`. |
+| El aviso de actualización mira las releases del fork, se actualiza con `pegasus upgrade` + `pegasus update --cli` (o `darq upgrade` + `darq update --cli`), y `ENGRAM_NO_UPDATE_CHECK` lo apaga. | El aviso del original recomendaba saltar a la 3.x con `brew upgrade`. |
 | `engram setup claude-code` instala el marketplace del fork. | Antes instalaba el plugin del original. |
 | Solo quedan los workflows `ci.yml` y `release.yml`. | Los demás eran políticas o destinos del original y fallan en el fork. |
 | Los cambios de esquema de la base solo agregan. | Ver la sección siguiente. |
@@ -79,7 +79,7 @@ Las ideas se acumulan acá y se toman por release.
 
 Es una puesta a punto, sin funciones nuevas:
 
-- El aviso de actualización mira las releases del fork, con el texto de `pegasus update` / `darq update`, y `ENGRAM_NO_UPDATE_CHECK` lo apaga.
+- El aviso de actualización mira las releases del fork, con el texto de `pegasus upgrade` + `pegasus update --cli` / `darq upgrade` + `darq update --cli`, y `ENGRAM_NO_UPDATE_CHECK` lo apaga.
 - `engram setup claude-code` instala el plugin desde el marketplace del fork.
 - La publicación ya no actualiza Homebrew.
 - Se quitan los workflows `pr-check`, `stale`, `cloud-image` y `publish-pi`.

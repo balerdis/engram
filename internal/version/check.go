@@ -155,7 +155,8 @@ func splitVersion(v string) [3]int {
 // updateInstructions is the OS-independent update notice body. engram is
 // distributed through the products that bundle it, not on its own.
 const updateInstructions = "To update:\n" +
-	"  pegasus update   (or: darq update)\n" +
+	"  pegasus upgrade, then pegasus update --cli <cli>\n" +
+	"  (DARQ: darq upgrade, then darq update --cli <cli>)\n" +
 	"Release: https://github.com/" + repoOwner + "/" + repoName + "/releases/latest"
 
 // UpdateCheckDisabled reports whether ENGRAM_NO_UPDATE_CHECK opts out of the
