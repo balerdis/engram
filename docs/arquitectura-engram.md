@@ -30,7 +30,7 @@ Este documento reúne las decisiones, las reglas y las ideas del fork. Lo que es
 
 ## La base de datos
 
-engram no lleva un número de versión del esquema. `Store.migrate()`, en `internal/store/store.go`, corre en cada apertura. Es idempotente y agrega lo que falta: tablas, columnas, índices, triggers de FTS y rellenos de datos.
+engram no lleva un número de versión del esquema. `Store.migrate()`, en `internal/store/store.go`, corre en cada apertura y es idempotente. Casi siempre agrega lo que falta: tablas, columnas, índices, triggers de FTS y rellenos de datos. En tres casos heredados del original reconstruye una tabla entera: el índice de búsqueda `observations_fts`, `sync_chunks` y `observations`.
 
 Eso tiene dos consecuencias:
 
@@ -39,7 +39,7 @@ Eso tiene dos consecuencias:
 
 Varios engram comparten la misma `~/.engram/engram.db`, por ejemplo el de OpenCode y el de Claude Code. Para eso, las reglas del fork son:
 
-1. Las migraciones solo agregan: tablas, columnas e índices con `IF NOT EXISTS`. Nunca se borra ni se renombra una columna, y nunca se reconstruye una tabla.
+1. Las migraciones nuevas del fork solo agregan: tablas, columnas e índices con `IF NOT EXISTS`. Nunca se borra ni se renombra una columna, y no se suman reconstrucciones de tablas a las heredadas.
 2. Antes de estrenar una versión que toca la base, se hace un backup con la API de backup de sqlite, por ejemplo `sqlite3 engram.db ".backup engram-<fecha>.db"`. Copiar el archivo mientras engram corre no sirve, porque la base usa WAL.
 3. Todos los engram que abren la misma base pasan juntos a la versión nueva.
 
@@ -55,9 +55,12 @@ Varios engram comparten la misma `~/.engram/engram.db`, por ejemplo el de OpenCo
 
 Desde la 1.20.1, ningún flujo del binario ni del instalador lleva al original. Lo que queda:
 
-- El paquete npm `gentle-engram@0.1.8`, que `engram setup` instala para otra CLI, y su manifiesto en `plugin/pi/package.json`. Está fijado a una versión, así que no cambia solo.
-- El README y la documentación en `docs/`, que tienen 213 menciones en 28 archivos.
+- El paquete npm `gentle-engram@0.1.8`, que `engram setup` instala para otra CLI, y los links de su manifiesto en `plugin/pi/package.json`. Está fijado a una versión, así que no cambia solo.
+- El README y los `.md` heredados: unos 50 archivos mencionan el original.
+  - `README.md`, `docs/INSTALLATION.md`, `docs/AGENT-SETUP.md` y `docs/PLUGINS.md` todavía ofrecen Homebrew.
+  - `docs/engram-cloud/`, incluido su `docker-compose.ghcr.yml`, apunta a la imagen Docker del original, que el fork no publica.
 - El módulo Go y sus imports, a propósito (ver Decisiones).
+- El autor de los plugins sigue siendo el del original, como crédito de su código. El dueño del marketplace es el fork.
 - Un comentario en `internal/server/server.go` que cita un issue del original y las URLs de ejemplo de `internal/project/detect_test.go`. Son inertes.
 
 El fork tiene los issues y las discusiones deshabilitados, así que las plantillas de `.github/ISSUE_TEMPLATE/` no se usan. Dependabot tampoco corre en un fork hasta que se lo habilita a mano.
@@ -67,7 +70,7 @@ El fork tiene los issues y las discusiones deshabilitados, así que las plantill
 Las ideas se acumulan acá y se toman por release.
 
 - **Borrar las memorias de las corridas de prueba.** Las pruebas en vivo de Pegasus y DARQ dejan observaciones en la base real. Se podría borrar por proyecto, por sesión o por rango de fechas, mostrando antes lo que se va a borrar.
-- **Un README propio:** que diga que es un fork y que se instala con Pegasus o DARQ.
+- **Un README propio:** que diga que es un fork y que se instala con Pegasus o DARQ. Habría que limpiar también la documentación heredada que ofrece Homebrew o la imagen Docker del original.
 - **Decidir qué hacer con lo del paquete npm `gentle-engram`** (ver la sección anterior).
 
 ## Releases
