@@ -131,7 +131,7 @@ plugin/claude-code/
 2. Tells the agent: "FIRST ACTION REQUIRED — call `mem_session_summary` with this content before doing anything else"
 3. This ensures no work is lost when context is compressed
 
-**On user prompt submit** (`UserPromptSubmit`, async): posts each prompt to `POST /prompts` so `mem_save` can attach it. It prints nothing (no notices) and never blocks the prompt. Prompts are stored as typed: the server strips only `<private>` tags and does no credential redaction. `scripts/user-prompt-submit.ps1` is the Windows-native fallback with the same behaviour.
+**On user prompt submit** (`UserPromptSubmit`, async): posts each prompt to `POST /prompts` so `mem_save` can attach it. It prints nothing (no notices) and never blocks the prompt. Prompts are stored as typed: the server strips only `<private>` tags and does no credential redaction. A prompt longer than about 128 KB exceeds the shell argument limit and is not stored. `scripts/user-prompt-submit.ps1` is the Windows-native fallback with the same behaviour.
 
 **On session end** (`SessionEnd`): marks the session as ended through the HTTP API. Claude Code gives this hook a ~1.5s budget, so the request is capped at 1s and an empty body keeps any summary already stored.
 

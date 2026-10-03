@@ -27,6 +27,8 @@ Este documento reúne las decisiones, las reglas y las ideas del fork. Lo que es
 | `engram setup claude-code` instala el marketplace del fork. | Antes instalaba el plugin del original. |
 | Solo quedan los workflows `ci.yml` y `release.yml`. | Los demás eran políticas o destinos del original y fallan en el fork. |
 | Los cambios de esquema de la base solo agregan. | Ver la sección siguiente. |
+| `engram purge` se usa solo desde la terminal; no hay herramienta MCP para borrar. | Hoy ningún agente puede borrar en engram. Un agente puede malinterpretar un pedido, o un texto malicioso que lea puede inducirlo a borrar. |
+| El plugin de Claude Code no manda avisos por `systemMessage`. | Claude Code los muestra solo a la persona; el modelo nunca los recibe. |
 
 ## La base de datos
 
@@ -69,17 +71,44 @@ El fork tiene los issues y las discusiones deshabilitados, así que las plantill
 
 Las ideas se acumulan acá y se toman por release.
 
-- **Borrar las memorias de las corridas de prueba.** Las pruebas en vivo de Pegasus y DARQ dejan observaciones en la base real. Se podría borrar por proyecto, por sesión o por rango de fechas, mostrando antes lo que se va a borrar.
+- **Tapar credenciales en los prompts que guarda el plugin de Claude Code.** Hoy se guardan tal como se escriben: el servidor solo saca `<private>`. Habría que llevar a engram el catálogo de credenciales que usa Pegasus.
+- **Prompts muy largos.** El plugin arma el envío con argumentos de shell, así que un prompt de más de unos 128 KB no se guarda, sin aviso.
+- **Una herramienta para agentes que solo muestre qué borraría `purge`**, sin borrar nunca, por si hace falta que un agente ayude a encontrar lo que sobra.
 - **El SessionStart del plugin migra el nombre del proyecto.** En cada arranque, si el nombre de la carpeta difiere del remoto de git, llama a `/projects/migrate`, y eso podría fusionar proyectos de laboratorio. Se dejó como está a propósito en la 1.21.0, por decisión del usuario.
 - **Decidir qué hacer con lo del paquete npm `gentle-engram`** (ver la sección anterior).
 
 ## Releases
 
-### 1.20.1 (en preparación)
+### 1.21.0
+
+1. **`engram purge`, para borrar lo que dejan las corridas de prueba.** Se elige por proyecto, por sesión o por rango de fechas, y los criterios se combinan con «y».
+   - Sin `--yes` solo muestra qué borraría.
+   - Con `--yes` hace un backup `engram-purge-<fecha>.db` (archivo `0600`; la carpeta, `0700` si la crea), lo verifica (`integrity_check` y conteos) y recién entonces borra todo en una sola transacción. Si el backup falla o no verifica, no borra nada.
+   - Nunca toca `sync_chunks`, así lo borrado no vuelve al reimportar chunks ya conocidos. Avisa si algo pudo haberse exportado a archivos `.engram/` de algún repo.
+   - Se niega con memorias fijadas (salvo `--include-pinned`) y con proyectos sincronizados con la nube, sin excepción.
+   - Las filas con una fecha que no se puede leer nunca entran por un filtro de fechas, y el plan dice cuántas quedaron afuera. También dice cuántas relaciones borradas apuntan a memorias que se conservan.
+   - No consulta si hay versiones nuevas.
+   - Probado sobre una copia de una base real: borró 3668 sesiones vacías de un proyecto de sondeos, más sus 6268 mutaciones pendientes, en 1,5 s, sin tocar memorias ni prompts.
+2. **`engram delete project`** encuentra todas las escrituras de un nombre que se normalizan igual (por ejemplo, con mayúsculas).
+3. **Terminar una sesión sin resumen ya no borra el resumen guardado** (`EndSession` con `COALESCE`).
+4. **El aviso de actualización** dice los dos pasos: `pegasus upgrade` y después `pegasus update --cli <cli>`, y lo mismo con `darq`.
+5. **El plugin de Claude Code pasa a 0.2.0**, con Sergio Balerdi entre sus autores:
+   - `SubagentStop` lee `last_assistant_message`. Antes leía `stdout`, que Claude Code no manda, y nunca capturó nada.
+   - La sesión se termina en `SessionEnd`, no en `Stop`, que corre después de cada respuesta.
+   - `SessionStart` registra también las sesiones retomadas y bifurcadas (`startup|resume|clear|fork`).
+   - Se quitaron el aviso de cargar herramientas del primer mensaje y el recordatorio de guardar cada 15 minutos: iban por `systemMessage`, que el modelo no recibe, y lo primero ya lo cubre `SessionStart`.
+   - `UserPromptSubmit` queda, en segundo plano, solo para guardar cada prompt en `/prompts`, como antes. Una primera versión lo había quitado creyendo que solo mandaba los avisos; la revisión lo detectó.
+   - El texto del protocolo nombra bien las herramientas del plugin y ya no anuncia las que el perfil de agentes no registra.
+   - `engram serve` se lanza con `setsid`, y los archivos de estado usan `TMPDIR`.
+6. **El README y la documentación heredada** dicen que es un fork y cómo instalarlo, y ya no ofrecen Homebrew, la imagen del original ni su marketplace.
+
+No cambia el esquema de la base: la 1.21.0 y la 1.20.x pueden abrir la misma base.
+
+### 1.20.1
 
 Es una puesta a punto, sin funciones nuevas:
 
-- El aviso de actualización mira las releases del fork, con el texto de `pegasus upgrade` + `pegasus update --cli` / `darq upgrade` + `darq update --cli`, y `ENGRAM_NO_UPDATE_CHECK` lo apaga.
+- El aviso de actualización mira las releases del fork, con el texto «pegasus update (or: darq update)», que estaba incompleto y se corrigió en la 1.21.0, y `ENGRAM_NO_UPDATE_CHECK` lo apaga.
 - `engram setup claude-code` instala el plugin desde el marketplace del fork.
 - La publicación ya no actualiza Homebrew.
 - Se quitan los workflows `pr-check`, `stale`, `cloud-image` y `publish-pi`.
