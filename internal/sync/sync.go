@@ -50,12 +50,6 @@ var (
 	storeExportRelations      = func(s *store.Store, project string) ([]store.SyncMutation, error) {
 		return s.ExportRelationMutations(project)
 	}
-	storeListMutationsAfterSeq = func(s *store.Store, targetKey string, afterSeq int64, limit int) ([]store.SyncMutation, error) {
-		return s.ListPendingSyncMutationsAfterSeq(targetKey, afterSeq, limit)
-	}
-	storeAckMutationSeq = func(s *store.Store, targetKey string, seqs []int64) error {
-		return s.AckSyncMutationSeqs(targetKey, seqs)
-	}
 	storeApplyPulledChunk = func(s *store.Store, targetKey, chunkID string, mutations []store.SyncMutation) error {
 		return s.ApplyPulledChunk(targetKey, chunkID, mutations)
 	}
@@ -121,72 +115,7 @@ type ImportResult struct {
 type Syncer struct {
 	store     *store.Store
 	syncDir   string    // Path to .engram/ in the project repo (kept for backward compat)
-	transport Transport // Pluggable I/O backend (filesystem, remote, etc.)
-	cloudMode bool
-	project   string
-}
-
-type UpgradeBootstrapOptions struct {
-	Project   string
-	CreatedBy string
-}
-
-type UpgradeBootstrapResult struct {
-	Project string
-	Stage   string
-	Resumed bool
-	NoOp    bool
-}
-
-type UpgradeLifecycleHooks interface {
-	StopForUpgrade(project string) error
-	ResumeAfterUpgrade(project string) error
-}
-
-type UpgradeRollbackOptions struct {
-	Project string
-	Hooks   UpgradeLifecycleHooks
-}
-
-func RollbackProject(s *store.Store, opts UpgradeRollbackOptions) (*store.CloudUpgradeState, error) {
-	if s == nil {
-		return nil, fmt.Errorf("cloud upgrade rollback requires store")
-	}
-	project, _ := store.NormalizeProject(opts.Project)
-	project = strings.TrimSpace(project)
-	if project == "" {
-		return nil, fmt.Errorf("cloud upgrade rollback requires project")
-	}
-
-	canRollback, err := s.CanRollbackCloudUpgrade(project)
-	if err != nil {
-		return nil, fmt.Errorf("cloud upgrade rollback boundary check: %w", err)
-	}
-	if !canRollback {
-		return nil, fmt.Errorf("rollback is unavailable post-bootstrap; use explicit disconnect/unenroll flows")
-	}
-
-	if opts.Hooks != nil {
-		if err := opts.Hooks.StopForUpgrade(project); err != nil {
-			return nil, fmt.Errorf("cloud upgrade rollback stop autosync: %w", err)
-		}
-	}
-
-	rolledBackState, rollbackErr := s.RollbackCloudUpgrade(project)
-	if rollbackErr != nil {
-		if opts.Hooks != nil {
-			_ = opts.Hooks.ResumeAfterUpgrade(project)
-		}
-		return nil, rollbackErr
-	}
-
-	if opts.Hooks != nil {
-		if err := opts.Hooks.ResumeAfterUpgrade(project); err != nil {
-			return nil, fmt.Errorf("cloud upgrade rollback resume autosync: %w", err)
-		}
-	}
-
-	return &rolledBackState, nil
+	transport Transport // Pluggable I/O backend (filesystem)
 }
 
 // New creates a Syncer with a FileTransport rooted at syncDir.
@@ -206,127 +135,10 @@ func NewLocal(s *store.Store, syncDir string) *Syncer {
 }
 
 // NewWithTransport creates a Syncer with a custom Transport implementation.
-// This is used for remote (cloud) sync where chunks travel over HTTP.
 func NewWithTransport(s *store.Store, transport Transport) *Syncer {
 	return &Syncer{
 		store:     s,
 		transport: transport,
-	}
-}
-
-// NewCloudWithTransport creates a cloud-mode Syncer that enforces enrollment
-// preflight checks before any transport/network operations.
-func NewCloudWithTransport(s *store.Store, transport Transport, project string) *Syncer {
-	project, _ = store.NormalizeProject(project)
-	return &Syncer{
-		store:     s,
-		transport: transport,
-		cloudMode: true,
-		project:   strings.TrimSpace(project),
-	}
-}
-
-func BootstrapProject(s *store.Store, transport Transport, opts UpgradeBootstrapOptions) (*UpgradeBootstrapResult, error) {
-	if s == nil {
-		return nil, fmt.Errorf("cloud upgrade bootstrap requires store")
-	}
-	project, _ := store.NormalizeProject(opts.Project)
-	project = strings.TrimSpace(project)
-	if project == "" {
-		return nil, fmt.Errorf("cloud upgrade bootstrap requires project")
-	}
-	createdBy := strings.TrimSpace(opts.CreatedBy)
-	if createdBy == "" {
-		createdBy = "upgrade-bootstrap"
-	}
-
-	state, err := s.GetCloudUpgradeState(project)
-	if err != nil {
-		return nil, fmt.Errorf("read cloud upgrade checkpoint: %w", err)
-	}
-	currentStage := store.UpgradeStagePlanned
-	if state != nil {
-		currentStage = state.Stage
-	}
-	if currentStage == store.UpgradeStageBootstrapVerified {
-		return &UpgradeBootstrapResult{Project: project, Stage: currentStage, Resumed: true, NoOp: true}, nil
-	}
-
-	resumed := currentStage != store.UpgradeStagePlanned
-
-	if upgradeStageOrder(currentStage) < upgradeStageOrder(store.UpgradeStageBootstrapEnrolled) {
-		if err := s.EnrollProject(project); err != nil {
-			return nil, fmt.Errorf("bootstrap enroll project: %w", err)
-		}
-		if err := s.SaveCloudUpgradeState(store.CloudUpgradeState{
-			Project:     project,
-			Stage:       store.UpgradeStageBootstrapEnrolled,
-			RepairClass: store.UpgradeRepairClassRepairable,
-		}); err != nil {
-			return nil, fmt.Errorf("persist bootstrap checkpoint enrolled: %w", err)
-		}
-		currentStage = store.UpgradeStageBootstrapEnrolled
-	}
-
-	sy := NewCloudWithTransport(s, transport, project)
-	enrolled, err := s.IsProjectEnrolled(project)
-	if err != nil {
-		return nil, fmt.Errorf("bootstrap enrollment verify: %w", err)
-	}
-	if !enrolled {
-		if err := s.EnrollProject(project); err != nil {
-			return nil, fmt.Errorf("bootstrap enrollment repair: %w", err)
-		}
-	}
-	if upgradeStageOrder(currentStage) < upgradeStageOrder(store.UpgradeStageBootstrapPushed) {
-		if _, err := sy.Export(createdBy, project); err != nil {
-			return nil, fmt.Errorf("bootstrap first push: %w", err)
-		}
-		if err := s.SaveCloudUpgradeState(store.CloudUpgradeState{
-			Project:     project,
-			Stage:       store.UpgradeStageBootstrapPushed,
-			RepairClass: store.UpgradeRepairClassRepairable,
-		}); err != nil {
-			return nil, fmt.Errorf("persist bootstrap checkpoint pushed: %w", err)
-		}
-		currentStage = store.UpgradeStageBootstrapPushed
-	}
-
-	if upgradeStageOrder(currentStage) < upgradeStageOrder(store.UpgradeStageBootstrapVerified) {
-		if _, err := sy.Import(); err != nil {
-			return nil, fmt.Errorf("bootstrap verification pull: %w", err)
-		}
-		if _, _, _, err := sy.Status(); err != nil {
-			return nil, fmt.Errorf("bootstrap verification status: %w", err)
-		}
-		if err := s.SaveCloudUpgradeState(store.CloudUpgradeState{
-			Project:     project,
-			Stage:       store.UpgradeStageBootstrapVerified,
-			RepairClass: store.UpgradeRepairClassReady,
-		}); err != nil {
-			return nil, fmt.Errorf("persist bootstrap checkpoint verified: %w", err)
-		}
-		currentStage = store.UpgradeStageBootstrapVerified
-	}
-
-	return &UpgradeBootstrapResult{
-		Project: project,
-		Stage:   currentStage,
-		Resumed: resumed,
-		NoOp:    false,
-	}, nil
-}
-
-func upgradeStageOrder(stage string) int {
-	switch strings.TrimSpace(stage) {
-	case store.UpgradeStageBootstrapEnrolled:
-		return 1
-	case store.UpgradeStageBootstrapPushed:
-		return 2
-	case store.UpgradeStageBootstrapVerified:
-		return 3
-	default:
-		return 0
 	}
 }
 
@@ -337,10 +149,6 @@ func upgradeStageOrder(stage string) int {
 // a new chunk with only the new data.
 func (sy *Syncer) Export(createdBy string, project string) (*SyncResult, error) {
 	project, _ = store.NormalizeProject(project)
-	if err := sy.ensureCloudPreflight(project); err != nil {
-		return nil, err
-	}
-
 	// Pre-flight: ensure the sync directory structure exists for filesystem transports.
 	// This preserves the original error ordering where "create chunks dir" was the
 	// first check in Export, before manifest reading.
@@ -357,7 +165,7 @@ func (sy *Syncer) Export(createdBy string, project string) (*SyncResult, error) 
 		return nil, err
 	}
 
-	chunkTargetKey := sy.chunkTrackingTargetKey(project)
+	chunkTargetKey := store.LocalChunkTargetKey
 
 	// Get chunk IDs already recorded locally.
 	locallySyncedChunks, err := storeGetSynced(sy.store, chunkTargetKey)
@@ -376,7 +184,7 @@ func (sy *Syncer) Export(createdBy string, project string) (*SyncResult, error) 
 		knownChunks[c.ID] = true
 	}
 
-	// Export data from DB (project-scoped in cloud mode/project syncs to avoid global dumps)
+	// Export data from DB (project-scoped when a project is given, to avoid global dumps)
 	var data *store.ExportData
 	if strings.TrimSpace(project) != "" {
 		data, err = storeExportDataForProject(sy.store, project)
@@ -386,41 +194,27 @@ func (sy *Syncer) Export(createdBy string, project string) (*SyncResult, error) 
 	if err != nil {
 		return nil, fmt.Errorf("export data: %w", err)
 	}
-	chunk := &ChunkData{}
-	mutationSeqs := []int64{}
-	if sy.cloudMode {
-		chunk, mutationSeqs, err = sy.filterByPendingMutations(data, project)
-		if err != nil {
-			return nil, fmt.Errorf("build mutation-backed export: %w", err)
-		}
-	} else {
-		relationMutations, err := storeExportRelations(sy.store, project)
-		if err != nil {
-			return nil, fmt.Errorf("export relations: %w", err)
-		}
-
-		// Get the timestamp of the last chunk to filter "new" data
-		lastChunkTime := sy.lastChunkTime(manifest)
-
-		// Filter to only new data (created after last chunk)
-		chunk = sy.filterNewData(data, lastChunkTime)
-
-		// Relations are filtered by chunk presence, not timestamp; see the
-		// rationale on filterRelationMutationsForExport and issue #353.
-		exportedRelations, err := sy.exportedRelationKeys(manifest)
-		if err != nil {
-			return nil, fmt.Errorf("scan exported relations: %w", err)
-		}
-		chunk.Mutations = filterRelationMutationsForExport(relationMutations, exportedRelations, lastChunkTime)
+	relationMutations, err := storeExportRelations(sy.store, project)
+	if err != nil {
+		return nil, fmt.Errorf("export relations: %w", err)
 	}
+
+	// Get the timestamp of the last chunk to filter "new" data
+	lastChunkTime := sy.lastChunkTime(manifest)
+
+	// Filter to only new data (created after last chunk)
+	chunk := sy.filterNewData(data, lastChunkTime)
+
+	// Relations are filtered by chunk presence, not timestamp; see the
+	// rationale on filterRelationMutationsForExport and issue #353.
+	exportedRelations, err := sy.exportedRelationKeys(manifest)
+	if err != nil {
+		return nil, fmt.Errorf("scan exported relations: %w", err)
+	}
+	chunk.Mutations = filterRelationMutationsForExport(relationMutations, exportedRelations, lastChunkTime)
 
 	// Nothing new to export
 	if len(chunk.Sessions) == 0 && len(chunk.Observations) == 0 && len(chunk.Prompts) == 0 && len(chunk.Mutations) == 0 {
-		if sy.cloudMode && len(mutationSeqs) > 0 {
-			if err := storeAckMutationSeq(sy.store, store.DefaultSyncTargetKey, mutationSeqs); err != nil {
-				return nil, fmt.Errorf("ack synced mutations: %w", err)
-			}
-		}
 		return &SyncResult{IsEmpty: true}, nil
 	}
 
@@ -429,18 +223,6 @@ func (sy *Syncer) Export(createdBy string, project string) (*SyncResult, error) 
 	if err != nil {
 		return nil, fmt.Errorf("marshal chunk: %w", err)
 	}
-	if sy.cloudMode {
-		projectName := strings.TrimSpace(project)
-		if projectName == "" {
-			projectName = sy.project
-		}
-		projectName, _ = store.NormalizeProject(projectName)
-		chunkJSON, err = chunkcodec.CanonicalizeForProject(chunkJSON, projectName)
-		if err != nil {
-			return nil, fmt.Errorf("canonicalize cloud chunk: %w", err)
-		}
-	}
-
 	// Generate chunk ID from content hash
 	chunkID := chunkcodec.ChunkID(chunkJSON)
 
@@ -449,11 +231,6 @@ func (sy *Syncer) Export(createdBy string, project string) (*SyncResult, error) 
 		if !locallySyncedChunks[chunkID] {
 			if err := storeRecordSynced(sy.store, chunkTargetKey, chunkID); err != nil {
 				return nil, fmt.Errorf("reconcile synced chunk %s: %w", chunkID, err)
-			}
-		}
-		if sy.cloudMode && len(mutationSeqs) > 0 {
-			if err := storeAckMutationSeq(sy.store, store.DefaultSyncTargetKey, mutationSeqs); err != nil {
-				return nil, fmt.Errorf("ack synced mutations: %w", err)
 			}
 		}
 		return &SyncResult{IsEmpty: true}, nil
@@ -485,11 +262,6 @@ func (sy *Syncer) Export(createdBy string, project string) (*SyncResult, error) 
 	if err := storeRecordSynced(sy.store, chunkTargetKey, chunkID); err != nil {
 		return nil, fmt.Errorf("record synced chunk: %w", err)
 	}
-	if sy.cloudMode && len(mutationSeqs) > 0 {
-		if err := storeAckMutationSeq(sy.store, store.DefaultSyncTargetKey, mutationSeqs); err != nil {
-			return nil, fmt.Errorf("ack synced mutations: %w", err)
-		}
-	}
 
 	return &SyncResult{
 		ChunkID:              chunkID,
@@ -504,10 +276,6 @@ func (sy *Syncer) Export(createdBy string, project string) (*SyncResult, error) 
 
 // Import reads the manifest and imports any chunks not yet in the local DB.
 func (sy *Syncer) Import() (*ImportResult, error) {
-	if err := sy.ensureCloudPreflight(""); err != nil {
-		return nil, err
-	}
-
 	manifest, err := sy.readManifest()
 	if err != nil {
 		return nil, err
@@ -518,28 +286,20 @@ func (sy *Syncer) Import() (*ImportResult, error) {
 	}
 
 	// Get chunks we've already imported
-	knownChunks, err := storeGetSynced(sy.store, sy.chunkTrackingTargetKey(""))
+	knownChunks, err := storeGetSynced(sy.store, store.LocalChunkTargetKey)
 	if err != nil {
 		return nil, fmt.Errorf("get synced chunks: %w", err)
 	}
 
-	entries := manifest.Chunks
-	if sy.cloudMode {
-		return sy.importEntriesDependencySafe(entries, knownChunks, importModeCloud)
-	}
-	return sy.importEntriesDependencySafe(entries, knownChunks, importModeLocal)
+	return sy.importEntriesDependencySafe(manifest.Chunks, knownChunks)
 }
 
-type importMode string
-
 const (
-	importModeLocal                  importMode = "local"
-	importModeCloud                  importMode = "cloud"
-	recoveredMissingSessionDirectory            = "(recovered-missing-session)"
-	recoveredMissingSessionStartedAt            = "1970-01-01 00:00:00"
+	recoveredMissingSessionDirectory = "(recovered-missing-session)"
+	recoveredMissingSessionStartedAt = "1970-01-01 00:00:00"
 )
 
-func (sy *Syncer) importEntriesDependencySafe(entries []ChunkEntry, knownChunks map[string]bool, mode importMode) (*ImportResult, error) {
+func (sy *Syncer) importEntriesDependencySafe(entries []ChunkEntry, knownChunks map[string]bool) (*ImportResult, error) {
 	result := &ImportResult{}
 	pendingEntries := make([]ChunkEntry, 0, len(entries))
 	for _, entry := range entries {
@@ -554,13 +314,9 @@ func (sy *Syncer) importEntriesDependencySafe(entries []ChunkEntry, knownChunks 
 	if len(pendingEntries) == 0 {
 		return result, nil
 	}
-	availableSessionIDs := map[string]struct{}{}
-	if mode == importModeLocal {
-		var err error
-		availableSessionIDs, err = sy.sessionIDsAvailableInChunks(entries, knownChunks)
-		if err != nil {
-			return nil, err
-		}
+	availableSessionIDs, err := sy.sessionIDsAvailableInChunks(entries, knownChunks)
+	if err != nil {
+		return nil, err
 	}
 
 	lastErrors := map[string]error{}
@@ -573,9 +329,6 @@ func (sy *Syncer) importEntriesDependencySafe(entries []ChunkEntry, knownChunks 
 			chunkJSON, err := sy.transport.ReadChunk(entry.ID)
 			if err != nil {
 				if errors.Is(err, ErrChunkNotFound) {
-					if mode == importModeCloud {
-						return nil, fmt.Errorf("read chunk %s: manifest references missing remote chunk", entry.ID)
-					}
 					result.ChunksSkipped++
 					continue
 				}
@@ -588,18 +341,16 @@ func (sy *Syncer) importEntriesDependencySafe(entries []ChunkEntry, knownChunks 
 			}
 
 			if err := sy.importMutationChunk(entry.ID, chunk); err != nil {
-				if mode == importModeLocal {
-					recoveredChunk, recovered, recoveryErr := sy.recoverLocalMissingSessionDependencies(chunk, availableSessionIDs)
-					if recoveryErr != nil {
-						return nil, recoveryErr
-					}
-					if recovered {
-						if retryErr := sy.importMutationChunk(entry.ID, recoveredChunk); retryErr == nil {
-							chunk = recoveredChunk
-							goto imported
-						} else {
-							err = retryErr
-						}
+				recoveredChunk, recovered, recoveryErr := sy.recoverLocalMissingSessionDependencies(chunk, availableSessionIDs)
+				if recoveryErr != nil {
+					return nil, recoveryErr
+				}
+				if recovered {
+					if retryErr := sy.importMutationChunk(entry.ID, recoveredChunk); retryErr == nil {
+						chunk = recoveredChunk
+						goto imported
+					} else {
+						err = retryErr
 					}
 				}
 				lastErrors[entry.ID] = importDependencyError(chunk, err)
@@ -624,7 +375,7 @@ func (sy *Syncer) importEntriesDependencySafe(entries []ChunkEntry, knownChunks 
 				return result, nil
 			}
 			stalled := nextPending[0]
-			return nil, fmt.Errorf("dependency-safe %s import stalled after %d pass(es); chunk %s: %w", mode, pass, stalled.ID, lastErrors[stalled.ID])
+			return nil, fmt.Errorf("dependency-safe local import stalled after %d pass(es); chunk %s: %w", pass, stalled.ID, lastErrors[stalled.ID])
 		}
 
 		pendingEntries = nextPending
@@ -636,7 +387,7 @@ func (sy *Syncer) importEntriesDependencySafe(entries []ChunkEntry, knownChunks 
 func (sy *Syncer) importMutationChunk(chunkID string, chunk ChunkData) error {
 	mutations := buildImportMutations(chunk)
 	mutations = orderMutationsForApply(mutations)
-	return storeApplyPulledChunk(sy.store, sy.chunkTrackingTargetKey(""), chunkID, mutations)
+	return storeApplyPulledChunk(sy.store, store.LocalChunkTargetKey, chunkID, mutations)
 }
 
 func importDependencyError(chunk ChunkData, err error) error {
@@ -853,18 +604,6 @@ func mutationIdentityKey(mutation store.SyncMutation) string {
 	return fmt.Sprintf("%s:%s", mutation.Entity, strings.TrimSpace(mutation.EntityKey))
 }
 
-func (sy *Syncer) chunkTrackingTargetKey(project string) string {
-	if !sy.cloudMode {
-		return store.LocalChunkTargetKey
-	}
-	projectName := strings.TrimSpace(project)
-	if projectName == "" {
-		projectName = sy.project
-	}
-	projectName, _ = store.NormalizeProject(projectName)
-	return cloudTargetKey(projectName)
-}
-
 func orderMutationsForApply(mutations []store.SyncMutation) []store.SyncMutation {
 	if len(mutations) <= 1 {
 		return mutations
@@ -1019,7 +758,7 @@ func (sy *Syncer) Status() (localChunks int, remoteChunks int, pendingImport int
 		return 0, 0, 0, err
 	}
 
-	known, err := storeGetSynced(sy.store, sy.chunkTrackingTargetKey(""))
+	known, err := storeGetSynced(sy.store, store.LocalChunkTargetKey)
 	if err != nil {
 		return 0, 0, 0, err
 	}
@@ -1034,46 +773,6 @@ func (sy *Syncer) Status() (localChunks int, remoteChunks int, pendingImport int
 	}
 
 	return localChunks, remoteChunks, pendingImport, nil
-}
-
-func (sy *Syncer) ensureCloudPreflight(project string) error {
-	if !sy.cloudMode {
-		return nil
-	}
-
-	if sy.store == nil {
-		return fmt.Errorf("cloud sync blocked: store is required")
-	}
-
-	projectName := strings.TrimSpace(project)
-	if projectName == "" {
-		projectName = sy.project
-	}
-	projectName, _ = store.NormalizeProject(projectName)
-	if projectName == "" {
-		return fmt.Errorf("cloud sync requires an explicit --project scope; --all is not supported in cloud mode")
-	}
-
-	enrolled, err := sy.store.IsProjectEnrolled(projectName)
-	if err != nil {
-		return fmt.Errorf("cloud sync enrollment preflight: %w", err)
-	}
-	if enrolled {
-		return nil
-	}
-
-	message := fmt.Sprintf("project %q is not enrolled for cloud sync", projectName)
-	_ = sy.store.MarkSyncBlocked(cloudTargetKey(projectName), "blocked_unenrolled", message)
-	return fmt.Errorf("cloud sync blocked_unenrolled: %s", message)
-}
-
-func cloudTargetKey(project string) string {
-	project, _ = store.NormalizeProject(project)
-	project = strings.TrimSpace(project)
-	if project == "" {
-		return store.DefaultSyncTargetKey
-	}
-	return fmt.Sprintf("%s:%s", store.DefaultSyncTargetKey, project)
 }
 
 // ─── Manifest I/O ────────────────────────────────────────────────────────────
@@ -1265,163 +964,6 @@ func filterByProject(data *store.ExportData, project string) *store.ExportData {
 	}
 
 	return result
-}
-
-func (sy *Syncer) filterByPendingMutations(data *store.ExportData, project string) (*ChunkData, []int64, error) {
-	project, _ = store.NormalizeProject(project)
-	project = strings.TrimSpace(project)
-	if project == "" {
-		return &ChunkData{}, nil, nil
-	}
-
-	mutations, err := sy.listPendingMutationsForExport()
-	if err != nil {
-		return nil, nil, err
-	}
-	availableSessionIDs := make(map[string]struct{}, len(data.Sessions))
-	sessionProjectByID := make(map[string]string, len(data.Sessions))
-	availableObservationSyncIDs := make(map[string]struct{}, len(data.Observations))
-	availablePromptSyncIDs := make(map[string]struct{}, len(data.Prompts))
-	for _, session := range data.Sessions {
-		availableSessionIDs[session.ID] = struct{}{}
-		normalizedSessionProject, _ := store.NormalizeProject(session.Project)
-		sessionProjectByID[session.ID] = strings.TrimSpace(normalizedSessionProject)
-	}
-	for _, observation := range data.Observations {
-		availableObservationSyncIDs[observation.SyncID] = struct{}{}
-	}
-	for _, prompt := range data.Prompts {
-		availablePromptSyncIDs[prompt.SyncID] = struct{}{}
-	}
-
-	sessionKeys := make(map[string]struct{})
-	observationSyncIDs := make(map[string]struct{})
-	promptSyncIDs := make(map[string]struct{})
-	seqs := make([]int64, 0, len(mutations))
-	selectedMutations := make([]store.SyncMutation, 0, len(mutations))
-
-	for _, mutation := range mutations {
-		mutationProject := resolveMutationProject(mutation, sessionProjectByID)
-		if mutationProject != project {
-			if mutationProject != "" {
-				continue
-			}
-			switch mutation.Entity {
-			case store.SyncEntitySession:
-				if _, ok := availableSessionIDs[mutation.EntityKey]; !ok {
-					continue
-				}
-			case store.SyncEntityObservation:
-				if _, ok := availableObservationSyncIDs[mutation.EntityKey]; !ok {
-					continue
-				}
-			case store.SyncEntityPrompt:
-				if _, ok := availablePromptSyncIDs[mutation.EntityKey]; !ok {
-					continue
-				}
-			default:
-				continue
-			}
-		}
-		seqs = append(seqs, mutation.Seq)
-		selectedMutations = append(selectedMutations, mutation)
-		switch mutation.Entity {
-		case store.SyncEntitySession:
-			sessionKeys[mutation.EntityKey] = struct{}{}
-		case store.SyncEntityObservation:
-			observationSyncIDs[mutation.EntityKey] = struct{}{}
-		case store.SyncEntityPrompt:
-			promptSyncIDs[mutation.EntityKey] = struct{}{}
-		}
-	}
-
-	chunk := &ChunkData{}
-	if len(seqs) == 0 {
-		return chunk, nil, nil
-	}
-
-	referencedSessionIDs := make(map[string]struct{})
-	for _, observation := range data.Observations {
-		if _, ok := observationSyncIDs[observation.SyncID]; !ok {
-			continue
-		}
-		chunk.Observations = append(chunk.Observations, observation)
-		referencedSessionIDs[observation.SessionID] = struct{}{}
-	}
-
-	for _, prompt := range data.Prompts {
-		if _, ok := promptSyncIDs[prompt.SyncID]; !ok {
-			continue
-		}
-		chunk.Prompts = append(chunk.Prompts, prompt)
-		referencedSessionIDs[prompt.SessionID] = struct{}{}
-	}
-
-	for _, session := range data.Sessions {
-		if _, ok := sessionKeys[session.ID]; ok {
-			chunk.Sessions = append(chunk.Sessions, session)
-			continue
-		}
-		if _, ok := referencedSessionIDs[session.ID]; ok {
-			chunk.Sessions = append(chunk.Sessions, session)
-		}
-	}
-	chunk.Mutations = selectedMutations
-
-	return chunk, seqs, nil
-}
-
-func (sy *Syncer) listPendingMutationsForExport() ([]store.SyncMutation, error) {
-	const pageSize = 5000
-	afterSeq := int64(0)
-	mutations := make([]store.SyncMutation, 0, pageSize)
-
-	for {
-		batch, err := storeListMutationsAfterSeq(sy.store, store.DefaultSyncTargetKey, afterSeq, pageSize)
-		if err != nil {
-			return nil, err
-		}
-		if len(batch) == 0 {
-			break
-		}
-		mutations = append(mutations, batch...)
-		lastSeq := batch[len(batch)-1].Seq
-		if lastSeq <= afterSeq {
-			return nil, fmt.Errorf("pending mutation pagination did not advance (after_seq=%d, last_seq=%d)", afterSeq, lastSeq)
-		}
-		afterSeq = lastSeq
-		if len(batch) < pageSize {
-			break
-		}
-	}
-
-	return mutations, nil
-}
-
-func resolveMutationProject(mutation store.SyncMutation, sessionProjectByID map[string]string) string {
-	mutationProject, _ := store.NormalizeProject(mutation.Project)
-	mutationProject = strings.TrimSpace(mutationProject)
-	if mutationProject != "" {
-		return mutationProject
-	}
-
-	type payloadProject struct {
-		Project   *string `json:"project"`
-		SessionID string  `json:"session_id"`
-	}
-	var payload payloadProject
-	if err := decodeSyncPayloadForProject([]byte(mutation.Payload), &payload); err != nil {
-		return ""
-	}
-	if payload.Project != nil {
-		if normalized, _ := store.NormalizeProject(strings.TrimSpace(*payload.Project)); strings.TrimSpace(normalized) != "" {
-			return strings.TrimSpace(normalized)
-		}
-	}
-	if normalized, _ := store.NormalizeProject(strings.TrimSpace(sessionProjectByID[strings.TrimSpace(payload.SessionID)])); strings.TrimSpace(normalized) != "" {
-		return strings.TrimSpace(normalized)
-	}
-	return ""
 }
 
 func decodeSyncPayloadForProject(payload []byte, dest any) error {

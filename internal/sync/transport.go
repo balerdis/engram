@@ -12,7 +12,7 @@ var ErrChunkNotFound = errors.New("sync: chunk not found")
 
 // Transport defines how chunks are read and written during sync.
 // This is the abstraction that allows the same Syncer to work with
-// both local filesystem (.engram/ directory) and remote cloud server.
+// the local filesystem (.engram/ directory).
 type Transport interface {
 	// ReadManifest returns the manifest (chunk index).
 	// Returns an empty manifest if none exists yet.
@@ -23,12 +23,12 @@ type Transport interface {
 
 	// WriteChunk writes a compressed chunk to the transport.
 	// chunkID is the content-addressed ID (8 hex chars).
-	// data is the raw JSON bytes (FileTransport gzips them; remote sends as-is).
+	// data is the raw JSON bytes (FileTransport gzips them).
 	// entry contains metadata about the chunk.
 	WriteChunk(chunkID string, data []byte, entry ChunkEntry) error
 
 	// ReadChunk reads a compressed chunk from the transport.
-	// Returns the raw bytes (gzipped for FileTransport, JSON for remote).
+	// Returns the raw bytes (gzipped for FileTransport).
 	ReadChunk(chunkID string) ([]byte, error)
 }
 

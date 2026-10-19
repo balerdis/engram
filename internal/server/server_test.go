@@ -523,173 +523,6 @@ func TestExportRejectsExplicitBlankProjectQuery(t *testing.T) {
 	}
 }
 
-// ─── Sync Status Tests ───────────────────────────────────────────────────────
-
-// stubSyncStatusProvider is a fake SyncStatusProvider for tests.
-type stubSyncStatusProvider struct {
-	status      SyncStatus
-	lastProject string
-}
-
-func (s *stubSyncStatusProvider) Status(project string) SyncStatus {
-	s.lastProject = project
-	return s.status
-}
-
-func TestSyncStatusNotConfigured(t *testing.T) {
-	srv := New(newServerTestStore(t), 0)
-	// No sync status provider set — should return enabled: false.
-	req := httptest.NewRequest(http.MethodGet, "/sync/status", nil)
-	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rec.Code)
-	}
-
-	var resp map[string]any
-	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if resp["enabled"] != false {
-		t.Fatalf("expected enabled=false when no provider, got %v", resp["enabled"])
-	}
-}
-
-func TestSyncStatusHealthy(t *testing.T) {
-	now := time.Now()
-	provider := &stubSyncStatusProvider{
-		status: SyncStatus{
-			Enabled:    true,
-			Phase:      "healthy",
-			LastSyncAt: &now,
-		},
-	}
-
-	srv := New(newServerTestStore(t), 0)
-	srv.SetSyncStatus(provider)
-
-	req := httptest.NewRequest(http.MethodGet, "/sync/status", nil)
-	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rec.Code)
-	}
-
-	var resp map[string]any
-	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if resp["enabled"] != true {
-		t.Fatalf("expected enabled=true, got %v", resp["enabled"])
-	}
-	if resp["phase"] != "healthy" {
-		t.Fatalf("expected phase=healthy, got %v", resp["phase"])
-	}
-}
-
-func TestSyncStatusDegraded(t *testing.T) {
-	backoff := time.Now().Add(5 * time.Minute)
-	provider := &stubSyncStatusProvider{
-		status: SyncStatus{
-			Enabled:             true,
-			Phase:               "push_failed",
-			LastError:           "network timeout",
-			ConsecutiveFailures: 3,
-			BackoffUntil:        &backoff,
-		},
-	}
-
-	srv := New(newServerTestStore(t), 0)
-	srv.SetSyncStatus(provider)
-
-	req := httptest.NewRequest(http.MethodGet, "/sync/status", nil)
-	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rec.Code)
-	}
-
-	var resp map[string]any
-	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if resp["phase"] != "push_failed" {
-		t.Fatalf("expected phase=push_failed, got %v", resp["phase"])
-	}
-	if resp["last_error"] != "network timeout" {
-		t.Fatalf("expected last_error=network timeout, got %v", resp["last_error"])
-	}
-	if resp["consecutive_failures"] != float64(3) {
-		t.Fatalf("expected consecutive_failures=3, got %v", resp["consecutive_failures"])
-	}
-}
-
-func TestSyncStatusIncludesReasonParityFields(t *testing.T) {
-	provider := &stubSyncStatusProvider{
-		status: SyncStatus{
-			Enabled:              true,
-			Phase:                "degraded",
-			ReasonCode:           "auth_required",
-			ReasonMessage:        "cloud token expired",
-			UpgradeStage:         "bootstrap_pushed",
-			UpgradeReasonCode:    "upgrade_repair_backfill_sync_journal",
-			UpgradeReasonMessage: "repair pending",
-		},
-	}
-
-	srv := New(newServerTestStore(t), 0)
-	srv.SetSyncStatus(provider)
-
-	req := httptest.NewRequest(http.MethodGet, "/sync/status", nil)
-	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rec.Code)
-	}
-
-	var resp map[string]any
-	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if resp["reason_code"] != "auth_required" {
-		t.Fatalf("expected reason_code auth_required, got %v", resp["reason_code"])
-	}
-	if resp["reason_message"] != "cloud token expired" {
-		t.Fatalf("expected reason_message, got %v", resp["reason_message"])
-	}
-	upgradeRaw, ok := resp["upgrade"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected upgrade object in /sync/status response, got %#v", resp["upgrade"])
-	}
-	if upgradeRaw["stage"] != "bootstrap_pushed" {
-		t.Fatalf("expected upgrade stage bootstrap_pushed, got %v", upgradeRaw["stage"])
-	}
-	if upgradeRaw["reason_code"] != "upgrade_repair_backfill_sync_journal" {
-		t.Fatalf("expected upgrade reason_code parity, got %v", upgradeRaw["reason_code"])
-	}
-}
-
-func TestSyncStatusForwardsProjectQueryToProvider(t *testing.T) {
-	provider := &stubSyncStatusProvider{status: SyncStatus{Enabled: true, Phase: "healthy"}}
-	srv := New(newServerTestStore(t), 0)
-	srv.SetSyncStatus(provider)
-
-	req := httptest.NewRequest(http.MethodGet, "/sync/status?project=proj-a", nil)
-	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rec.Code)
-	}
-	if provider.lastProject != "proj-a" {
-		t.Fatalf("expected provider to receive project query, got %q", provider.lastProject)
-	}
-}
-
 // ─── OnWrite Notification Tests ──────────────────────────────────────────────
 
 func TestOnWriteCalledAfterSuccessfulWrites(t *testing.T) {
@@ -779,11 +612,6 @@ func TestOnWriteNotCalledOnReadOperations(t *testing.T) {
 	statsReq := httptest.NewRequest(http.MethodGet, "/stats", nil)
 	statsRec := httptest.NewRecorder()
 	h.ServeHTTP(statsRec, statsReq)
-
-	// GET /sync/status → read-only, no onWrite.
-	syncReq := httptest.NewRequest(http.MethodGet, "/sync/status", nil)
-	syncRec := httptest.NewRecorder()
-	h.ServeHTTP(syncRec, syncReq)
 
 	if writeCount.Load() != 0 {
 		t.Fatalf("expected 0 onWrite calls for read operations, got %d", writeCount.Load())
@@ -1002,44 +830,6 @@ func TestHandleDeletePrompt_BadID(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for invalid prompt id, got %d", rec.Code)
-	}
-}
-
-// ─── Phase E.1e — /sync/status exposes deferred + dead counts (REQ-007) ─────
-
-// TestSyncStatus_IncludesDeferredAndDeadCounts: 3 deferred + 1 dead →
-// /sync/status response must have deferred_count=3 and dead_count=1.
-func TestSyncStatus_IncludesDeferredAndDeadCounts(t *testing.T) {
-	provider := &stubSyncStatusProvider{
-		status: SyncStatus{
-			Enabled:       true,
-			Phase:         "healthy",
-			DeferredCount: 3,
-			DeadCount:     1,
-		},
-	}
-
-	srv := New(newServerTestStore(t), 0)
-	srv.SetSyncStatus(provider)
-
-	req := httptest.NewRequest(http.MethodGet, "/sync/status", nil)
-	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rec.Code)
-	}
-
-	var resp map[string]any
-	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-
-	if got := resp["deferred_count"]; got != float64(3) {
-		t.Errorf("expected deferred_count=3, got %v", got)
-	}
-	if got := resp["dead_count"]; got != float64(1) {
-		t.Errorf("expected dead_count=1, got %v", got)
 	}
 }
 
@@ -1925,8 +1715,8 @@ func TestG2_ListDeferred_StatusFilter(t *testing.T) {
 	}
 }
 
-// TestG2_ExistingRoutes_Unaffected verifies that pre-existing /sync/status and
-// /health routes are unaffected by the Phase 3 conflicts route additions.
+// TestG2_ExistingRoutes_Unaffected verifies that pre-existing /health and
+// /stats routes are unaffected by the Phase 3 conflicts route additions.
 func TestG2_ExistingRoutes_Unaffected(t *testing.T) {
 	st, _ := conflictsTestStore(t)
 	srv := New(st, 0)
@@ -1938,14 +1728,6 @@ func TestG2_ExistingRoutes_Unaffected(t *testing.T) {
 	h.ServeHTTP(healthRec, healthReq)
 	if healthRec.Code != http.StatusOK {
 		t.Errorf("expected /health 200 after Phase 3, got %d", healthRec.Code)
-	}
-
-	// GET /sync/status must still return 200.
-	syncReq := httptest.NewRequest(http.MethodGet, "/sync/status", nil)
-	syncRec := httptest.NewRecorder()
-	h.ServeHTTP(syncRec, syncReq)
-	if syncRec.Code != http.StatusOK {
-		t.Errorf("expected /sync/status 200 after Phase 3, got %d", syncRec.Code)
 	}
 
 	// GET /stats must still return 200.

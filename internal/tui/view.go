@@ -80,8 +80,6 @@ func (m Model) View() string {
 		content = m.viewSessionDetail()
 	case ScreenSetup:
 		content = m.viewSetup()
-	case ScreenCloudSettings:
-		content = m.viewCloudSettings()
 	default:
 		content = "Unknown screen"
 	}
@@ -165,17 +163,6 @@ func (m Model) viewDashboard() string {
 
 	// Help
 	b.WriteString(helpStyle.Render("\n  j/k navigate • enter select • s search • q quit"))
-
-	return b.String()
-}
-
-func (m Model) viewCloudSettings() string {
-	var b strings.Builder
-
-	b.WriteString(headerStyle.Render("  Cloud sync settings"))
-	b.WriteString("\n\n")
-	b.WriteString(renderMenu(cloudSettingsMenuItems, m.Cursor))
-	b.WriteString(helpStyle.Render("\n  j/k navigate • enter select • esc/q back"))
 
 	return b.String()
 }

@@ -29,30 +29,6 @@ var loadServerStats = func(s *store.Store) (*store.Stats, error) {
 	return s.Stats()
 }
 
-// SyncStatusProvider returns the current sync status. This is implemented
-// by autosync.Manager and injected from cmd/engram/main.go.
-type SyncStatusProvider interface {
-	Status(project string) SyncStatus
-}
-
-// SyncStatus mirrors autosync.Status to avoid a direct import cycle.
-type SyncStatus struct {
-	Enabled              bool       `json:"enabled"`
-	Phase                string     `json:"phase"`
-	LastError            string     `json:"last_error,omitempty"`
-	ConsecutiveFailures  int        `json:"consecutive_failures"`
-	BackoffUntil         *time.Time `json:"backoff_until,omitempty"`
-	LastSyncAt           *time.Time `json:"last_sync_at,omitempty"`
-	ReasonCode           string     `json:"reason_code,omitempty"`
-	ReasonMessage        string     `json:"reason_message,omitempty"`
-	UpgradeStage         string     `json:"upgrade_stage,omitempty"`
-	UpgradeReasonCode    string     `json:"upgrade_reason_code,omitempty"`
-	UpgradeReasonMessage string     `json:"upgrade_reason_message,omitempty"`
-	// Phase 2: deferred relation retry counts surfaced from sync_apply_deferred.
-	DeferredCount int `json:"deferred_count"`
-	DeadCount     int `json:"dead_count"`
-}
-
 // SemanticRunnerFactory is a function that resolves a store.SemanticRunner by name.
 // It is injected from cmd/engram/main.go so that internal/server does not depend on
 // internal/llm directly (preserving the import-cycle boundary).
@@ -63,13 +39,12 @@ type SemanticRunnerFactory func(name string) (store.SemanticRunner, error)
 type SemanticPromptBuilder func(a, b store.ObservationSnippet) string
 
 type Server struct {
-	store      *store.Store
-	mux        *http.ServeMux
-	port       int
-	listen     func(network, address string) (net.Listener, error)
-	serve      func(net.Listener, http.Handler) error
-	onWrite    func() // called after successful local writes (for autosync notification)
-	syncStatus SyncStatusProvider
+	store   *store.Store
+	mux     *http.ServeMux
+	port    int
+	listen  func(network, address string) (net.Listener, error)
+	serve   func(net.Listener, http.Handler) error
+	onWrite func() // called after successful local writes
 
 	// runnerFactory resolves a SemanticRunner by CLI name (read from ENGRAM_AGENT_CLI).
 	// When nil, semantic=true requests fail with 500.
@@ -87,14 +62,8 @@ func New(s *store.Store, port int) *Server {
 }
 
 // SetOnWrite configures a callback invoked after every successful local write.
-// This is used to notify autosync.Manager via NotifyDirty().
 func (s *Server) SetOnWrite(fn func()) {
 	s.onWrite = fn
-}
-
-// SetSyncStatus configures the sync status provider for the /sync/status endpoint.
-func (s *Server) SetSyncStatus(provider SyncStatusProvider) {
-	s.syncStatus = provider
 }
 
 // SetRunnerFactory configures the semantic runner factory used by POST /conflicts/scan
@@ -230,7 +199,6 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /projects/migrate", requireAuth(s.handleMigrateProject))
 
 	// Sync status (degraded-state visibility for autosync)
-	s.mux.HandleFunc("GET /sync/status", s.handleSyncStatus)
 
 	// Conflicts — CRITICAL ORDER: literals before wildcard (Go 1.22 mux panics on overlap)
 	s.mux.HandleFunc("GET /conflicts", s.handleListConflicts)
@@ -887,37 +855,6 @@ func (s *Server) handleCurrentProject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonResponse(w, http.StatusOK, payload)
-}
-
-// ─── Sync Status ─────────────────────────────────────────────────────────────
-
-func (s *Server) handleSyncStatus(w http.ResponseWriter, r *http.Request) {
-	if s.syncStatus == nil {
-		jsonResponse(w, http.StatusOK, map[string]any{
-			"enabled": false,
-			"message": "background sync is not configured",
-		})
-		return
-	}
-
-	status := s.syncStatus.Status(r.URL.Query().Get("project"))
-	jsonResponse(w, http.StatusOK, map[string]any{
-		"enabled":              status.Enabled,
-		"phase":                status.Phase,
-		"last_error":           status.LastError,
-		"consecutive_failures": status.ConsecutiveFailures,
-		"backoff_until":        status.BackoffUntil,
-		"last_sync_at":         status.LastSyncAt,
-		"reason_code":          status.ReasonCode,
-		"reason_message":       status.ReasonMessage,
-		"deferred_count":       status.DeferredCount,
-		"dead_count":           status.DeadCount,
-		"upgrade": map[string]any{
-			"stage":          status.UpgradeStage,
-			"reason_code":    status.UpgradeReasonCode,
-			"reason_message": status.UpgradeReasonMessage,
-		},
-	})
 }
 
 // ─── Project Migration ───────────────────────────────────────────────────────

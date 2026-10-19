@@ -86,11 +86,7 @@ func TestNewInitializesModelDefaults(t *testing.T) {
 	}
 }
 
-func TestScreenCloudSettingsConstant(t *testing.T) {
-	if ScreenCloudSettings != ScreenSetup+1 {
-		t.Fatalf("ScreenCloudSettings = %d, want %d (ScreenSetup+1)", ScreenCloudSettings, ScreenSetup+1)
-	}
-
+func TestScreenConstantsAreUnique(t *testing.T) {
 	seen := map[Screen]bool{}
 	for _, s := range []Screen{
 		ScreenDashboard,
@@ -102,7 +98,6 @@ func TestScreenCloudSettingsConstant(t *testing.T) {
 		ScreenSessions,
 		ScreenSessionDetail,
 		ScreenSetup,
-		ScreenCloudSettings,
 	} {
 		if seen[s] {
 			t.Fatalf("screen constant %d is duplicated", s)

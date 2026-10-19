@@ -34,7 +34,6 @@ var safeEndpoints = []authCase{
 	{http.MethodGet, "/observations/recent", ""},
 	{http.MethodGet, "/search?q=test", ""},
 	{http.MethodGet, "/stats", ""},
-	{http.MethodGet, "/sync/status", ""},
 }
 
 // TestOptionalAuth_NoToken verifies that when ENGRAM_HTTP_TOKEN is unset,

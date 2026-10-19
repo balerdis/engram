@@ -14,7 +14,6 @@ import (
 	"github.com/Gentleman-Programming/engram/internal/obsidian"
 	"github.com/Gentleman-Programming/engram/internal/setup"
 	"github.com/Gentleman-Programming/engram/internal/store"
-	engramsync "github.com/Gentleman-Programming/engram/internal/sync"
 	versioncheck "github.com/Gentleman-Programming/engram/internal/version"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
@@ -171,28 +170,8 @@ func TestPrintUsage(t *testing.T) {
 			t.Fatalf("usage missing setup agent %q: %q", agent, stdout)
 		}
 	}
-	if !strings.Contains(stdout, "cloud <subcommand>") {
-		t.Fatalf("usage missing cloud command tree: %q", stdout)
-	}
-	if !strings.Contains(stdout, "serve      Run cloud backend + dashboard") {
-		t.Fatalf("usage missing cloud serve command: %q", stdout)
-	}
-	if !strings.Contains(stdout, "Required for cloud serve in BOTH token auth and insecure no-auth mode") {
-		t.Fatalf("usage missing updated ENGRAM_CLOUD_ALLOWED_PROJECTS contract: %q", stdout)
-	}
-	for _, token := range []string{
-		"ENGRAM_DATABASE_URL",
-		"ENGRAM_CLOUD_HOST",
-		"ENGRAM_CLOUD_MAX_PUSH_BYTES",
-		"ENGRAM_CLOUD_TOKEN",
-		"ENGRAM_CLOUD_INSECURE_NO_AUTH",
-		"Cannot be combined with ENGRAM_CLOUD_TOKEN",
-		"Cannot be combined with ENGRAM_CLOUD_ADMIN",
-		"ENGRAM_CLOUD_ADMIN",
-	} {
-		if !strings.Contains(stdout, token) {
-			t.Fatalf("usage missing cloud serve env/runtime rule %q: %q", token, stdout)
-		}
+	if strings.Contains(strings.ToLower(stdout), "cloud") || strings.Contains(stdout, "/sync/status") {
+		t.Fatalf("usage must not mention the removed cloud feature: %q", stdout)
 	}
 }
 
@@ -377,73 +356,6 @@ func TestPrintPostInstallClaudeCodeAllowlist(t *testing.T) {
 			t.Fatalf("expected warning in stderr, got: %q", stderr)
 		}
 	})
-}
-
-func TestCmdSyncCloudRegressionPreservesLegacyBehaviorWithUpgradeStatePresent(t *testing.T) {
-	stubExitWithPanic(t)
-	stubRuntimeHooks(t)
-
-	originalSyncExport := syncExport
-	originalSyncStatus := syncStatus
-	t.Cleanup(func() {
-		syncExport = originalSyncExport
-		syncStatus = originalSyncStatus
-	})
-
-	cfg := testConfig(t)
-	t.Setenv("ENGRAM_CLOUD_SERVER", "https://cloud.example.test")
-	t.Setenv("ENGRAM_CLOUD_TOKEN", "token-abc")
-
-	s, err := store.New(cfg)
-	if err != nil {
-		t.Fatalf("store.New: %v", err)
-	}
-	if err := s.EnrollProject("proj-a"); err != nil {
-		_ = s.Close()
-		t.Fatalf("enroll project: %v", err)
-	}
-	if err := s.SaveCloudUpgradeState(store.CloudUpgradeState{
-		Project:          "proj-a",
-		Stage:            store.UpgradeStageDoctorBlocked,
-		RepairClass:      store.UpgradeRepairClassRepairable,
-		LastErrorCode:    "upgrade_repairable_unenrolled",
-		LastErrorMessage: "legacy metadata drift",
-	}); err != nil {
-		_ = s.Close()
-		t.Fatalf("seed upgrade state: %v", err)
-	}
-	if err := s.Close(); err != nil {
-		t.Fatalf("close store: %v", err)
-	}
-
-	syncExport = func(*engramsync.Syncer, string, string) (*engramsync.SyncResult, error) {
-		return &engramsync.SyncResult{ChunkID: "chunk-regression", SessionsExported: 1}, nil
-	}
-	syncStatus = func(*engramsync.Syncer) (int, int, int, error) {
-		return 1, 1, 0, nil
-	}
-
-	withArgs(t, "engram", "sync", "--cloud", "--project", "proj-a")
-	stdout, stderr, recovered := captureOutputAndRecover(t, func() { cmdSync(cfg) })
-	if recovered != nil || stderr != "" {
-		t.Fatalf("cloud sync regression path should stay successful, panic=%v stderr=%q", recovered, stderr)
-	}
-	if !strings.Contains(stdout, "Cloud sync complete for project \"proj-a\".") {
-		t.Fatalf("expected unchanged cloud sync success messaging, got %q", stdout)
-	}
-
-	s, err = store.New(cfg)
-	if err != nil {
-		t.Fatalf("store.New (verify): %v", err)
-	}
-	defer s.Close()
-	state, err := s.GetCloudUpgradeState("proj-a")
-	if err != nil {
-		t.Fatalf("load upgrade state: %v", err)
-	}
-	if state == nil || state.Stage != store.UpgradeStageDoctorBlocked {
-		t.Fatalf("sync --cloud must not mutate upgrade stage; got %+v", state)
-	}
 }
 
 func TestCmdSaveAndSearch(t *testing.T) {
@@ -749,9 +661,6 @@ func TestMainExitPaths(t *testing.T) {
 	}{
 		{name: "no args", helperCase: "no-args", expectedOutput: "Usage:", expectedExitOne: true},
 		{name: "unknown command", helperCase: "unknown", expectedOutput: "Usage:", expectedStderr: "unknown command:", expectedExitOne: true},
-		{name: "cloud missing subcommand", helperCase: "cloud-missing", expectedOutput: "usage: engram cloud", expectedExitOne: true},
-		{name: "cloud unknown subcommand", helperCase: "cloud-unknown", expectedOutput: "supported subcommands", expectedStderr: "unknown cloud command", expectedExitOne: true},
-		{name: "cloud enroll missing project", helperCase: "cloud-enroll-missing", expectedOutput: "usage: engram cloud enroll <project>", expectedExitOne: true},
 	}
 
 	for _, tc := range tests {
@@ -793,12 +702,6 @@ func TestMainExitHelper(t *testing.T) {
 		os.Args = []string{"engram"}
 	case "unknown":
 		os.Args = []string{"engram", "definitely-unknown-command"}
-	case "cloud-missing":
-		os.Args = []string{"engram", "cloud"}
-	case "cloud-unknown":
-		os.Args = []string{"engram", "cloud", "nope"}
-	case "cloud-enroll-missing":
-		os.Args = []string{"engram", "cloud", "enroll"}
 	default:
 		os.Args = []string{"engram", "--help"}
 	}
