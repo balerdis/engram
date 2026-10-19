@@ -66,9 +66,7 @@ func CheckLatest(current string) CheckResult {
 		return checkFailed("Could not check for updates: could not create the GitHub request.")
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	if token := githubToken(); token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
+	// Deliberately unauthenticated: no credential from the environment is ever sent.
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -170,17 +168,10 @@ func UpdateCheckDisabled() bool {
 	return false
 }
 
-func githubToken() string {
-	if token := strings.TrimSpace(os.Getenv("GH_TOKEN")); token != "" {
-		return token
-	}
-	return strings.TrimSpace(os.Getenv("GITHUB_TOKEN"))
-}
-
 func nonOKStatusMessage(status string) string {
 	msg := fmt.Sprintf("Could not check for updates: GitHub API returned %s.", status)
 	if strings.HasPrefix(status, "401") || strings.HasPrefix(status, "403") {
-		msg += " Set GH_TOKEN or GITHUB_TOKEN to reduce rate limits."
+		msg += " The unauthenticated rate limit may be exhausted; try again later or set ENGRAM_NO_UPDATE_CHECK=1."
 	}
 	return msg
 }

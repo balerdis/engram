@@ -126,7 +126,7 @@ func TestCheckLatest(t *testing.T) {
 		if result.Status != StatusCheckFailed {
 			t.Fatalf("status = %q, want %q", result.Status, StatusCheckFailed)
 		}
-		if !strings.Contains(result.Message, "403 Forbidden") || !strings.Contains(result.Message, "GH_TOKEN") {
+		if !strings.Contains(result.Message, "403 Forbidden") || !strings.Contains(result.Message, "ENGRAM_NO_UPDATE_CHECK") {
 			t.Fatalf("message = %q", result.Message)
 		}
 	})
@@ -179,51 +179,26 @@ func TestCheckLatest(t *testing.T) {
 	})
 }
 
-func TestCheckLatestUsesGitHubToken(t *testing.T) {
-	t.Run("prefers GH_TOKEN", func(t *testing.T) {
-		t.Setenv("GH_TOKEN", "gh-token")
-		t.Setenv("GITHUB_TOKEN", "github-token")
+func TestCheckLatestNeverSendsCredentials(t *testing.T) {
+	t.Setenv("GH_TOKEN", "gh-token")
+	t.Setenv("GITHUB_TOKEN", "github-token")
 
-		withCheckServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if got := r.Header.Get("Authorization"); got != "Bearer gh-token" {
-				t.Fatalf("authorization = %q", got)
-			}
-			if got := r.Header.Get("Accept"); got != "application/vnd.github+json" {
-				t.Fatalf("accept = %q", got)
-			}
-			_, _ = w.Write([]byte(`{"tag_name":"v1.10.7"}`))
-		}))
+	called := false
+	withCheckServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		if got := r.Header.Get("Authorization"); got != "" {
+			t.Fatalf("authorization = %q, want empty", got)
+		}
+		if got := r.Header.Get("Accept"); got != "application/vnd.github+json" {
+			t.Fatalf("accept = %q", got)
+		}
+		_, _ = w.Write([]byte(`{"tag_name":"v1.10.7"}`))
+	}))
 
-		_ = CheckLatest("1.10.7")
-	})
-
-	t.Run("falls back to GITHUB_TOKEN", func(t *testing.T) {
-		t.Setenv("GH_TOKEN", "")
-		t.Setenv("GITHUB_TOKEN", "github-token")
-
-		withCheckServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if got := r.Header.Get("Authorization"); got != "Bearer github-token" {
-				t.Fatalf("authorization = %q", got)
-			}
-			_, _ = w.Write([]byte(`{"tag_name":"v1.10.7"}`))
-		}))
-
-		_ = CheckLatest("1.10.7")
-	})
-
-	t.Run("omits authorization header without token", func(t *testing.T) {
-		t.Setenv("GH_TOKEN", "")
-		t.Setenv("GITHUB_TOKEN", "")
-
-		withCheckServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if got := r.Header.Get("Authorization"); got != "" {
-				t.Fatalf("authorization = %q, want empty", got)
-			}
-			_, _ = w.Write([]byte(`{"tag_name":"v1.10.7"}`))
-		}))
-
-		_ = CheckLatest("1.10.7")
-	})
+	_ = CheckLatest("1.10.7")
+	if !called {
+		t.Fatal("the check never reached the server")
+	}
 }
 
 func TestUpdateInstructions(t *testing.T) {
@@ -254,7 +229,7 @@ func withCheckTimeout(t *testing.T, timeout time.Duration) {
 }
 
 func TestNonOKStatusMessage(t *testing.T) {
-	if got := nonOKStatusMessage(fmt.Sprintf("%d %s", http.StatusUnauthorized, http.StatusText(http.StatusUnauthorized))); !strings.Contains(got, "GH_TOKEN") {
+	if got := nonOKStatusMessage(fmt.Sprintf("%d %s", http.StatusUnauthorized, http.StatusText(http.StatusUnauthorized))); !strings.Contains(got, "ENGRAM_NO_UPDATE_CHECK") {
 		t.Fatalf("message = %q", got)
 	}
 }
