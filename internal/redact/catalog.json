@@ -1,0 +1,147 @@
+{
+  "schema": "pegasus/credential-transport-catalog/v1",
+  "about": "CLI-agnostic catalog of what counts as a credential value worth substituting before it reaches a model, a brief, a command, session history or memory. Detection is by CONTEXT (a value next to a sensitive key name, an auth header, a URL password, a known token shape) or by the explicit <private> fallback -- never by \"looks random\": a bare hash or a UUID is never flagged on its own, because commits and checksums are pasted constantly and must survive untouched. Every regex is anchored so it only fires on the shape it names; every consumer (an adapter plugin, a test) reads this file rather than retyping the patterns.",
+  "min_value_length": 8,
+  "max_detect_bytes": 262144,
+  "placeholder_patterns": [
+    "^\\$PEGASUS_SECRET_[A-Z0-9_]+$",
+    "^\\$\\{[^}]*\\}$",
+    "^<[^>]*>$",
+    "^\\*{3,}$",
+    "^\\[REDACTED\\]$"
+  ],
+  "never_detected": [
+    "a bare 40-hex string (a git commit hash)",
+    "a bare 64-hex string (a sha256 digest)",
+    "a UUID",
+    "a plain number"
+  ],
+  "key_context": {
+    "keys": [
+      "token",
+      "access_token",
+      "refresh_token",
+      "id_token",
+      "auth_token",
+      "api_key",
+      "apikey",
+      "secret",
+      "client_secret",
+      "clientkey",
+      "client_key",
+      "password",
+      "passwd",
+      "pwd",
+      "private_key",
+      "signature"
+    ],
+    "min_value_length": 4,
+    "forms": [
+      "\"{key}\"\\s*:\\s*\"({quoted_value})\"",
+      "\\b{key}\\s*[:=]\\s*\"({quoted_value})\"",
+      "\\b{key}\\s*[:=]\\s*'({quoted_value})'",
+      "\\b{key}\\s*[:=]\\s*({unquoted_value})"
+    ],
+    "unquoted_value_pattern": "[^\\s\"'{}\\[\\],;:&?]{4,}",
+    "filler_skip_values": [
+      "null",
+      "none",
+      "nil",
+      "true",
+      "false",
+      "undefined",
+      "empty",
+      "xxx",
+      "xxxx",
+      "todo",
+      "changeme",
+      "placeholder",
+      "redacted",
+      "secret"
+    ],
+    "filler_skip_patterns": [
+      "^\\*+$"
+    ],
+    "skip_unquoted_if": [
+      {
+        "name": "function_call",
+        "pattern": "^[A-Za-z_$][A-Za-z0-9_$]*\\s*\\([\\s\\S]*\\)$",
+        "note": "a value shaped like `getToken()` is a call, not a credential -- pasted code must survive."
+      },
+      {
+        "name": "dotted_path",
+        "pattern": "^[A-Za-z_$][A-Za-z0-9_$]*(?:\\.[A-Za-z_$][A-Za-z0-9_$]*)+$",
+        "note": "`process.env.X`, `this.token`, `config.db.password` -- a reference, not a value."
+      },
+      {
+        "name": "shell_or_template_var",
+        "pattern": "^[$%]",
+        "note": "`$VAR`, `${VAR}`, `%(name)s` -- an interpolation placeholder, not a literal value."
+      },
+      {
+        "name": "bare_identifier_no_digit",
+        "pattern": "^[A-Za-z_$][A-Za-z_$]*$",
+        "note": "an identifier with no digit at all (`accessToken`, `password`) reads as another variable name, not a literal secret. Deliberate accepted false negative: `DB_PASSWORD=secretpass` is NOT detected this way -- only `<private>` catches it. A value with at least one digit (`s3cr3tP4ss`) is not identifier-shaped under this pattern (digits are excluded from its character class) and is still detected."
+      }
+    ]
+  },
+  "headers": {
+    "authorization": {
+      "header_names": ["authorization"],
+      "schemes": ["Bearer", "Basic"],
+      "name": "authorization"
+    },
+    "api_key_header": {
+      "header_names": ["x-api-key", "api-key"],
+      "name": "api_key"
+    },
+    "sensitive_suffix_header": {
+      "header_name_suffixes": ["-signature", "-token", "-key", "-secret"],
+      "derive_name_from_header": true,
+      "allow_trailing_digit_segment": true,
+      "note": "Any header whose NAME ends in one of these suffixes, whatever it is called -- X-Aco-Joven-Signature, X-Auth-Token, X-Client-Key, X-Hub-Signature -- or in one of them followed by exactly one -<digits> segment (`allow_trailing_digit_segment`), the real shape of GitHub's own webhook-signature header, X-Hub-Signature-256 (and, generalized, X-Signature-512). The variable name derives from the header name itself, not a fixed rule name. X-Signature-Version and X-Api-Key-Version do not match: they end in -Version, not in -Signature/-Key or -Signature/-Key plus digits."
+    }
+  },
+  "url_credentials": {
+    "pattern": "(?<![A-Za-z0-9+.-])[a-zA-Z][a-zA-Z0-9+.-]*://[^\\s/@:]+:([^\\s/@]{8,})@",
+    "name": "url_password",
+    "note": "The leading lookbehind anchors where a match may START: without it, a long run of scheme-class characters with no `://` anywhere (no scheme at all) makes the engine retry the same expensive backtrack at every position in the run -- O(n^2) on a large paste. Anchoring means that backtrack happens at most once per run, not once per character in it."
+  },
+  "known_formats": [
+    {
+      "name": "openai_key",
+      "pattern": "sk-[A-Za-z0-9]{20,}"
+    },
+    {
+      "name": "github_token",
+      "pattern": "(?:ghp|gho|ghu|ghs)_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}"
+    },
+    {
+      "name": "aws_access_key",
+      "pattern": "AKIA[0-9A-Z]{16}"
+    },
+    {
+      "name": "slack_token",
+      "pattern": "xox[abprs]-[A-Za-z0-9-]{10,}"
+    },
+    {
+      "name": "jwt",
+      "pattern": "eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+"
+    },
+    {
+      "name": "private_key_block",
+      "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY-----[\\s\\S]+?-----END [A-Z ]*PRIVATE KEY-----",
+      "whole_block": true
+    }
+  ],
+  "explicit": {
+    "named": {
+      "pattern": "<private>([A-Za-z0-9_]+)=([\\s\\S]*?)</private>",
+      "note": "captures NAME and value; NAME is used verbatim (normalized)"
+    },
+    "bare": {
+      "pattern": "<private>([\\s\\S]*?)</private>",
+      "name": "private"
+    }
+  }
+}

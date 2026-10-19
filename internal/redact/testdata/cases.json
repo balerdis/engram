@@ -1,0 +1,1190 @@
+{
+ "about": "Golden cases produced by running the Pegasus redactor (engram-hook.py cut_to_detect_cap + redact) with _token -> [REDACTED:NAME] and one extra placeholder pattern ^\\[REDACTED:[A-Z0-9_]+\\]$. All values are synthetic.",
+ "cases": [
+  {
+   "name": "never_git_sha1",
+   "input": "commit a1b2c3d4e5a1b2c3d4e5a1b2c3d4e5a1b2c3d4e5 fixed it",
+   "expected": "commit a1b2c3d4e5a1b2c3d4e5a1b2c3d4e5a1b2c3d4e5 fixed it"
+  },
+  {
+   "name": "never_sha256",
+   "input": "sha256: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+   "expected": "sha256: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  },
+  {
+   "name": "never_uuid",
+   "input": "id 123e4567-e89b-12d3-a456-426614174000 done",
+   "expected": "id 123e4567-e89b-12d3-a456-426614174000 done"
+  },
+  {
+   "name": "never_plain_number",
+   "input": "pid 1234567890123 port 8080",
+   "expected": "pid 1234567890123 port 8080"
+  },
+  {
+   "name": "never_plain_text",
+   "input": "just a normal sentence about tokens and passwords, nothing else.",
+   "expected": "just a normal sentence about tokens and passwords, nothing else."
+  },
+  {
+   "name": "empty",
+   "input": "",
+   "expected": ""
+  },
+  {
+   "name": "never_hash_after_key_like_word",
+   "input": "digest of the token list is fine",
+   "expected": "digest of the token list is fine"
+  },
+  {
+   "name": "known_openai",
+   "input": "key sk-F4K3F4K3F4K3F4K3F4K3F4K3F4K3 end",
+   "expected": "key [REDACTED:OPENAI_KEY] end"
+  },
+  {
+   "name": "known_openai_too_short",
+   "input": "key sk-F4K3F4K3F4 end",
+   "expected": "key sk-F4K3F4K3F4 end"
+  },
+  {
+   "name": "known_github_ghp",
+   "input": "use ghp_F4K3F4K3F4K3F4K3F4K3F4K3F4K3F4 now",
+   "expected": "use [REDACTED:GITHUB_TOKEN] now"
+  },
+  {
+   "name": "known_github_gho",
+   "input": "use gho_F4K3F4K3F4K3F4K3F4K3F4K3 now",
+   "expected": "use [REDACTED:GITHUB_TOKEN] now"
+  },
+  {
+   "name": "known_github_pat",
+   "input": "use github_pat_F4K3_F4K3_F4K3_F4K3_F4K3_F4K3_ now",
+   "expected": "use [REDACTED:GITHUB_TOKEN] now"
+  },
+  {
+   "name": "known_aws",
+   "input": "id AKIAFAKEFAKEFAKE1234 tail",
+   "expected": "id [REDACTED:AWS_ACCESS_KEY] tail"
+  },
+  {
+   "name": "known_aws_wrong_length",
+   "input": "id AKIAFAKEFAKE tail",
+   "expected": "id AKIAFAKEFAKE tail"
+  },
+  {
+   "name": "known_slack",
+   "input": "tok xoxb-1234567890-FAKEFAKE end",
+   "expected": "tok [REDACTED:SLACK_TOKEN] end"
+  },
+  {
+   "name": "known_jwt",
+   "input": "jwt eyJFAKEhdr.eyJFAKEpay.FAKEsig_-x end",
+   "expected": "jwt [REDACTED:JWT] end"
+  },
+  {
+   "name": "known_private_key_block",
+   "input": "before\n-----BEGIN RSA PRIVATE KEY-----\nFAKEFAKEFAKEFAKE\nFAKEFAKE\n-----END RSA PRIVATE KEY-----\nafter",
+   "expected": "before\n[REDACTED:PRIVATE_KEY_BLOCK]\nafter"
+  },
+  {
+   "name": "known_private_key_block_plain",
+   "input": "-----BEGIN PRIVATE KEY-----\nFAKE\nFAKEFAKE\n-----END PRIVATE KEY-----",
+   "expected": "[REDACTED:PRIVATE_KEY_BLOCK]"
+  },
+  {
+   "name": "known_private_key_unclosed",
+   "input": "-----BEGIN PRIVATE KEY-----\nFAKEFAKEFAKE no end",
+   "expected": "-----BEGIN PRIVATE KEY-----\nFAKEFAKEFAKE no end"
+  },
+  {
+   "name": "known_repeated_same_value",
+   "input": "a sk-F4K3F4K3F4K3F4K3F4K3F4K3 b sk-F4K3F4K3F4K3F4K3F4K3F4K3 c",
+   "expected": "a [REDACTED:OPENAI_KEY] b [REDACTED:OPENAI_KEY] c"
+  },
+  {
+   "name": "known_two_distinct_same_name",
+   "input": "a sk-F4K3F4K3F4K3F4K3F4K3F4K3 b sk-N0PEN0PEN0PEN0PEN0PEN0PE c",
+   "expected": "a [REDACTED:OPENAI_KEY] b [REDACTED:OPENAI_KEY_2] c"
+  },
+  {
+   "name": "kc_json_double",
+   "input": "{\"password\": \"FakePass123\", \"user\": \"bob\"}",
+   "expected": "{\"password\": \"[REDACTED:PASSWORD]\", \"user\": \"bob\"}"
+  },
+  {
+   "name": "kc_json_no_space",
+   "input": "{\"api_key\":\"FAKE-api-key-1\"}",
+   "expected": "{\"api_key\":\"[REDACTED:API_KEY]\"}"
+  },
+  {
+   "name": "kc_json_access_token",
+   "input": "{\"access_token\": \"fake-access-token-9\"}",
+   "expected": "{\"access_token\": \"[REDACTED:ACCESS_TOKEN]\"}"
+  },
+  {
+   "name": "kc_json_short_value",
+   "input": "{\"token\": \"abc\"}",
+   "expected": "{\"token\": \"abc\"}"
+  },
+  {
+   "name": "kc_json_min_len_4",
+   "input": "{\"token\": \"abcd\"}",
+   "expected": "{\"token\": \"[REDACTED:TOKEN]\"}"
+  },
+  {
+   "name": "kc_json_other_key",
+   "input": "{\"username\": \"fakeusername123\"}",
+   "expected": "{\"username\": \"fakeusername123\"}"
+  },
+  {
+   "name": "kc_json_compound_key",
+   "input": "{\"db-password\": \"fakepassword123\", \"x_api_key\": \"fake-key-value\"}",
+   "expected": "{\"db-password\": \"[REDACTED:DB_PASSWORD]\", \"x_api_key\": \"[REDACTED:X_API_KEY]\"}"
+  },
+  {
+   "name": "kc_json_nested",
+   "input": "{\"auth\": {\"client_secret\": \"fake-client-secret-1\"}, \"n\": 1}",
+   "expected": "{\"auth\": {\"client_secret\": \"[REDACTED:CLIENT_SECRET]\"}, \"n\": 1}"
+  },
+  {
+   "name": "kc_dq_equals",
+   "input": "password=\"FakePass123\"",
+   "expected": "password=\"[REDACTED:PASSWORD]\""
+  },
+  {
+   "name": "kc_dq_colon",
+   "input": "token: \"fake-token-value1\"",
+   "expected": "token: \"[REDACTED:TOKEN]\""
+  },
+  {
+   "name": "kc_sq_equals",
+   "input": "secret='fake-secret-val1'",
+   "expected": "secret='[REDACTED:SECRET]'"
+  },
+  {
+   "name": "kc_sq_colon",
+   "input": "api_key: 'fake-api-key-12'",
+   "expected": "api_key: '[REDACTED:API_KEY]'"
+  },
+  {
+   "name": "kc_quoted_with_spaces",
+   "input": "password=\"a fake pass phrase 1\"",
+   "expected": "password=\"[REDACTED:PASSWORD]\""
+  },
+  {
+   "name": "kc_unquoted_equals",
+   "input": "password=FakePass123 next",
+   "expected": "password=[REDACTED:PASSWORD] next"
+  },
+  {
+   "name": "kc_unquoted_colon",
+   "input": "token: fake-token-value1",
+   "expected": "token: [REDACTED:TOKEN]"
+  },
+  {
+   "name": "kc_unquoted_env_style",
+   "input": "export API_KEY=fake-api-key-12",
+   "expected": "export API_KEY=[REDACTED:API_KEY]"
+  },
+  {
+   "name": "kc_unquoted_url_query",
+   "input": "https://example.test/cb?token=fake-token-1234&x=1",
+   "expected": "https://example.test/cb?token=[REDACTED:TOKEN]&x=1"
+  },
+  {
+   "name": "kc_unquoted_min_len_4",
+   "input": "token=abcd and more",
+   "expected": "token=abcd and more"
+  },
+  {
+   "name": "kc_unquoted_below_min",
+   "input": "token=abc and more",
+   "expected": "token=abc and more"
+  },
+  {
+   "name": "kc_unquoted_value_class_stop",
+   "input": "password=fake1234,rest",
+   "expected": "password=[REDACTED:PASSWORD],rest"
+  },
+  {
+   "name": "kc_case_insensitive_key",
+   "input": "PASSWORD=FakePass123 Token=fake-token-12",
+   "expected": "PASSWORD=[REDACTED:PASSWORD] Token=[REDACTED:TOKEN]"
+  },
+  {
+   "name": "kc_camel_key_not_matched",
+   "input": "accessToken=fake-token-1234",
+   "expected": "accessToken=[REDACTED:ACCESSTOKEN]"
+  },
+  {
+   "name": "kc_snake_prefixed",
+   "input": "my_refresh_token=fake-refresh-1234",
+   "expected": "my_refresh_token=[REDACTED:MY_REFRESH_TOKEN]"
+  },
+  {
+   "name": "kc_private_key_name",
+   "input": "private_key=fake-private-key-1",
+   "expected": "private_key=[REDACTED:PRIVATE_KEY]"
+  },
+  {
+   "name": "kc_signature_name",
+   "input": "signature=fake-signature-12",
+   "expected": "signature=[REDACTED:SIGNATURE]"
+  },
+  {
+   "name": "kc_pwd",
+   "input": "pwd=fake-pwd-12345",
+   "expected": "pwd=[REDACTED:PWD]"
+  },
+  {
+   "name": "kc_ws_around_sep",
+   "input": "password   =   FakePass123",
+   "expected": "password   =   [REDACTED:PASSWORD]"
+  },
+  {
+   "name": "kc_two_same_key_different_values",
+   "input": "password=FakePass111 password=FakePass222",
+   "expected": "password=[REDACTED:PASSWORD] password=[REDACTED:PASSWORD_2]"
+  },
+  {
+   "name": "kc_two_same_key_same_value",
+   "input": "password=FakePass111 password=FakePass111",
+   "expected": "password=[REDACTED:PASSWORD] password=[REDACTED:PASSWORD]"
+  },
+  {
+   "name": "kc_key_prefix_char_blocks",
+   "input": "xx-token=fake-token-1234 +token=fake-token-5678",
+   "expected": "xx-token=[REDACTED:XX_TOKEN] +token=[REDACTED:TOKEN]"
+  },
+  {
+   "name": "kc_dollar_prefix_blocks",
+   "input": "$token=fake-token-1234",
+   "expected": "$token=fake-token-1234"
+  },
+  {
+   "name": "kc_quoted_consumes_inner",
+   "input": "x=\"aaaa token='fake-token-1234' cc\"",
+   "expected": "x=\"aaaa token='fake-token-1234' cc\""
+  },
+  {
+   "name": "kc_multibyte_value",
+   "input": "password=contraseña-falsa-12",
+   "expected": "password=[REDACTED:PASSWORD]"
+  },
+  {
+   "name": "kc_multibyte_before",
+   "input": "aquí está la clave: password=FakePass123 ñandú",
+   "expected": "aquí está la clave: password=[REDACTED:PASSWORD] ñandú"
+  },
+  {
+   "name": "kc_cjk_text",
+   "input": "日本語のテキスト token=fake-token-1234 続き",
+   "expected": "日本語のテキスト token=[REDACTED:TOKEN] 続き"
+  },
+  {
+   "name": "kc_nbsp_separator",
+   "input": "password= FakePass123",
+   "expected": "password= [REDACTED:PASSWORD]"
+  },
+  {
+   "name": "kc_value_is_key_word",
+   "input": "token=token",
+   "expected": "token=token"
+  },
+  {
+   "name": "filler_unquoted_null",
+   "input": "password=null next",
+   "expected": "password=null next"
+  },
+  {
+   "name": "filler_json_null",
+   "input": "{\"password\": \"null\"}",
+   "expected": "{\"password\": \"null\"}"
+  },
+  {
+   "name": "filler_unquoted_none",
+   "input": "password=none next",
+   "expected": "password=none next"
+  },
+  {
+   "name": "filler_json_none",
+   "input": "{\"password\": \"none\"}",
+   "expected": "{\"password\": \"none\"}"
+  },
+  {
+   "name": "filler_unquoted_nil",
+   "input": "password=nil next",
+   "expected": "password=nil next"
+  },
+  {
+   "name": "filler_json_nil",
+   "input": "{\"password\": \"nil\"}",
+   "expected": "{\"password\": \"nil\"}"
+  },
+  {
+   "name": "filler_unquoted_true",
+   "input": "password=true next",
+   "expected": "password=true next"
+  },
+  {
+   "name": "filler_json_true",
+   "input": "{\"password\": \"true\"}",
+   "expected": "{\"password\": \"true\"}"
+  },
+  {
+   "name": "filler_unquoted_false",
+   "input": "password=false next",
+   "expected": "password=false next"
+  },
+  {
+   "name": "filler_json_false",
+   "input": "{\"password\": \"false\"}",
+   "expected": "{\"password\": \"false\"}"
+  },
+  {
+   "name": "filler_unquoted_undefined",
+   "input": "password=undefined next",
+   "expected": "password=undefined next"
+  },
+  {
+   "name": "filler_json_undefined",
+   "input": "{\"password\": \"undefined\"}",
+   "expected": "{\"password\": \"undefined\"}"
+  },
+  {
+   "name": "filler_unquoted_empty",
+   "input": "password=empty next",
+   "expected": "password=empty next"
+  },
+  {
+   "name": "filler_json_empty",
+   "input": "{\"password\": \"empty\"}",
+   "expected": "{\"password\": \"empty\"}"
+  },
+  {
+   "name": "filler_unquoted_xxxx",
+   "input": "password=xxxx next",
+   "expected": "password=xxxx next"
+  },
+  {
+   "name": "filler_json_xxxx",
+   "input": "{\"password\": \"xxxx\"}",
+   "expected": "{\"password\": \"xxxx\"}"
+  },
+  {
+   "name": "filler_unquoted_todo",
+   "input": "password=todo next",
+   "expected": "password=todo next"
+  },
+  {
+   "name": "filler_json_todo",
+   "input": "{\"password\": \"todo\"}",
+   "expected": "{\"password\": \"todo\"}"
+  },
+  {
+   "name": "filler_unquoted_changeme",
+   "input": "password=changeme next",
+   "expected": "password=changeme next"
+  },
+  {
+   "name": "filler_json_changeme",
+   "input": "{\"password\": \"changeme\"}",
+   "expected": "{\"password\": \"changeme\"}"
+  },
+  {
+   "name": "filler_unquoted_placeholder",
+   "input": "password=placeholder next",
+   "expected": "password=placeholder next"
+  },
+  {
+   "name": "filler_json_placeholder",
+   "input": "{\"password\": \"placeholder\"}",
+   "expected": "{\"password\": \"placeholder\"}"
+  },
+  {
+   "name": "filler_unquoted_redacted",
+   "input": "password=redacted next",
+   "expected": "password=redacted next"
+  },
+  {
+   "name": "filler_json_redacted",
+   "input": "{\"password\": \"redacted\"}",
+   "expected": "{\"password\": \"redacted\"}"
+  },
+  {
+   "name": "filler_unquoted_secret",
+   "input": "password=secret next",
+   "expected": "password=secret next"
+  },
+  {
+   "name": "filler_json_secret",
+   "input": "{\"password\": \"secret\"}",
+   "expected": "{\"password\": \"secret\"}"
+  },
+  {
+   "name": "filler_unquoted_NULL",
+   "input": "password=NULL next",
+   "expected": "password=NULL next"
+  },
+  {
+   "name": "filler_json_NULL",
+   "input": "{\"password\": \"NULL\"}",
+   "expected": "{\"password\": \"NULL\"}"
+  },
+  {
+   "name": "filler_unquoted_Changeme",
+   "input": "password=Changeme next",
+   "expected": "password=Changeme next"
+  },
+  {
+   "name": "filler_json_Changeme",
+   "input": "{\"password\": \"Changeme\"}",
+   "expected": "{\"password\": \"Changeme\"}"
+  },
+  {
+   "name": "filler_unquoted_starstarstarstarstarstarstarstar",
+   "input": "password=******** next",
+   "expected": "password=******** next"
+  },
+  {
+   "name": "filler_json_starstarstarstarstarstarstarstar",
+   "input": "{\"password\": \"********\"}",
+   "expected": "{\"password\": \"********\"}"
+  },
+  {
+   "name": "filler_quoted_sq",
+   "input": "token='changeme'",
+   "expected": "token='changeme'"
+  },
+  {
+   "name": "placeholder_pegasus_secret",
+   "input": "token=$PEGASUS_SECRET_TOKEN and password: $PEGASUS_SECRET_PASSWORD",
+   "expected": "token=$PEGASUS_SECRET_TOKEN and password: $PEGASUS_SECRET_PASSWORD"
+  },
+  {
+   "name": "placeholder_json_pegasus",
+   "input": "{\"api_key\": \"$PEGASUS_SECRET_API_KEY\"}",
+   "expected": "{\"api_key\": \"$PEGASUS_SECRET_API_KEY\"}"
+  },
+  {
+   "name": "placeholder_braces",
+   "input": "password=\"${DB_PASSWORD}\" token=\"${TOKEN_VALUE}\"",
+   "expected": "password=\"${DB_PASSWORD}\" token=\"${TOKEN_VALUE}\""
+  },
+  {
+   "name": "placeholder_angle",
+   "input": "password=\"<your-password>\" api_key: \"<api-key-here>\"",
+   "expected": "password=\"<your-password>\" api_key: \"<api-key-here>\""
+  },
+  {
+   "name": "placeholder_stars",
+   "input": "password=\"********\" token=\"***\"",
+   "expected": "password=\"********\" token=\"***\""
+  },
+  {
+   "name": "placeholder_redacted_literal",
+   "input": "password=\"[REDACTED]\"",
+   "expected": "password=\"[REDACTED]\""
+  },
+  {
+   "name": "placeholder_engram_token_json",
+   "input": "{\"password\": \"[REDACTED:PASSWORD]\"}",
+   "expected": "{\"password\": \"[REDACTED:PASSWORD]\"}"
+  },
+  {
+   "name": "placeholder_engram_token_unquoted",
+   "input": "password=[REDACTED:PASSWORD]",
+   "expected": "password=[REDACTED:PASSWORD]"
+  },
+  {
+   "name": "placeholder_engram_token_quoted",
+   "input": "token: '[REDACTED:TOKEN]'",
+   "expected": "token: '[REDACTED:TOKEN]'"
+  },
+  {
+   "name": "placeholder_engram_token_header",
+   "input": "Authorization: Bearer [REDACTED:AUTHORIZATION]",
+   "expected": "Authorization: Bearer [REDACTED:AUTHORIZATION]"
+  },
+  {
+   "name": "placeholder_engram_token_url",
+   "input": "postgres://user:[REDACTED:URL_PASSWORD]@host/db",
+   "expected": "postgres://user:[REDACTED:URL_PASSWORD]@host/db"
+  },
+  {
+   "name": "placeholder_engram_token_known",
+   "input": "key [REDACTED:OPENAI_KEY] end",
+   "expected": "key [REDACTED:OPENAI_KEY] end"
+  },
+  {
+   "name": "skip_function_call",
+   "input": "token=getToken() and password=read_password(\"x\")",
+   "expected": "token=getToken() and password=[REDACTED:PASSWORD]\"x\")"
+  },
+  {
+   "name": "skip_function_call_spaced",
+   "input": "secret=loadSecret ()",
+   "expected": "secret=loadSecret ()"
+  },
+  {
+   "name": "skip_dotted_path",
+   "input": "token=process.env.API_TOKEN password=config.db.password this.token",
+   "expected": "token=process.env.API_TOKEN password=config.db.password this.token"
+  },
+  {
+   "name": "skip_dotted_path_assign",
+   "input": "const token = this.token;",
+   "expected": "const token = this.token;"
+  },
+  {
+   "name": "skip_shell_var",
+   "input": "token=$MY_TOKEN password=${DB_PASSWORD} api_key=%(api_key)s",
+   "expected": "token=$MY_TOKEN password=${DB_PASSWORD} api_key=%(api_key)s"
+  },
+  {
+   "name": "skip_bare_identifier",
+   "input": "token=accessToken password=password secret=clientSecret",
+   "expected": "token=accessToken password=password secret=clientSecret"
+  },
+  {
+   "name": "skip_bare_identifier_colon",
+   "input": "token: accessToken",
+   "expected": "token: accessToken"
+  },
+  {
+   "name": "skip_identifier_with_digit_detected",
+   "input": "password=s3cr3tP4ss",
+   "expected": "password=[REDACTED:PASSWORD]"
+  },
+  {
+   "name": "skip_db_password_accepted_false_negative",
+   "input": "DB_PASSWORD=secretpass",
+   "expected": "DB_PASSWORD=secretpass"
+  },
+  {
+   "name": "skip_identifier_with_underscore",
+   "input": "token=my_token_variable",
+   "expected": "token=my_token_variable"
+  },
+  {
+   "name": "skip_not_applied_to_quoted",
+   "input": "token=\"getToken()\"",
+   "expected": "token=\"[REDACTED:TOKEN]\""
+  },
+  {
+   "name": "skip_not_applied_to_quoted_dotted",
+   "input": "token=\"process.env.X1\"",
+   "expected": "token=\"[REDACTED:TOKEN]\""
+  },
+  {
+   "name": "skip_call_with_digits_in_args",
+   "input": "token=fn(1234)",
+   "expected": "token=fn(1234)"
+  },
+  {
+   "name": "skip_after_rejected_key_scan",
+   "input": "token=$A password=FakePass123",
+   "expected": "token=$A password=[REDACTED:PASSWORD]"
+  },
+  {
+   "name": "hdr_authorization_bearer",
+   "input": "Authorization: Bearer fake-bearer-token-123",
+   "expected": "Authorization: Bearer [REDACTED:AUTHORIZATION]"
+  },
+  {
+   "name": "hdr_authorization_basic",
+   "input": "authorization: Basic ZmFrZTpmYWtl",
+   "expected": "authorization: Basic [REDACTED:AUTHORIZATION]"
+  },
+  {
+   "name": "hdr_authorization_upper",
+   "input": "AUTHORIZATION: BEARER fake-bearer-token-123",
+   "expected": "AUTHORIZATION: BEARER [REDACTED:AUTHORIZATION]"
+  },
+  {
+   "name": "hdr_authorization_no_scheme",
+   "input": "Authorization: fake-bearer-token-123",
+   "expected": "Authorization: fake-bearer-token-123"
+  },
+  {
+   "name": "hdr_authorization_short",
+   "input": "Authorization: Bearer short",
+   "expected": "Authorization: Bearer short"
+  },
+  {
+   "name": "hdr_authorization_in_curl",
+   "input": "curl -H 'Authorization: Bearer fake-bearer-token-123' https://example.test",
+   "expected": "curl -H 'Authorization: Bearer [REDACTED:AUTHORIZATION]' https://example.test"
+  },
+  {
+   "name": "hdr_authorization_json",
+   "input": "{\"Authorization\": \"Bearer fake-bearer-token-123\"}",
+   "expected": "{\"Authorization\": \"Bearer fake-bearer-token-123\"}"
+  },
+  {
+   "name": "hdr_authorization_placeholder",
+   "input": "Authorization: Bearer $PEGASUS_SECRET_AUTHORIZATION",
+   "expected": "Authorization: Bearer $PEGASUS_SECRET_AUTHORIZATION"
+  },
+  {
+   "name": "hdr_authorization_env",
+   "input": "Authorization: Bearer ${TOKEN_ENV_VAR}",
+   "expected": "Authorization: Bearer ${TOKEN_ENV_VAR}"
+  },
+  {
+   "name": "hdr_x_api_key",
+   "input": "x-api-key: fake-api-key-value-1",
+   "expected": "x-api-key: [REDACTED:API_KEY]"
+  },
+  {
+   "name": "hdr_x_api_key_upper",
+   "input": "X-API-KEY: fake-api-key-value-1",
+   "expected": "X-API-KEY: [REDACTED:API_KEY]"
+  },
+  {
+   "name": "hdr_api_key",
+   "input": "Api-Key: fake-api-key-value-1",
+   "expected": "Api-Key: [REDACTED:API_KEY]"
+  },
+  {
+   "name": "hdr_api_key_short",
+   "input": "x-api-key: short",
+   "expected": "x-api-key: short"
+  },
+  {
+   "name": "hdr_suffix_signature",
+   "input": "X-Aco-Joven-Signature: fake-signature-value-1",
+   "expected": "X-Aco-Joven-Signature: [REDACTED:X_ACO_JOVEN_SIGNATURE]"
+  },
+  {
+   "name": "hdr_suffix_token",
+   "input": "X-Auth-Token: fake-auth-token-1",
+   "expected": "X-Auth-Token: [REDACTED:X_AUTH_TOKEN]"
+  },
+  {
+   "name": "hdr_suffix_key",
+   "input": "X-Client-Key: fake-client-key-12",
+   "expected": "X-Client-Key: [REDACTED:X_CLIENT_KEY]"
+  },
+  {
+   "name": "hdr_suffix_secret",
+   "input": "X-Webhook-Secret: fake-webhook-secret",
+   "expected": "X-Webhook-Secret: [REDACTED:X_WEBHOOK_SECRET]"
+  },
+  {
+   "name": "hdr_suffix_digit",
+   "input": "X-Hub-Signature-256: sha256=fakefakefakefake",
+   "expected": "X-Hub-Signature-256: [REDACTED:X_HUB_SIGNATURE_256]"
+  },
+  {
+   "name": "hdr_suffix_digit_512",
+   "input": "X-Signature-512: fake-signature-value-1",
+   "expected": "X-Signature-512: [REDACTED:X_SIGNATURE_512]"
+  },
+  {
+   "name": "hdr_suffix_version_not_matched",
+   "input": "X-Signature-Version: fake-version-1234",
+   "expected": "X-Signature-Version: fake-version-1234"
+  },
+  {
+   "name": "hdr_suffix_api_key_version",
+   "input": "X-Api-Key-Version: fake-version-1234",
+   "expected": "X-Api-Key-Version: fake-version-1234"
+  },
+  {
+   "name": "hdr_suffix_prefix_char_blocks",
+   "input": "_X-Auth-Token: fake-auth-token-1 +X-Auth-Token: fake-auth-token-1",
+   "expected": "_X-Auth-Token: [REDACTED:X_AUTH_TOKEN] +X-Auth-Token: [REDACTED:X_AUTH_TOKEN]"
+  },
+  {
+   "name": "hdr_suffix_in_line_prefix",
+   "input": "> X-Auth-Token: fake-auth-token-1",
+   "expected": "> X-Auth-Token: [REDACTED:X_AUTH_TOKEN]"
+  },
+  {
+   "name": "hdr_suffix_two_digit_segments",
+   "input": "X-Signature-1-2: fake-signature-value-1",
+   "expected": "X-Signature-1-2: fake-signature-value-1"
+  },
+  {
+   "name": "hdr_suffix_short",
+   "input": "X-Auth-Token: short",
+   "expected": "X-Auth-Token: short"
+  },
+  {
+   "name": "hdr_suffix_quote_stop",
+   "input": "X-Auth-Token: 'fake-auth-token-1'",
+   "expected": "X-Auth-Token: '[REDACTED:X_AUTH_TOKEN]'"
+  },
+  {
+   "name": "hdr_suffix_comma_stop",
+   "input": "X-Auth-Token: fake-auth-token-1,next",
+   "expected": "X-Auth-Token: [REDACTED:X_AUTH_TOKEN],next"
+  },
+  {
+   "name": "hdr_multi_line",
+   "input": "GET / HTTP/1.1\nHost: example.test\nAuthorization: Bearer fake-bearer-token-123\nX-Api-Key: fake-api-key-value-1\nAccept: */*\n",
+   "expected": "GET / HTTP/1.1\nHost: example.test\nAuthorization: Bearer [REDACTED:AUTHORIZATION]\nX-Api-Key: [REDACTED:API_KEY]\nAccept: */*\n"
+  },
+  {
+   "name": "hdr_suffix_plain_key_name",
+   "input": "key: fake-key-value-1",
+   "expected": "key: fake-key-value-1"
+  },
+  {
+   "name": "url_basic",
+   "input": "postgres://user:fakepassword1@db.example.test:5432/app",
+   "expected": "postgres://user:[REDACTED:URL_PASSWORD]@db.example.test:5432/app"
+  },
+  {
+   "name": "url_https",
+   "input": "https://bob:fake-password-12@example.test/path",
+   "expected": "https://bob:[REDACTED:URL_PASSWORD]@example.test/path"
+  },
+  {
+   "name": "url_short_password",
+   "input": "https://bob:short@example.test/",
+   "expected": "https://bob:short@example.test/"
+  },
+  {
+   "name": "url_no_password",
+   "input": "https://example.test/path",
+   "expected": "https://example.test/path"
+  },
+  {
+   "name": "url_no_user",
+   "input": "https://:fakepassword1@example.test/",
+   "expected": "https://:fakepassword1@example.test/"
+  },
+  {
+   "name": "url_port_not_password",
+   "input": "https://example.test:8080/path@x",
+   "expected": "https://example.test:8080/path@x"
+  },
+  {
+   "name": "url_placeholder",
+   "input": "https://bob:${DB_PASSWORD_VAR}@example.test/",
+   "expected": "https://bob:${DB_PASSWORD_VAR}@example.test/"
+  },
+  {
+   "name": "url_pegasus_placeholder",
+   "input": "https://bob:$PEGASUS_SECRET_URL_PASSWORD@example.test/",
+   "expected": "https://bob:$PEGASUS_SECRET_URL_PASSWORD@example.test/"
+  },
+  {
+   "name": "url_scheme_prefix_char_blocks",
+   "input": "-a://bob:fakepassword1@example.test/",
+   "expected": "-a://bob:fakepassword1@example.test/"
+  },
+  {
+   "name": "url_scheme_in_text",
+   "input": "see (redis://default:fake-redis-pw-1@cache.example.test:6379) ok",
+   "expected": "see (redis://default:[REDACTED:URL_PASSWORD]@cache.example.test:6379) ok"
+  },
+  {
+   "name": "url_scheme_with_plus",
+   "input": "git+ssh://git:fakepassword1@example.test/repo",
+   "expected": "git+ssh://git:[REDACTED:URL_PASSWORD]@example.test/repo"
+  },
+  {
+   "name": "url_multiple",
+   "input": "a://u:fakepassword1@h b://u:fakepassword2@h",
+   "expected": "a://u:[REDACTED:URL_PASSWORD]@h b://u:[REDACTED:URL_PASSWORD_2]@h"
+  },
+  {
+   "name": "url_same_password_twice",
+   "input": "a://u:fakepassword1@h b://v:fakepassword1@h",
+   "expected": "a://u:[REDACTED:URL_PASSWORD]@h b://v:[REDACTED:URL_PASSWORD]@h"
+  },
+  {
+   "name": "url_multibyte_password",
+   "input": "a://u:contraseña-falsa@h",
+   "expected": "a://u:[REDACTED:URL_PASSWORD]@h"
+  },
+  {
+   "name": "private_named",
+   "input": "x <private>MY_DB_PW=fake-db-pw-1</private> y",
+   "expected": "x [REDACTED:MY_DB_PW] y"
+  },
+  {
+   "name": "private_named_lower",
+   "input": "<private>my-name=fake</private>",
+   "expected": "[REDACTED:PRIVATE]"
+  },
+  {
+   "name": "private_named_short_value",
+   "input": "<private>PW=ab</private>",
+   "expected": "[REDACTED:PW]"
+  },
+  {
+   "name": "private_named_empty_value",
+   "input": "a <private>PW=</private> b",
+   "expected": "a [REDACTED:PRIVATE] b"
+  },
+  {
+   "name": "private_bare",
+   "input": "x <private>fake secret value</private> y",
+   "expected": "x [REDACTED:PRIVATE] y"
+  },
+  {
+   "name": "private_bare_empty",
+   "input": "x <private></private> y",
+   "expected": "x [REDACTED] y"
+  },
+  {
+   "name": "private_bare_multiline",
+   "input": "x <private>line one\nline two</private> y",
+   "expected": "x [REDACTED:PRIVATE] y"
+  },
+  {
+   "name": "private_named_multiline",
+   "input": "<private>NOTE=line one\nline two</private>",
+   "expected": "[REDACTED:NOTE]"
+  },
+  {
+   "name": "private_unclosed",
+   "input": "x <private>fake secret value never closed",
+   "expected": "x <private>fake secret value never closed"
+  },
+  {
+   "name": "private_two",
+   "input": "<private>A=fake-one</private> and <private>fake two</private>",
+   "expected": "[REDACTED:A] and [REDACTED:PRIVATE]"
+  },
+  {
+   "name": "private_same_name_twice",
+   "input": "<private>A=fake-one</private> <private>A=fake-two</private>",
+   "expected": "[REDACTED:A] [REDACTED:A_2]"
+  },
+  {
+   "name": "private_same_value_twice",
+   "input": "<private>A=fake-one</private> <private>A=fake-one</private>",
+   "expected": "[REDACTED:A] [REDACTED:A]"
+  },
+  {
+   "name": "private_name_collision_with_key",
+   "input": "password=FakePass123 <private>PASSWORD=Fake-Other-1</private>",
+   "expected": "password=[REDACTED:PASSWORD_2] [REDACTED:PASSWORD]"
+  },
+  {
+   "name": "private_uppercase_tag",
+   "input": "<PRIVATE>fake</PRIVATE>",
+   "expected": "[REDACTED]"
+  },
+  {
+   "name": "private_nested_open",
+   "input": "<private>a <private>b</private> c",
+   "expected": "[REDACTED:PRIVATE] c"
+  },
+  {
+   "name": "private_trailing_unclosed_after_closed",
+   "input": "<private>one</private> <private>two",
+   "expected": "[REDACTED:PRIVATE] <private>two"
+  },
+  {
+   "name": "private_name_normalized",
+   "input": "<private>A_1=fake-value</private>",
+   "expected": "[REDACTED:A_1]"
+  },
+  {
+   "name": "private_inside_json",
+   "input": "{\"note\": \"<private>fake</private>\"}",
+   "expected": "{\"note\": \"[REDACTED:PRIVATE]\"}"
+  },
+  {
+   "name": "private_value_is_placeholder",
+   "input": "<private>A=$PEGASUS_SECRET_A</private>",
+   "expected": "[REDACTED:A]"
+  },
+  {
+   "name": "private_value_with_equals",
+   "input": "<private>A=b=c</private>",
+   "expected": "[REDACTED:A]"
+  },
+  {
+   "name": "private_multibyte",
+   "input": "<private>NOTA=contraseña falsa ñ</private> fin",
+   "expected": "[REDACTED:NOTA] fin"
+  },
+  {
+   "name": "private_then_key_context",
+   "input": "<private>fake</private> password=FakePass123",
+   "expected": "[REDACTED:PRIVATE] password=[REDACTED:PASSWORD]"
+  },
+  {
+   "name": "idem_mixed_output",
+   "input": "Authorization: Bearer [REDACTED:AUTHORIZATION] password=[REDACTED:PASSWORD] sk-[REDACTED:OPENAI_KEY]",
+   "expected": "Authorization: Bearer [REDACTED:AUTHORIZATION] password=[REDACTED:PASSWORD] sk-[REDACTED:OPENAI_KEY]"
+  },
+  {
+   "name": "idem_redacted_tokens_plain",
+   "input": "[REDACTED] [REDACTED:X] ******",
+   "expected": "[REDACTED] [REDACTED:X] ******"
+  },
+  {
+   "name": "mix_env_file",
+   "input": "DB_HOST=localhost\nDB_PASSWORD=Fake-Pw-12345\nAPI_KEY=fake-api-key-123\nTOKEN=fake-token-1234\nSECRET=fake-secret-12\n",
+   "expected": "DB_HOST=localhost\nDB_PASSWORD=[REDACTED:DB_PASSWORD]\nAPI_KEY=[REDACTED:API_KEY]\nTOKEN=[REDACTED:TOKEN]\nSECRET=[REDACTED:SECRET]\n"
+  },
+  {
+   "name": "mix_all",
+   "input": "Authorization: Bearer fake-bearer-token-123 https://u:fake-password-12@h/ password=FakePass123 sk-F4K3F4K3F4K3F4K3F4K3F4K3 <private>N=fake-n-1</private>",
+   "expected": "Authorization: Bearer [REDACTED:AUTHORIZATION] https://u:[REDACTED:URL_PASSWORD]@h/ password=[REDACTED:PASSWORD] [REDACTED:OPENAI_KEY] [REDACTED:N]"
+  },
+  {
+   "name": "mix_name_collisions",
+   "input": "token=fake-token-0001 token=fake-token-0002 token=fake-token-0003",
+   "expected": "token=[REDACTED:TOKEN] token=[REDACTED:TOKEN_2] token=[REDACTED:TOKEN_3]"
+  },
+  {
+   "name": "mix_json_log",
+   "input": "{\"level\":\"info\",\"msg\":\"login\",\"password\":\"fake-password-12\",\"token\":\"fake-token-1234\",\"sha\":\"a1b2c3d4e5a1b2c3d4e5a1b2c3d4e5a1b2c3d4e5\"}",
+   "expected": "{\"level\":\"info\",\"msg\":\"login\",\"password\":\"[REDACTED:PASSWORD]\",\"token\":\"[REDACTED:TOKEN]\",\"sha\":\"a1b2c3d4e5a1b2c3d4e5a1b2c3d4e5a1b2c3d4e5\"}"
+  },
+  {
+   "name": "mix_yaml",
+   "input": "auth:\n  password: fake-password-12\n  token: fake-token-1234\n  user: bob\n",
+   "expected": "auth:\n  password: [REDACTED:PASSWORD]\n  token: [REDACTED:TOKEN]\n  user: bob\n"
+  },
+  {
+   "name": "mix_code_snippet",
+   "input": "const token = getToken();\nconst password = process.env.PASSWORD;\nheaders['Authorization'] = 'Bearer ' + token;\n",
+   "expected": "const token = getToken();\nconst password = process.env.PASSWORD;\nheaders['Authorization'] = 'Bearer ' + token;\n"
+  },
+  {
+   "name": "mix_markdown",
+   "input": "Set `API_KEY=fake-api-key-123` then run `curl -H \"x-api-key: fake-api-key-123\" url`.",
+   "expected": "Set `API_KEY=[REDACTED:API_KEY_2] then run `curl -H \"x-api-key: [REDACTED:API_KEY]\" url`."
+  },
+  {
+   "name": "mix_prose_mentions",
+   "input": "The token expired. Rotate the secret: it is stored elsewhere. Password: hunter",
+   "expected": "The token expired. Rotate the secret: it is stored elsewhere. Password: hunter"
+  },
+  {
+   "name": "mix_multibyte_everything",
+   "input": "Ünïcödé 日本語 🚀 password=FakePass123 émoji 🙂 token: fake-token-1234 fin",
+   "expected": "Ünïcödé 日本語 🚀 password=[REDACTED:PASSWORD] émoji 🙂 token: [REDACTED:TOKEN] fin"
+  },
+  {
+   "name": "mix_crlf",
+   "input": "token=fake-token-1234\r\npassword=FakePass123\r\n",
+   "expected": "token=[REDACTED:TOKEN]\r\npassword=[REDACTED:PASSWORD]\r\n"
+  },
+  {
+   "name": "mix_tabs",
+   "input": "token\t=\tfake-token-1234",
+   "expected": "token\t=\t[REDACTED:TOKEN]"
+  },
+  {
+   "name": "mix_value_adjacent_punct",
+   "input": "(password=FakePass123) [token=fake-token-1234] {secret=fake-secret-12}",
+   "expected": "(password=[REDACTED:PASSWORD] [token=[REDACTED:TOKEN]] {secret=[REDACTED:SECRET]}"
+  },
+  {
+   "name": "mix_semicolon_amp",
+   "input": "token=fake-token-1234&password=FakePass123;secret=fake-secret-12",
+   "expected": "token=[REDACTED:TOKEN]&password=[REDACTED:PASSWORD];secret=[REDACTED:SECRET]"
+  },
+  {
+   "name": "mix_key_equals_key",
+   "input": "token=password=FakePass123",
+   "expected": "token=[REDACTED:TOKEN]"
+  },
+  {
+   "name": "mix_long_chain",
+   "input": "a=b=c=d=e=token=fake-token-1234",
+   "expected": "a=b=c=d=e=token=[REDACTED:TOKEN]"
+  },
+  {
+   "name": "boundary_kc_unquoted_3",
+   "input": "password=Ab1",
+   "expected": "password=Ab1"
+  },
+  {
+   "name": "boundary_kc_json_3",
+   "input": "{\"password\": \"Ab1\"}",
+   "expected": "{\"password\": \"Ab1\"}"
+  },
+  {
+   "name": "boundary_header_3",
+   "input": "X-Auth-Token: Ab1",
+   "expected": "X-Auth-Token: Ab1"
+  },
+  {
+   "name": "boundary_url_3",
+   "input": "a://u:Ab1@h",
+   "expected": "a://u:Ab1@h"
+  },
+  {
+   "name": "boundary_apikey_header_3",
+   "input": "x-api-key: Ab1",
+   "expected": "x-api-key: Ab1"
+  },
+  {
+   "name": "boundary_kc_unquoted_4",
+   "input": "password=AbA1",
+   "expected": "password=[REDACTED:PASSWORD]"
+  },
+  {
+   "name": "boundary_kc_json_4",
+   "input": "{\"password\": \"Ab1A\"}",
+   "expected": "{\"password\": \"[REDACTED:PASSWORD]\"}"
+  },
+  {
+   "name": "boundary_header_4",
+   "input": "X-Auth-Token: Ab1A",
+   "expected": "X-Auth-Token: [REDACTED:X_AUTH_TOKEN]"
+  },
+  {
+   "name": "boundary_url_4",
+   "input": "a://u:Ab1A@h",
+   "expected": "a://u:Ab1A@h"
+  },
+  {
+   "name": "boundary_apikey_header_4",
+   "input": "x-api-key: Ab1A",
+   "expected": "x-api-key: [REDACTED:X_API_KEY]"
+  },
+  {
+   "name": "boundary_kc_unquoted_5",
+   "input": "password=AbAb1",
+   "expected": "password=[REDACTED:PASSWORD]"
+  },
+  {
+   "name": "boundary_kc_json_5",
+   "input": "{\"password\": \"Ab1Ab\"}",
+   "expected": "{\"password\": \"[REDACTED:PASSWORD]\"}"
+  },
+  {
+   "name": "boundary_header_5",
+   "input": "X-Auth-Token: Ab1Ab",
+   "expected": "X-Auth-Token: [REDACTED:X_AUTH_TOKEN]"
+  },
+  {
+   "name": "boundary_url_5",
+   "input": "a://u:Ab1Ab@h",
+   "expected": "a://u:Ab1Ab@h"
+  },
+  {
+   "name": "boundary_apikey_header_5",
+   "input": "x-api-key: Ab1Ab",
+   "expected": "x-api-key: [REDACTED:X_API_KEY]"
+  },
+  {
+   "name": "boundary_kc_unquoted_7",
+   "input": "password=AbAbAb1",
+   "expected": "password=[REDACTED:PASSWORD]"
+  },
+  {
+   "name": "boundary_kc_json_7",
+   "input": "{\"password\": \"Ab1Ab1A\"}",
+   "expected": "{\"password\": \"[REDACTED:PASSWORD]\"}"
+  },
+  {
+   "name": "boundary_header_7",
+   "input": "X-Auth-Token: Ab1Ab1A",
+   "expected": "X-Auth-Token: [REDACTED:X_AUTH_TOKEN]"
+  },
+  {
+   "name": "boundary_url_7",
+   "input": "a://u:Ab1Ab1A@h",
+   "expected": "a://u:Ab1Ab1A@h"
+  },
+  {
+   "name": "boundary_apikey_header_7",
+   "input": "x-api-key: Ab1Ab1A",
+   "expected": "x-api-key: [REDACTED:X_API_KEY]"
+  },
+  {
+   "name": "boundary_kc_unquoted_8",
+   "input": "password=AbAbAbA1",
+   "expected": "password=[REDACTED:PASSWORD]"
+  },
+  {
+   "name": "boundary_kc_json_8",
+   "input": "{\"password\": \"Ab1Ab1Ab\"}",
+   "expected": "{\"password\": \"[REDACTED:PASSWORD]\"}"
+  },
+  {
+   "name": "boundary_header_8",
+   "input": "X-Auth-Token: Ab1Ab1Ab",
+   "expected": "X-Auth-Token: [REDACTED:X_AUTH_TOKEN]"
+  },
+  {
+   "name": "boundary_url_8",
+   "input": "a://u:Ab1Ab1Ab@h",
+   "expected": "a://u:[REDACTED:URL_PASSWORD]@h"
+  },
+  {
+   "name": "boundary_apikey_header_8",
+   "input": "x-api-key: Ab1Ab1Ab",
+   "expected": "x-api-key: [REDACTED:API_KEY]"
+  },
+  {
+   "name": "boundary_kc_unquoted_9",
+   "input": "password=AbAbAbAb1",
+   "expected": "password=[REDACTED:PASSWORD]"
+  },
+  {
+   "name": "boundary_kc_json_9",
+   "input": "{\"password\": \"Ab1Ab1Ab1\"}",
+   "expected": "{\"password\": \"[REDACTED:PASSWORD]\"}"
+  },
+  {
+   "name": "boundary_header_9",
+   "input": "X-Auth-Token: Ab1Ab1Ab1",
+   "expected": "X-Auth-Token: [REDACTED:X_AUTH_TOKEN]"
+  },
+  {
+   "name": "boundary_url_9",
+   "input": "a://u:Ab1Ab1Ab1@h",
+   "expected": "a://u:[REDACTED:URL_PASSWORD]@h"
+  },
+  {
+   "name": "boundary_apikey_header_9",
+   "input": "x-api-key: Ab1Ab1Ab1",
+   "expected": "x-api-key: [REDACTED:API_KEY]"
+  },
+  {
+   "name": "boundary_openai_19",
+   "input": "sk-F4K3F4K3F4K3F4K3F4K",
+   "expected": "sk-F4K3F4K3F4K3F4K3F4K"
+  },
+  {
+   "name": "boundary_ghp_19",
+   "input": "ghp_F4K3F4K3F4K3F4K3F4K",
+   "expected": "ghp_F4K3F4K3F4K3F4K3F4K"
+  },
+  {
+   "name": "boundary_openai_20",
+   "input": "sk-F4K3F4K3F4K3F4K3F4K3",
+   "expected": "[REDACTED:OPENAI_KEY]"
+  },
+  {
+   "name": "boundary_ghp_20",
+   "input": "ghp_F4K3F4K3F4K3F4K3F4K3",
+   "expected": "[REDACTED:GITHUB_TOKEN]"
+  },
+  {
+   "name": "boundary_openai_21",
+   "input": "sk-F4K3F4K3F4K3F4K3F4K3F",
+   "expected": "[REDACTED:OPENAI_KEY]"
+  },
+  {
+   "name": "boundary_ghp_21",
+   "input": "ghp_F4K3F4K3F4K3F4K3F4K3F",
+   "expected": "[REDACTED:GITHUB_TOKEN]"
+  },
+  {
+   "name": "boundary_multibyte_len_4",
+   "input": "password=ñññ1",
+   "expected": "password=[REDACTED:PASSWORD]"
+  },
+  {
+   "name": "boundary_multibyte_len_3_bytes_more",
+   "input": "password=ñññ",
+   "expected": "password=ñññ"
+  }
+ ]
+}
