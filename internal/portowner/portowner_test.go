@@ -305,3 +305,19 @@ func TestConnUID(t *testing.T) {
 		t.Fatalf("v6: %d %v", uid, err)
 	}
 }
+
+// A table that cannot be read to the end is "readable but inconclusive": it must not
+// look like a missing /proc (which fails open) nor like a clean answer.
+func TestConnUIDScanErrorIsNotUnavailable(t *testing.T) {
+	client := netip.MustParseAddrPort("127.0.0.1:54321")
+	server := netip.MustParseAddrPort("127.0.0.1:7437")
+	body := header + strings.Repeat("x", 2*1024*1024) + "\n"
+	p := Paths{TCP4: write(t, "tcp-long", body), TCP6: filepath.Join(t.TempDir(), "none")}
+	_, err := ConnUID(client, server, p)
+	if !errors.Is(err, ErrNoRow) || errors.Is(err, ErrUnavailable) {
+		t.Fatalf("scan error must fail closed, got %v", err)
+	}
+	if _, err := readLines(p.TCP4); err == nil {
+		t.Fatal("readLines must report the scan error")
+	}
+}
