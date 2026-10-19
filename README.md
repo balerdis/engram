@@ -95,6 +95,14 @@ If you have agents running in Docker that need to write to Engram on the host, t
 - **HTTP REST API** (`engram serve`): note that `engram serve` currently binds to `127.0.0.1` only, so it is **not** reachable from inside a container out of the box — a container cannot reach the host's loopback, and there is no bind-address flag yet. The HTTP API is not the MCP protocol. For Docker right now, prefer the stdio path below.
 - **Stdio MCP** (mount the binary): the cleanest path for a Dockerized agent that needs MCP tools is to mount the `engram` binary into the container and let the agent launch `engram mcp` locally via stdio, pointing `ENGRAM_DATA_DIR` at a volume shared with the host.
 
+#### One port, several OS users
+
+The HTTP port is shared by every OS user of the machine. To keep one user's sessions, prompts and context out of another user's memory:
+
+- `engram port` prints the port to use, and nothing else on stdout. With `ENGRAM_PORT` unset, it is 7437 when nobody or your uid listens on it, otherwise the per-user port `17437 + uid % 10000`, under the same rule. If that one is held by another uid too, `engram port` exits 1 and says on stderr that memory is disabled. With `ENGRAM_PORT` set to a valid port (1-5 digits, 1..65535) there is no fallback: it is used when free or your own, otherwise the command fails. `engram serve` follows the same rule. Without `/proc/net/tcp` (not Linux) nothing can be told, and the explicit port or 7437 is used as before.
+- `engram serve` also checks each client: when the client's socket is positively owned by another non-root OS user, every route except `/health` answers `403` with `{"code":"foreign_uid"}`. Whenever the owner cannot be determined it lets the request through. `ENGRAM_ALLOW_OTHER_USERS=1` turns the check off.
+- `/health` reports the build `version` and the server's `uid`.
+
 Full environment variable reference → [DOCS.md#environment-variables](DOCS.md#environment-variables)
 
 ## How It Works
@@ -156,7 +164,8 @@ Full sync documentation → [DOCS.md](DOCS.md)
 | Command                                    | Description                                                     |
 | ------------------------------------------ | --------------------------------------------------------------- |
 | `engram setup [agent]`                     | Install agent integration                                       |
-| `engram serve [port]`                      | Start HTTP API (default: 7437)                                  |
+| `engram serve [port]`                      | Start HTTP API (default: 7437, or the per-user port, see below) |
+| `engram port`                              | Print the HTTP port this OS user's engram uses (exit 1 if memory is disabled) |
 | `engram mcp [--tools=PROFILE] [--project NAME]` | Start MCP server (stdio transport). Profiles: `agent`, `admin`, `reader` (read-only), `all` |
 | `engram tui`                               | Launch terminal UI                                              |
 | `engram search <query>`                    | Search memories                                                 |
@@ -184,7 +193,8 @@ Full CLI with all flags → [docs/ARCHITECTURE.md#cli-reference](docs/ARCHITECTU
 | Variable                        | Description                                                                                                            | Default        |
 | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | -------------- |
 | `ENGRAM_DATA_DIR`               | Override data directory                                                                                                | `~/.engram`    |
-| `ENGRAM_PORT`                   | Override HTTP server port                                                                                              | `7437`         |
+| `ENGRAM_PORT`                   | Override HTTP server port. If another OS user holds it, `engram serve` refuses to start.                               | `7437`         |
+| `ENGRAM_ALLOW_OTHER_USERS`      | Set to `1` to let clients of other OS users use this server (see below).                                               | (unset)        |
 | `ENGRAM_HTTP_TOKEN`             | Optional Bearer auth for local HTTP server. When set, destructive and export routes require `Authorization: Bearer <token>`. Unset = open (zero-config default). | (unset) |
 | `ENGRAM_TIMEZONE`               | Timezone for timestamp display in the TUI (e.g. `America/New_York`). Falls back to system local when unset or invalid. | system local |
 

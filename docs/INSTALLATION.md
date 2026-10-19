@@ -158,7 +158,8 @@ The binary includes SQLite (via [modernc.org/sqlite](https://pkg.go.dev/modernc.
 | Variable | Description | Default |
 |---|---|---|
 | `ENGRAM_DATA_DIR` | Data directory | `~/.engram` (Windows: `%USERPROFILE%\.engram`) |
-| `ENGRAM_PORT` | HTTP server port | `7437` |
+| `ENGRAM_PORT` | HTTP server port | `7437` (or `17437 + uid % 10000` if another OS user holds it; see `engram port`) |
+| `ENGRAM_ALLOW_OTHER_USERS` | `1` lets clients of other OS users use this server | (unset) |
 
 ---
 
