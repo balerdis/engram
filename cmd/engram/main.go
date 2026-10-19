@@ -14,6 +14,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -29,6 +30,7 @@ import (
 	"github.com/Gentleman-Programming/engram/internal/diagnostic"
 	"github.com/Gentleman-Programming/engram/internal/mcp"
 	"github.com/Gentleman-Programming/engram/internal/obsidian"
+	"github.com/Gentleman-Programming/engram/internal/portowner"
 	"github.com/Gentleman-Programming/engram/internal/project"
 	"github.com/Gentleman-Programming/engram/internal/server"
 	"github.com/Gentleman-Programming/engram/internal/setup"
@@ -220,7 +222,7 @@ func shouldCheckForUpdates(args []string) bool {
 	}
 	command := strings.ToLower(strings.TrimSpace(args[0]))
 	switch command {
-	case "mcp", "serve", "protocol-mode", "purge":
+	case "mcp", "serve", "protocol-mode", "purge", "port":
 		return false
 	}
 	return true
@@ -233,6 +235,9 @@ func handleConfigFreeCommand(args []string) bool {
 	switch strings.ToLower(strings.TrimSpace(args[0])) {
 	case "version", "--version", "-v":
 		fmt.Printf("engram %s\n", version)
+		return true
+	case "port":
+		cmdPort()
 		return true
 	case "help", "--help", "-h":
 		printUsage()
@@ -250,18 +255,53 @@ func printUpdateCheckResult(result versioncheck.CheckResult) {
 
 // ─── Commands ────────────────────────────────────────────────────────────────
 
-func cmdServe(cfg store.Config) {
-	port := 7437 // "ENGR" on phone keypad vibes
-	if p := os.Getenv("ENGRAM_PORT"); p != "" {
-		if n, err := strconv.Atoi(p); err == nil {
-			port = n
+// resolveServePort applies the shared port rule (internal/portowner). argPort,
+// when set, is `engram serve <port>` and counts as an explicit choice.
+func resolveServePort(argPort string) (int, error) {
+	uid := os.Getuid()
+	getenv := os.Getenv
+	if n, err := strconv.Atoi(argPort); argPort != "" && err == nil {
+		if n < 1 || n > 65535 {
+			return n, nil // not a port the rule can reason about; listen reports it
+		}
+		getenv = func(k string) string {
+			if k == portowner.EnvPort {
+				return argPort
+			}
+			return os.Getenv(k)
 		}
 	}
-	// Allow: engram serve 8080
+	res := portowner.Resolve(getenv, uid, portowner.PathsFromEnv(os.Getenv))
+	if res.Port == 0 {
+		return 0, errors.New(res.Explain(uid, getenv))
+	}
+	if msg := res.Explain(uid, getenv); msg != "" {
+		log.Printf("[engram] %s", msg)
+	}
+	return res.Port, nil
+}
+
+// cmdPort prints the port this OS user's engram uses: just the number on stdout,
+// or why memory is disabled on stderr with a non-zero exit.
+func cmdPort() {
+	uid := os.Getuid()
+	res := portowner.Resolve(os.Getenv, uid, portowner.PathsFromEnv(os.Getenv))
+	if res.Port == 0 {
+		fmt.Fprintf(os.Stderr, "engram: %s\n", res.Explain(uid, os.Getenv))
+		exitFunc(1)
+		return
+	}
+	fmt.Println(res.Port)
+}
+
+func cmdServe(cfg store.Config) {
+	argPort := ""
 	if len(os.Args) > 2 {
-		if n, err := strconv.Atoi(os.Args[2]); err == nil {
-			port = n
-		}
+		argPort = os.Args[2]
+	}
+	port, err := resolveServePort(argPort)
+	if err != nil {
+		fatal(err)
 	}
 
 	s, err := storeNew(cfg)
@@ -271,6 +311,7 @@ func cmdServe(cfg store.Config) {
 	defer s.Close()
 
 	srv := newHTTPServer(s, port)
+	srv.SetVersion(version)
 
 	// Wire the semantic runner factory and prompt builder for POST /conflicts/scan.
 	// Both live in cmd/engram so internal/server avoids a direct dependency on internal/llm.
@@ -2029,12 +2070,14 @@ Commands:
                        --watch         Enable auto-sync mode (runs on interval until Ctrl+C)
                        --interval      Sync interval for --watch mode (default: 10m, minimum: 1m)
 
+  port               Print the HTTP port this OS user's engram uses (exit 1 if memory is disabled)
   version            Print version
   help               Show this help
 
 Environment:
   ENGRAM_DATA_DIR    Override data directory (default: ~/.engram)
-  ENGRAM_PORT        Override HTTP server port (default: 7437)
+  ENGRAM_PORT        Override HTTP server port (default: 7437, or a per-user port when another OS user holds it)
+  ENGRAM_ALLOW_OTHER_USERS  Set to 1 to let clients of other OS users use this server
   ENGRAM_PROJECT     Process-level default project override.
                      For "engram mcp": sets DefaultProject, overriding cwd detection for all tools.
   ENGRAM_HTTP_TOKEN  Optional Bearer auth for local HTTP server (engram serve).

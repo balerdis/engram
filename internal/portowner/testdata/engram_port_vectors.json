@@ -1,0 +1,485 @@
+{
+  "_doc": "Shared vectors for the three implementations of the engram port resolution (core/engram_port.py, engram-hook.py, engram.ts). Row: [address, port, state, owner]; owner is own|foreign; port is a number or default|fallback (7437 / 17437 + uid % 10000); a bare string row is copied verbatim (a corrupt line). tcp4/tcp6 null means the table does not exist. expect: a number, default, fallback, or null (fail closed). header false: the table has no header line (the first row is skipped, as in the three parsers). fallback_base: the test seam ENGRAM_PORT_FALLBACK_BASE.",
+  "vectors": [
+    {
+      "name": "no listener",
+      "env_port": null,
+      "tcp4": [],
+      "tcp6": [],
+      "expect": "default"
+    },
+    {
+      "name": "own listener on the default",
+      "env_port": null,
+      "tcp4": [
+        [
+          "0100007F",
+          "default",
+          "0A",
+          "own"
+        ]
+      ],
+      "tcp6": [],
+      "expect": "default"
+    },
+    {
+      "name": "foreign listener on the default falls back",
+      "env_port": null,
+      "tcp4": [
+        [
+          "0100007F",
+          "default",
+          "0A",
+          "foreign"
+        ]
+      ],
+      "tcp6": [],
+      "expect": "fallback"
+    },
+    {
+      "name": "mixed holders on the default keep the default",
+      "env_port": null,
+      "tcp4": [
+        [
+          "0100007F",
+          "default",
+          "0A",
+          "foreign"
+        ],
+        [
+          "00000000",
+          "default",
+          "0A",
+          "own"
+        ]
+      ],
+      "tcp6": [],
+      "expect": "default"
+    },
+    {
+      "name": "foreign wildcard on the default falls back",
+      "env_port": null,
+      "tcp4": [
+        [
+          "00000000",
+          "default",
+          "0A",
+          "foreign"
+        ]
+      ],
+      "tcp6": [],
+      "expect": "fallback"
+    },
+    {
+      "name": "foreign tcp6 loopback on the default falls back",
+      "env_port": null,
+      "tcp4": [],
+      "tcp6": [
+        [
+          "00000000000000000000000001000000",
+          "default",
+          "0A",
+          "foreign"
+        ]
+      ],
+      "expect": "fallback"
+    },
+    {
+      "name": "foreign tcp6 mapped loopback on the default falls back",
+      "env_port": null,
+      "tcp4": [],
+      "tcp6": [
+        [
+          "0000000000000000FFFF00000100007F",
+          "default",
+          "0A",
+          "foreign"
+        ]
+      ],
+      "expect": "fallback"
+    },
+    {
+      "name": "foreign tcp6 wildcard on the default falls back",
+      "env_port": null,
+      "tcp4": [],
+      "tcp6": [
+        [
+          "00000000000000000000000000000000",
+          "default",
+          "0A",
+          "foreign"
+        ]
+      ],
+      "expect": "fallback"
+    },
+    {
+      "name": "own tcp6 listener on the default",
+      "env_port": null,
+      "tcp4": [],
+      "tcp6": [
+        [
+          "00000000000000000000000001000000",
+          "default",
+          "0A",
+          "own"
+        ]
+      ],
+      "expect": "default"
+    },
+    {
+      "name": "foreign default and own fallback",
+      "env_port": null,
+      "tcp4": [
+        [
+          "0100007F",
+          "default",
+          "0A",
+          "foreign"
+        ],
+        [
+          "0100007F",
+          "fallback",
+          "0A",
+          "own"
+        ]
+      ],
+      "tcp6": [],
+      "expect": "fallback"
+    },
+    {
+      "name": "foreign default and foreign fallback fail closed",
+      "env_port": null,
+      "tcp4": [
+        [
+          "0100007F",
+          "default",
+          "0A",
+          "foreign"
+        ],
+        [
+          "0100007F",
+          "fallback",
+          "0A",
+          "foreign"
+        ]
+      ],
+      "tcp6": [],
+      "expect": null
+    },
+    {
+      "name": "a connection that is not listening does not hold the port",
+      "env_port": null,
+      "tcp4": [
+        [
+          "0100007F",
+          "default",
+          "01",
+          "foreign"
+        ]
+      ],
+      "tcp6": [],
+      "expect": "default"
+    },
+    {
+      "name": "a listener on another interface does not hold the port",
+      "env_port": null,
+      "tcp4": [
+        [
+          "0A00A8C0",
+          "default",
+          "0A",
+          "foreign"
+        ]
+      ],
+      "tcp6": [],
+      "expect": "default"
+    },
+    {
+      "name": "a listener on another port does not hold the port",
+      "env_port": null,
+      "tcp4": [
+        [
+          "0100007F",
+          9999,
+          "0A",
+          "foreign"
+        ]
+      ],
+      "tcp6": [],
+      "expect": "default"
+    },
+    {
+      "name": "a corrupt line is skipped",
+      "env_port": null,
+      "tcp4": [
+        "this is not a table row",
+        [
+          "0100007F",
+          "default",
+          "0A",
+          "foreign"
+        ]
+      ],
+      "tcp6": [],
+      "expect": "fallback"
+    },
+    {
+      "name": "a corrupt line alone changes nothing",
+      "env_port": null,
+      "tcp4": [
+        "this is not a table row",
+        "   1: 0100007F:ZZZZ 00000000:0000 0A 0:0 0:0 0 xx 0"
+      ],
+      "tcp6": [],
+      "expect": "default"
+    },
+    {
+      "name": "no tcp4 table behaves as before",
+      "env_port": null,
+      "tcp4": null,
+      "tcp6": null,
+      "expect": "default"
+    },
+    {
+      "name": "no tcp4 table keeps an explicit port",
+      "env_port": "9999",
+      "tcp4": null,
+      "tcp6": null,
+      "expect": 9999
+    },
+    {
+      "name": "missing tcp6 table only skips ipv6",
+      "env_port": null,
+      "tcp4": [
+        [
+          "0100007F",
+          "default",
+          "0A",
+          "foreign"
+        ]
+      ],
+      "tcp6": null,
+      "expect": "fallback"
+    },
+    {
+      "name": "explicit port free",
+      "env_port": "9999",
+      "tcp4": [],
+      "tcp6": [],
+      "expect": 9999
+    },
+    {
+      "name": "explicit port own",
+      "env_port": "9999",
+      "tcp4": [
+        [
+          "0100007F",
+          9999,
+          "0A",
+          "own"
+        ]
+      ],
+      "tcp6": [],
+      "expect": 9999
+    },
+    {
+      "name": "explicit port foreign fails closed with no fallback",
+      "env_port": "9999",
+      "tcp4": [
+        [
+          "0100007F",
+          9999,
+          "0A",
+          "foreign"
+        ]
+      ],
+      "tcp6": [],
+      "expect": null
+    },
+    {
+      "name": "explicit foreign tcp6 fails closed",
+      "env_port": "9999",
+      "tcp4": [],
+      "tcp6": [
+        [
+          "00000000000000000000000001000000",
+          9999,
+          "0A",
+          "foreign"
+        ]
+      ],
+      "expect": null
+    },
+    {
+      "name": "explicit port ignores a foreign default",
+      "env_port": "9999",
+      "tcp4": [
+        [
+          "0100007F",
+          "default",
+          "0A",
+          "foreign"
+        ]
+      ],
+      "tcp6": [],
+      "expect": 9999
+    },
+    {
+      "name": "explicit 7437 foreign fails closed",
+      "env_port": "7437",
+      "tcp4": [
+        [
+          "0100007F",
+          "default",
+          "0A",
+          "foreign"
+        ]
+      ],
+      "tcp6": [],
+      "expect": null
+    },
+    {
+      "name": "an unusable ENGRAM_PORT counts as unset",
+      "env_port": "not-a-port",
+      "tcp4": [
+        [
+          "0100007F",
+          "default",
+          "0A",
+          "foreign"
+        ]
+      ],
+      "tcp6": [],
+      "expect": "fallback"
+    },
+    {
+      "name": "an out-of-range ENGRAM_PORT counts as unset",
+      "env_port": "70000",
+      "tcp4": [],
+      "tcp6": [],
+      "expect": "default"
+    },
+    {
+      "name": "a TIME_WAIT socket does not hold the port",
+      "env_port": null,
+      "tcp4": [
+        [
+          "0100007F",
+          "default",
+          "06",
+          "foreign"
+        ]
+      ],
+      "tcp6": [],
+      "expect": "default"
+    },
+    {
+      "name": "an ESTABLISHED socket to the port does not hold it",
+      "env_port": null,
+      "tcp4": [
+        [
+          "0100007F",
+          "default",
+          "01",
+          "foreign"
+        ],
+        [
+          "0100007F",
+          "default",
+          "01",
+          "foreign"
+        ]
+      ],
+      "tcp6": [],
+      "expect": "default"
+    },
+    {
+      "name": "a table without a header loses its first row like the others do",
+      "env_port": null,
+      "tcp4": [
+        [
+          "0100007F",
+          "default",
+          "0A",
+          "foreign"
+        ]
+      ],
+      "tcp6": [],
+      "expect": "default",
+      "header": false
+    },
+    {
+      "name": "a signed ENGRAM_PORT counts as unset",
+      "env_port": "+5",
+      "tcp4": [],
+      "tcp6": [],
+      "expect": "default"
+    },
+    {
+      "name": "a negative ENGRAM_PORT counts as unset",
+      "env_port": "-1",
+      "tcp4": [],
+      "tcp6": [],
+      "expect": "default"
+    },
+    {
+      "name": "an underscored ENGRAM_PORT counts as unset",
+      "env_port": "1_0",
+      "tcp4": [],
+      "tcp6": [],
+      "expect": "default"
+    },
+    {
+      "name": "a six-digit ENGRAM_PORT counts as unset",
+      "env_port": "007437",
+      "tcp4": [],
+      "tcp6": [],
+      "expect": "default"
+    },
+    {
+      "name": "a huge ENGRAM_PORT counts as unset",
+      "env_port": "99999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999",
+      "tcp4": [],
+      "tcp6": [],
+      "expect": "default"
+    },
+    {
+      "name": "a signed ENGRAM_PORT with a foreign default still falls back",
+      "env_port": "+5",
+      "tcp4": [
+        [
+          "0100007F",
+          "default",
+          "0A",
+          "foreign"
+        ]
+      ],
+      "tcp6": [],
+      "expect": "fallback"
+    },
+    {
+      "name": "the uid column must be digits only",
+      "env_port": null,
+      "tcp4": [
+        "   0: 0100007F:1D0D 00000000:0000 0A 00000000:00000000 00:00000000 00000000 +1 0 1 1 0"
+      ],
+      "tcp6": [],
+      "expect": "default"
+    },
+    {
+      "name": "the fallback base seam moves the fallback",
+      "env_port": null,
+      "tcp4": [
+        [
+          "0100007F",
+          "default",
+          "0A",
+          "foreign"
+        ]
+      ],
+      "tcp6": [],
+      "expect": "fallback",
+      "fallback_base": "20000"
+    }
+  ]
+}

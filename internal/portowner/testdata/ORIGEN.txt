@@ -1,0 +1,4 @@
+engram_port_vectors.json is a verbatim copy of tests/fixtures/engram_port_vectors.json
+from the Pegasus Harness repository (the client side of the engram port resolution).
+It is the cross-repo parity check: the Go resolver in this package must pass every vector.
+When Pegasus changes its vectors, copy the file again and make this package follow.

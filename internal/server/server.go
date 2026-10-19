@@ -46,6 +46,13 @@ type Server struct {
 	serve   func(net.Listener, http.Handler) error
 	onWrite func() // called after successful local writes
 
+	version string
+	// selfUID is this process's uid (-1 where it does not exist); uidOf maps a
+	// request to the uid behind its client socket. Both are test seams.
+	selfUID func() int
+	uidOf   func(*http.Request) (int, error)
+	handler http.Handler
+
 	// runnerFactory resolves a SemanticRunner by CLI name (read from ENGRAM_AGENT_CLI).
 	// When nil, semantic=true requests fail with 500.
 	runnerFactory SemanticRunnerFactory
@@ -55,10 +62,18 @@ type Server struct {
 }
 
 func New(s *store.Store, port int) *Server {
-	srv := &Server{store: s, port: port, listen: net.Listen, serve: http.Serve}
+	srv := &Server{store: s, port: port, listen: net.Listen, version: "dev", selfUID: os.Getuid, uidOf: requestUID}
 	srv.mux = http.NewServeMux()
 	srv.routes()
+	srv.handler = srv.ownerGuard(srv.mux)
 	return srv
+}
+
+// SetVersion sets the build version /health reports.
+func (s *Server) SetVersion(v string) {
+	if v != "" {
+		s.version = v
+	}
 }
 
 // SetOnWrite configures a callback invoked after every successful local write.
@@ -133,7 +148,10 @@ func (s *Server) Start() error {
 	}
 	serveFn := s.serve
 	if serveFn == nil {
-		serveFn = http.Serve
+		// Default: an http.Server whose ConnContext records who owns each client socket.
+		serveFn = func(ln net.Listener, h http.Handler) error {
+			return (&http.Server{Handler: h, ConnContext: s.connContext}).Serve(ln)
+		}
 	}
 
 	ln, err := listenFn("tcp", addr)
@@ -141,11 +159,11 @@ func (s *Server) Start() error {
 		return fmt.Errorf("engram server: listen %s: %w", addr, err)
 	}
 	log.Printf("[engram] HTTP server listening on %s", addr)
-	return serveFn(ln, s.mux)
+	return serveFn(ln, s.handler)
 }
 
 func (s *Server) Handler() http.Handler {
-	return s.mux
+	return s.handler
 }
 
 func (s *Server) routes() {
@@ -215,7 +233,8 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, map[string]any{
 		"status":  "ok",
 		"service": "engram",
-		"version": "0.1.0",
+		"version": s.version,
+		"uid":     s.selfUID(),
 	})
 }
 

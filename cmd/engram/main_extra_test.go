@@ -224,6 +224,8 @@ func TestCmdServeParsesPortAndErrors(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			stubExitWithPanic(t)
+			// Never consult the real /proc of the machine running the tests.
+			t.Setenv("ENGRAM_PORT_PROC_TCP4", filepath.Join(t.TempDir(), "missing"))
 			if tc.envPort != "" {
 				t.Setenv("ENGRAM_PORT", tc.envPort)
 			} else {
