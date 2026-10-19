@@ -569,6 +569,9 @@ func (s *Store) JudgeRelation(p JudgeRelationParams) (*Relation, error) {
 			return err
 		}
 
+		p.Reason = sanitizeStoredPtr(p.Reason, 0)
+		p.Evidence = sanitizeStoredPtr(p.Evidence, 0)
+
 		// ── UPDATE memory_relations ────────────────────────────────────────
 		if _, err := s.execHook(tx, `
 			UPDATE memory_relations
@@ -686,6 +689,7 @@ func (s *Store) JudgeBySemantic(p JudgeBySemanticParams) (string, error) {
 			LIMIT 1
 		`, p.SourceID, p.TargetID, p.TargetID, p.SourceID).Scan(&existingSyncID)
 
+		p.Reasoning = sanitizeStored(p.Reasoning, 0)
 		confidence := p.Confidence
 		var modelPtr *string
 		if p.Model != "" {

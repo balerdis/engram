@@ -1941,7 +1941,7 @@ func TestStoreAdditionalQueryAndMutationBranches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get observation: %v", err)
 	}
-	if !strings.Contains(obs.Title, "[REDACTED]") {
+	if !strings.Contains(obs.Title, "[REDACTED:PRIVATE]") {
 		t.Fatalf("expected private tags redacted in title, got %q", obs.Title)
 	}
 	if !strings.Contains(obs.Content, "... [truncated]") {

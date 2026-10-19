@@ -19,8 +19,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	projectpkg "github.com/Gentleman-Programming/engram/internal/project"
+	"github.com/Gentleman-Programming/engram/internal/redact"
 	"github.com/Gentleman-Programming/engram/internal/timeutil"
 	sqlite "modernc.org/sqlite"
 )
@@ -1063,6 +1065,7 @@ func (s *Store) StartSession(id, project, directory string) error {
 // EndSession marks a session ended. An empty summary keeps any stored summary;
 // a non-empty one replaces it.
 func (s *Store) EndSession(id string, summary string) error {
+	summary = sanitizeStored(summary, s.cfg.MaxObservationLength)
 	return s.withTx(func(tx *sql.Tx) error {
 		res, err := s.execHook(tx,
 			`UPDATE sessions SET ended_at = datetime('now'), summary = COALESCE(?, summary) WHERE id = ?`,
@@ -1265,16 +1268,14 @@ func (s *Store) AddObservation(p AddObservationParams) (int64, error) {
 	// Normalize project name (lowercase + trim) before any persistence
 	p.Project, _ = NormalizeProject(p.Project)
 
-	// Strip <private>...</private> tags before persisting ANYTHING
-	title := stripPrivateTags(p.Title)
-	content := stripPrivateTags(p.Content)
+	// Redact credentials and strip <private>...</private> tags before persisting ANYTHING
+	title := sanitizeStored(p.Title, 0)
+	content := sanitizeStored(p.Content, s.cfg.MaxObservationLength)
+	p.ToolName = sanitizeStored(p.ToolName, 0)
 
-	if len(content) > s.cfg.MaxObservationLength {
-		content = content[:s.cfg.MaxObservationLength] + "... [truncated]"
-	}
 	scope := normalizeScope(p.Scope)
 	normHash := hashNormalized(content)
-	topicKey := normalizeTopicKey(p.TopicKey)
+	topicKey := normalizeTopicKey(sanitizeStored(p.TopicKey, 0))
 
 	var observationID int64
 	err := s.withTx(func(tx *sql.Tx) error {
@@ -1620,11 +1621,7 @@ func (s *Store) AddPromptIfMissing(p AddPromptParams) (int64, bool, error) {
 }
 
 func (s *Store) preparePromptContent(content string) string {
-	content = stripPrivateTags(content)
-	if len(content) > s.cfg.MaxObservationLength {
-		content = content[:s.cfg.MaxObservationLength] + "... [truncated]"
-	}
-	return content
+	return sanitizeStored(content, s.cfg.MaxObservationLength)
 }
 
 func (s *Store) RecentPrompts(project string, limit int) ([]Prompt, error) {
@@ -1834,13 +1831,10 @@ func (s *Store) UpdateObservation(id int64, p UpdateObservationParams) (*Observa
 			typ = *p.Type
 		}
 		if p.Title != nil {
-			title = stripPrivateTags(*p.Title)
+			title = sanitizeStored(*p.Title, 0)
 		}
 		if p.Content != nil {
-			content = stripPrivateTags(*p.Content)
-			if len(content) > s.cfg.MaxObservationLength {
-				content = content[:s.cfg.MaxObservationLength] + "... [truncated]"
-			}
+			content = sanitizeStored(*p.Content, s.cfg.MaxObservationLength)
 		}
 		if p.Project != nil {
 			project, _ = NormalizeProject(*p.Project)
@@ -1849,7 +1843,7 @@ func (s *Store) UpdateObservation(id int64, p UpdateObservationParams) (*Observa
 			scope = normalizeScope(*p.Scope)
 		}
 		if p.TopicKey != nil {
-			topicKey = normalizeTopicKey(*p.TopicKey)
+			topicKey = normalizeTopicKey(sanitizeStored(*p.TopicKey, 0))
 		}
 
 		if _, err := s.execHook(tx,
@@ -2492,6 +2486,7 @@ func (s *Store) Import(data *ExportData) (*ImportResult, error) {
 
 	// Import sessions (skip duplicates)
 	for _, sess := range data.Sessions {
+		sess.Summary = sanitizeStoredPtr(sess.Summary, s.cfg.MaxObservationLength)
 		res, err := s.execHook(tx,
 			`INSERT OR IGNORE INTO sessions (id, project, directory, started_at, ended_at, summary)
 			 VALUES (?, ?, ?, ?, ?, ?)`,
@@ -2507,6 +2502,10 @@ func (s *Store) Import(data *ExportData) (*ImportResult, error) {
 	// Import observations (use new IDs — AUTOINCREMENT, skip duplicate sync IDs)
 	for _, obs := range data.Observations {
 		syncID := normalizeExistingSyncID(obs.SyncID, "obs")
+		obs.Title = sanitizeStored(obs.Title, 0)
+		obs.Content = sanitizeStored(obs.Content, s.cfg.MaxObservationLength)
+		obs.ToolName = sanitizeStoredPtr(obs.ToolName, 0)
+		obs.TopicKey = sanitizeStoredPtr(obs.TopicKey, 0)
 		res, err := s.execHook(tx,
 			`INSERT INTO observations (sync_id, session_id, type, title, content, tool_name, project, scope, topic_key, normalized_hash, revision_count, duplicate_count, last_seen_at, review_after, created_at, updated_at, deleted_at)
 			 SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
@@ -2539,6 +2538,7 @@ func (s *Store) Import(data *ExportData) (*ImportResult, error) {
 
 	// Import prompts
 	for _, p := range data.Prompts {
+		p.Content = s.preparePromptContent(p.Content)
 		_, err := s.execHook(tx,
 			`INSERT INTO user_prompts (sync_id, session_id, content, project, created_at)
 			 VALUES (?, ?, ?, ?, ?)`,
@@ -3363,6 +3363,9 @@ func (s *Store) applyRelationUpsertTx(tx *sql.Tx, mutation SyncMutation) error {
 		return ErrRelationFKMissing
 	}
 
+	p.Reason = sanitizeStoredPtr(p.Reason, 0)
+	p.Evidence = sanitizeStoredPtr(p.Evidence, 0)
+
 	// Step 3: upsert into memory_relations keyed on sync_id (idempotent re-apply).
 	if _, err := s.execHook(tx, `
 		INSERT INTO memory_relations
@@ -3483,6 +3486,7 @@ func (s *Store) applySessionPayloadTx(tx *sql.Tx, payload syncSessionPayload) er
 	if isSessionDeletePayload(payload) {
 		return s.applySessionDeleteTx(tx, payload)
 	}
+	payload.Summary = sanitizeStoredPtr(payload.Summary, s.cfg.MaxObservationLength)
 	_, err := s.execHook(tx,
 		`INSERT INTO sessions (id, project, directory, started_at, ended_at, summary)
 		 VALUES (?, ?, ?, COALESCE(NULLIF(?, ''), datetime('now')), ?, ?)
@@ -3520,6 +3524,10 @@ func (s *Store) applySessionDeleteTx(tx *sql.Tx, payload syncSessionPayload) err
 }
 
 func (s *Store) applyObservationUpsertTx(tx *sql.Tx, payload syncObservationPayload) error {
+	payload.Title = sanitizeStored(payload.Title, 0)
+	payload.Content = sanitizeStored(payload.Content, s.cfg.MaxObservationLength)
+	payload.ToolName = sanitizeStoredPtr(payload.ToolName, 0)
+	payload.TopicKey = sanitizeStoredPtr(payload.TopicKey, 0)
 	revisionCount := maxInt(payload.RevisionCount, 1)
 	duplicateCount := maxInt(payload.DuplicateCount, 1)
 	createdAt := strings.TrimSpace(payload.CreatedAt)
@@ -3622,6 +3630,7 @@ func (s *Store) applyObservationDeleteTx(tx *sql.Tx, payload syncObservationPayl
 }
 
 func (s *Store) applyPromptUpsertTx(tx *sql.Tx, payload syncPromptPayload) error {
+	payload.Content = s.preparePromptContent(payload.Content)
 	var tombstoneDeletedAt string
 	err := tx.QueryRow(`SELECT deleted_at FROM prompt_tombstones WHERE sync_id = ?`, payload.SyncID).Scan(&tombstoneDeletedAt)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -4235,6 +4244,52 @@ func stripPrivateTags(s string) string {
 	// Clean up multiple consecutive [REDACTED] and excessive whitespace
 	result = strings.TrimSpace(result)
 	return result
+}
+
+const truncatedSuffix = "... [truncated]"
+
+// truncateRuneSafe cuts s to at most max bytes without splitting a UTF-8
+// character and appends the truncation marker. max <= 0 means no limit.
+func truncateRuneSafe(s string, max int) string {
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	cut := s[:max]
+	for len(cut) > 0 {
+		if r, w := utf8.DecodeLastRuneInString(cut); r == utf8.RuneError && w == 1 {
+			cut = cut[:len(cut)-1]
+			continue
+		}
+		break
+	}
+	return cut + truncatedSuffix
+}
+
+// sanitizeStored is the single gate for free text that gets persisted.
+// Order matters: cut to the detection cap, redact credentials (before
+// <private> is stripped, so <private>NAME=value</private> keeps its name for
+// detection), strip <private> tags, then truncate to max bytes (0 = no limit).
+// It is idempotent: already redacted text comes back unchanged.
+func sanitizeStored(s string, max int) string {
+	if s == "" {
+		return s
+	}
+	s, cut := redact.CutToDetectCap(s)
+	s = redact.Redact(s)
+	s = stripPrivateTags(s)
+	if cut {
+		s += truncatedSuffix
+	}
+	return truncateRuneSafe(s, max)
+}
+
+// sanitizeStoredPtr applies sanitizeStored to an optional text field.
+func sanitizeStoredPtr(s *string, max int) *string {
+	if s == nil {
+		return nil
+	}
+	v := sanitizeStored(*s, max)
+	return &v
 }
 
 // sanitizeFTS wraps each word in quotes so FTS5 doesn't choke on special chars.

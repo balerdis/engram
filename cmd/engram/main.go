@@ -222,7 +222,7 @@ func shouldCheckForUpdates(args []string) bool {
 	}
 	command := strings.ToLower(strings.TrimSpace(args[0]))
 	switch command {
-	case "mcp", "serve", "protocol-mode", "purge", "port":
+	case "mcp", "serve", "protocol-mode", "purge", "port", "redact":
 		return false
 	}
 	return true
@@ -241,6 +241,12 @@ func handleConfigFreeCommand(args []string) bool {
 		return true
 	case "help", "--help", "-h":
 		printUsage()
+		return true
+	case "redact":
+		if err := runRedact(args[1:], os.Stdin, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "engram redact:", err)
+			exitFunc(1)
+		}
 		return true
 	}
 	return false
@@ -2029,6 +2035,9 @@ Commands:
   delete project <name> [--hard]
                      Cascade-delete a project: soft-deletes observations (or hard if --hard),
                      removes prompts; with --hard also removes sessions
+  redact [--catalog-sha256]
+                     Read stdin, write it with credentials replaced by [REDACTED:NAME];
+                     --catalog-sha256 prints the hash of the embedded catalog
   purge              Hard-delete test-run leftovers: dry-run by default; --yes executes after a backup
                        --sync-leftovers [--vacuum]  clean the unused sync tables (leftover rows)
                        --project NAME  --session ID  --since DATE  --until DATE   (AND-ed, one required;
