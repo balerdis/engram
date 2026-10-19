@@ -26,15 +26,42 @@ func Canonical(name string) (canonical string, warning string) {
 		return "", ""
 	}
 	shown := redact.Redact(name)
-	n := strings.TrimSpace(strings.ToLower(shown))
+	n := name
+	// One round is redact + lowercase + trim + collapse. Lowercasing can turn
+	// the text into something the redactor detects on the next round (a known
+	// token format is case sensitive: "GHP_Authorizationtokenuser" lowercases
+	// to a `ghp_` token), so the rounds repeat until the name stops changing:
+	// only then is Canonical idempotent, which the stored identity needs.
+	for round := 0; ; round++ {
+		next := canonicalRound(n)
+		if next == n {
+			break
+		}
+		n = next
+		if round >= maxCanonicalRounds {
+			// Does not settle (never seen): a fixed constant is safer than a name
+			// that would change on the next write.
+			n = "[redacted]"
+			break
+		}
+	}
+	if n == name {
+		return n, ""
+	}
+	return n, fmt.Sprintf("⚠️ Project name normalized: %q → %q", shown, n)
+}
+
+// maxCanonicalRounds bounds the fixed-point iteration; two rounds settle every
+// case found, the rest is margin.
+const maxCanonicalRounds = 4
+
+func canonicalRound(name string) string {
+	n := strings.TrimSpace(strings.ToLower(redact.Redact(name)))
 	for strings.Contains(n, "--") {
 		n = strings.ReplaceAll(n, "--", "-")
 	}
 	for strings.Contains(n, "__") {
 		n = strings.ReplaceAll(n, "__", "_")
 	}
-	if n == name {
-		return n, ""
-	}
-	return n, fmt.Sprintf("⚠️ Project name normalized: %q → %q", shown, n)
+	return n
 }

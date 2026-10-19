@@ -45,12 +45,28 @@ func privateTags(text string) []privTag {
 }
 
 // blankBreaks finds the blank-line breaks once and is scanned with a cursor as
-// the open tags move forward, so many unclosed tags stay linear.
+// the open tags move forward, and remembers the next newline, so many unclosed
+// tags stay linear: the open tags come in ascending order, so a newline found
+// for one is still the first one at or after the next.
 type blankBreaks struct {
 	text   string
 	pos    []int
 	cursor int
 	done   bool
+	nl     int // first newline at or after the last start asked (len(text) if none), -1 before the first ask
+}
+
+// nextNewline is the index of the first '\n' at or after start, or len(text).
+func (b *blankBreaks) nextNewline(start int) int {
+	if b.nl >= start {
+		return b.nl
+	}
+	if i := strings.IndexByte(b.text[start:], '\n'); i >= 0 {
+		b.nl = start + i
+	} else {
+		b.nl = len(b.text)
+	}
+	return b.nl
 }
 
 func (b *blankBreaks) find() {
@@ -65,12 +81,7 @@ func (b *blankBreaks) find() {
 
 // unclosedEnd is where an open tag with no close (whose tag ends at start) ends.
 func unclosedEnd(text string, start int, blanks *blankBreaks) int {
-	eol := strings.IndexByte(text[start:], '\n')
-	if eol < 0 {
-		eol = len(text)
-	} else {
-		eol += start
-	}
+	eol := blanks.nextNewline(start)
 	if strings.Trim(text[start:eol], " \t\r") != "" {
 		if eol > 0 && text[eol-1] == '\r' {
 			return eol - 1
@@ -113,7 +124,7 @@ func privateSpans(text string) []privSpan {
 		}
 	}
 	if len(opened) > 0 {
-		blanks := &blankBreaks{text: text}
+		blanks := &blankBreaks{text: text, nl: -1}
 		for _, i := range opened {
 			spans = append(spans, [2]int{tags[i].start, unclosedEnd(text, tags[i].end, blanks)})
 		}

@@ -70,6 +70,11 @@ func TestManyUnclosedPrivateTagsStayLinear(t *testing.T) {
 	_ = Redact(strings.Repeat("<private>", 28000))
 	_ = Redact(strings.Repeat("<private>\n", 28000))
 	_ = Redact(strings.Repeat("<private>\n\n", 20000))
+	// StripPrivate has no size cap (MCP mem_suggest_topic_key reaches it): the
+	// cost of unclosed tags must be linear. Quadratic took 5 s at 1 MB, 19 s at 2 MB.
+	_ = StripPrivate(strings.Repeat("<private>", 250000))
+	_ = StripPrivate(strings.Repeat("<private>  ", 200000))
+	_ = StripPrivate(strings.Repeat("<private> x\n", 150000))
 	if d := time.Since(start); d > 5*time.Second {
 		t.Fatalf("took %v", d)
 	}

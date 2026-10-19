@@ -1,6 +1,7 @@
 package project
 
 import (
+	"math/rand"
 	"os/exec"
 	"strings"
 	"testing"
@@ -95,6 +96,40 @@ func TestCanonicalRedactsCredentialsDeterministically(t *testing.T) {
 		c, _ := Canonical(a)
 		if a != b || a != c {
 			t.Errorf("Canonical(%q): %q %q, again %q", in, a, b, c)
+		}
+	}
+}
+
+func TestCanonicalIsIdempotentOnTheKnownCounterexample(t *testing.T) {
+	a, _ := Canonical("GHP_Authorizationtokenuser")
+	b, _ := Canonical(a)
+	if a != b {
+		t.Fatalf("Canonical is not idempotent: %q then %q", a, b)
+	}
+	if strings.Contains(a, "authorizationtokenuser") {
+		t.Fatalf("credential-shaped text survived: %q", a)
+	}
+}
+
+// Fuzz-style: random mixes of catalog fragments (known token prefixes, key
+// names in several spellings, separators, case, placeholders) must reach a
+// fixed point in one Canonical call.
+func TestCanonicalIsIdempotentOnRandomCatalogFragments(t *testing.T) {
+	frag := []string{"GHP_", "ghp_", "Authorization", "tokenuser", "AKIA", "ABCDEFGH12345678", "sk-", "SK-ANT-", "xoxb-", "glpat-", "AIza", "npm_",
+		"eyJ", ".", "token", "Token", "TOKEN", "password", "PASSWORD", "dbPassword", "api_key", "API-KEY", "secret", "=", ":", "://", "user:", "pw12345678",
+		"@h", "-", "_", "--", "__", " ", "[REDACTED:TOKEN]", "[redacted:github_token]", "<private>", "</private>", "x", "abcdefghijklmnopqrstuv", "A1b2C3d4E5F6",
+		"Bearer ", "x-api-key: ", "-----BEGIN PRIVATE KEY-----", "MIIEvQIBADANBgkq", "é", "Ü"}
+	rng := rand.New(rand.NewSource(3))
+	for i := 0; i < 20000; i++ {
+		var b strings.Builder
+		for n := rng.Intn(10) + 1; n > 0; n-- {
+			b.WriteString(frag[rng.Intn(len(frag))])
+		}
+		in := b.String()
+		a, _ := Canonical(in)
+		c, _ := Canonical(a)
+		if a != c {
+			t.Fatalf("not idempotent for %q: %q then %q", in, a, c)
 		}
 	}
 }
