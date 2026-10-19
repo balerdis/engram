@@ -21,16 +21,6 @@ func agentAdapters() []agentAdapter {
 			installDir:  openCodePluginDir,
 		},
 		{
-			slug:        "pi",
-			description: "Pi — gentle-engram package plus pi-mcp-adapter MCP tools",
-			custom:      installPi,
-			installDir:  piAgentDir,
-			postInstall: []string{
-				"Restart Pi so packages and MCP config are reloaded",
-				"Verify with: pi list",
-			},
-		},
-		{
 			slug:        "claude-code",
 			description: "Claude Code — Native plugin via marketplace (hooks, skills, MCP, compaction recovery)",
 			custom:      installClaudeCode,

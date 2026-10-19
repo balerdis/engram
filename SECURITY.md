@@ -43,7 +43,7 @@ Engram is a local-first CLI tool that writes to a local SQLite database. The att
 
 ### npm Account Security
 
-All maintainers with publish access to any npm package owned by this project (`gentle-engram`, future packages) MUST:
+All maintainers with publish access to any npm package owned by this project MUST:
 
 - Enable **`auth-and-writes` two-factor authentication** on their npm account: `npm profile enable-2fa auth-and-writes`
 - Use **trusted publishing (OIDC)** via GitHub Actions for all releases — never publish from a local machine with a long-lived token
@@ -51,7 +51,7 @@ All maintainers with publish access to any npm package owned by this project (`g
 
 ### Vetting New Dependencies
 
-Before adding any npm dependency to `plugin/pi` or `plugin/obsidian`:
+Before adding any npm dependency to `plugin/obsidian`:
 
 1. Check the package on Snyk Advisor: `https://snyk.io/advisor/npm-package/<name>`
 2. Review the package's `package.json` on the registry — flag any `postinstall`, `preinstall`, or `prepare` scripts

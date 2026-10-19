@@ -56,7 +56,7 @@ func TestSupportedAgentsIncludesAllRegistryAgents(t *testing.T) {
 	}
 
 	want := []string{
-		"opencode", "pi", "claude-code", "gemini-cli", "codex",
+		"opencode", "claude-code", "gemini-cli", "codex",
 		"antigravity-cli", "windsurf", "qwen", "kiro", "cursor",
 		"vscode-copilot", "kilocode",
 	}

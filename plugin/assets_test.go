@@ -22,7 +22,7 @@ func repoRoot(t *testing.T) string {
 }
 
 // TestPluginAssetsDoNotLeakSpanishTriggers walks the injected assets of all
-// three plugins (claude-code, opencode, pi) and asserts that none of them
+// three plugins (claude-code, opencode) and asserts that none of them
 // contain Spanish trigger tokens. Those tokens act as register cues in the
 // model's context and cause English sessions to drift into Spanish even when
 // language-lock rules are in place elsewhere.
@@ -51,8 +51,6 @@ func TestPluginAssetsDoNotLeakSpanishTriggers(t *testing.T) {
 		{filepath.Join(root, "plugin", "claude-code", "skills", "*", "SKILL.md")},
 		// opencode: TypeScript plugin adapter
 		{filepath.Join(root, "plugin", "opencode", "*.ts")},
-		// pi: TypeScript plugin adapter
-		{filepath.Join(root, "plugin", "pi", "*.ts")},
 	}
 
 	for _, target := range targets {

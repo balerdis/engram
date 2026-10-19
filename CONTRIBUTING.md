@@ -144,7 +144,7 @@ Types map to labels: `feat` → `type:feature`, `fix` → `type:bug`, `docs` →
 
 ## npm Dependency Hygiene
 
-When adding npm dependencies to `plugin/pi` or `plugin/obsidian`:
+When adding npm dependencies to `plugin/obsidian`:
 
 ### Use `npq` for inspection
 

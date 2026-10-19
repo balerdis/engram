@@ -52,7 +52,6 @@ Windows, Linux, and other install methods → [docs/INSTALLATION.md](docs/INSTAL
 | Agent                       | One-liner                                                                                    |
 | --------------------------- | -------------------------------------------------------------------------------------------- |
 | Claude Code                 | `claude plugin marketplace add balerdis/engram && claude plugin install engram`                  |
-| Pi                          | `engram setup pi`                                                                            |
 | OpenCode                    | `engram setup opencode`                                                                      |
 | Gemini CLI                  | `engram setup gemini-cli`                                                                    |
 | Codex                       | `engram setup codex`                                                                         |
@@ -73,25 +72,13 @@ Full per-agent config, Memory Protocol, and compaction survival → [docs/AGENT-
 >
 > For most agents (Claude Code, Gemini CLI, Codex, VS Code, Cursor, Windsurf) — **no**. Your agent launches `engram mcp` automatically as a short-lived stdio subprocess whenever it starts a session. You never run it manually.
 >
-> `engram serve` is only needed when a plugin uses the HTTP API for session tracking: the **OpenCode plugin** and the **Pi extension** both talk to `engram serve` in the background. `engram setup opencode` and `engram setup pi` note this; the plugins auto-start the server when possible. If your environment blocks background processes, start it manually in a separate terminal:
+> `engram serve` is only needed when a plugin uses the HTTP API for session tracking: the **OpenCode plugin** talks to `engram serve` in the background. `engram setup opencode` notes this; the plugin auto-starts the server when possible. If your environment blocks background processes, start it manually in a separate terminal:
 > ```bash
 > engram serve   # runs on port 7437 by default; keep it running
 > ```
 > You do not need `engram serve` at all for stdio-only agents (Claude Code, Gemini CLI, Codex, VS Code, Cursor, Windsurf).
 
 No Node.js, no Python, no Docker. **One binary, one SQLite file.**
-
-### Pi Package
-
-Engram has a first-class Pi package: [`gentle-engram`](plugin/pi/README.md).
-
-```bash
-engram setup pi
-```
-
-It gives Pi persistent project memory, compaction recovery, and shared memory with other MCP agents through the same local-or-cloud Engram brain. The package is part of the Gentleman Programming agentic-coding ecosystem alongside Gentle-AI, SDD, skills, and Engram Cloud.
-
-The `gentle-engram` npm package is published by the original project, not by this fork.
 
 ### Setup FAQ
 
@@ -105,7 +92,7 @@ Engram's MCP transport is **stdio only** — there is no HTTP or network MCP end
 
 If you have agents running in Docker that need to write to Engram on the host, the available paths are:
 
-- **HTTP REST API** (`engram serve`): note that `engram serve` currently binds to `127.0.0.1` only, so it is **not** reachable from inside a container out of the box — a container cannot reach the host's loopback, and there is no bind-address flag yet. `ENGRAM_URL` lets the **Pi plugin** target an `engram serve` reachable on a routable host/port (e.g. `ENGRAM_URL=http://host.docker.internal:7437 pi`), but that only works once the server listens on a non-loopback interface, which is not supported today. The HTTP API is not the MCP protocol; Pi uses it for session capture and Pi-native `mem_*` tools. For Docker right now, prefer the stdio path below.
+- **HTTP REST API** (`engram serve`): note that `engram serve` currently binds to `127.0.0.1` only, so it is **not** reachable from inside a container out of the box — a container cannot reach the host's loopback, and there is no bind-address flag yet. The HTTP API is not the MCP protocol. For Docker right now, prefer the stdio path below.
 - **Stdio MCP** (mount the binary): the cleanest path for a Dockerized agent that needs MCP tools is to mount the `engram` binary into the container and let the agent launch `engram mcp` locally via stdio, pointing `ENGRAM_DATA_DIR` at a volume shared with the host.
 
 Full environment variable reference → [DOCS.md#environment-variables](DOCS.md#environment-variables)
@@ -198,7 +185,6 @@ Full CLI with all flags → [docs/ARCHITECTURE.md#cli-reference](docs/ARCHITECTU
 | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | -------------- |
 | `ENGRAM_DATA_DIR`               | Override data directory                                                                                                | `~/.engram`    |
 | `ENGRAM_PORT`                   | Override HTTP server port                                                                                              | `7437`         |
-| `ENGRAM_URL`                    | Point the **Pi plugin** at an existing `engram serve` instance instead of auto-starting one. Not an MCP endpoint — used by the HTTP event-capture path only. (The OpenCode plugin honors `ENGRAM_PORT`/`ENGRAM_BIN`, not `ENGRAM_URL`.) | (unset, defaults to `http://127.0.0.1:<ENGRAM_PORT>`) |
 | `ENGRAM_HTTP_TOKEN`             | Optional Bearer auth for local HTTP server. When set, destructive and export routes require `Authorization: Bearer <token>`. Unset = open (zero-config default). | (unset) |
 | `ENGRAM_TIMEZONE`               | Timezone for timestamp display in the TUI (e.g. `America/New_York`). Falls back to system local when unset or invalid. | system local |
 

@@ -9,7 +9,6 @@ Engram works with **any MCP-compatible agent**. Pick your agent below.
 | Agent         | One-liner                                                                                    | Manual Config                                      |
 | ------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------- |
 | Claude Code   | `claude plugin marketplace add balerdis/engram && claude plugin install engram` | [Details](#claude-code)                            |
-| Pi            | `engram setup pi`                                                                            | [Details](#pi)                                     |
 | OpenCode      | `engram setup opencode`                                                                      | [Details](#opencode)                               |
 | Gemini CLI    | `engram setup gemini-cli`                                                                    | [Details](#gemini-cli)                             |
 | Codex           | `engram setup codex`                                                                         | [Details](#codex)                                  |
@@ -28,49 +27,7 @@ Engram works with **any MCP-compatible agent**. Pick your agent below.
 > agent's instruction surface, idempotently. The per-agent sections below describe
 > the exact files each command touches and the manual equivalent.
 
-## Pi
-
-Install Engram's Pi package, the MCP adapter, and Pi MCP config:
-
-```bash
-engram setup pi
-```
-
-The `gentle-engram` npm package is published by the original project, not by this fork. `engram setup pi` runs `pi install npm:gentle-engram@0.1.8` and `pi install npm:pi-mcp-adapter`, then ensures Pi settings contain both packages and writes `mcpServers.engram` in the Pi agent MCP config when no Engram server is already configured. Existing `mcpServers.engram` entries are preserved.
-
-When [mise](https://mise.jdx.dev/) is detected in `PATH`, `engram setup pi` also auto-pins `npmCommand` in Pi's `settings.json` to `["mise", "exec", "node@<version>", "--", "npm"]`, preventing Node version drift from silently changing which npm root Pi uses. If `npmCommand` already exists in `settings.json`, the existing value is preserved. This step is a no-op when mise is not installed.
-
-Manual equivalent:
-
-```bash
-pi install npm:gentle-engram@0.1.8
-pi install npm:pi-mcp-adapter
-pi-engram init
-```
-
-Restart Pi after installation.
-
-The package has two paths:
-
-- **HTTP event capture**: the Pi extension sends prompts, summaries, passive task learnings, and compact Pi-native `mem_*` tool calls to `engram serve`.
-- **MCP gateway**: `pi-mcp-adapter` exposes Engram's MCP surface by launching `engram mcp --tools=agent` and is also used by other Pi MCP integrations such as Notion.
-
-Use an existing Engram HTTP server:
-
-```bash
-# Set ENGRAM_URL before launching the Pi agent CLI ("pi" is the command, not part of the URL)
-ENGRAM_URL=http://127.0.0.1:7437 pi
-```
-
-`ENGRAM_URL` tells the `gentle-engram` Pi extension to use an already-running `engram serve` instance instead of auto-starting one. This is standard shell syntax: `KEY=value command`. The URL is the HTTP REST API base; it is not an MCP endpoint.
-
-Use a custom Engram binary for MCP tools and local auto-start:
-
-```bash
-ENGRAM_BIN=/path/to/engram pi
-```
-
-If the binary is missing, the MCP launcher exits cleanly instead of crashing Pi with `spawn engram ENOENT`.
+## Project resolution
 
 ### Project auto-detection (important)
 

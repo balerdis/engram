@@ -34,7 +34,7 @@ Agent
 is either:
 
 - **bespoke** — a `custom` installer for agents with special needs (OpenCode embeds
-  a TS plugin, Pi runs a package manager, Claude Code drives the `claude` CLI, Codex
+  a TS plugin, Claude Code drives the `claude` CLI, Codex
   writes TOML, Gemini CLI cleans up legacy env state), or
 - **declarative** — just an MCP path + format (`mcpServers` / `servers` / OpenCode's
   `mcp` object) and instruction surfaces; the generic `injectMCP` / `writeInstruction`

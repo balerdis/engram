@@ -165,7 +165,7 @@ func TestPrintUsage(t *testing.T) {
 	if !strings.Contains(stdout, "search <query>") || !strings.Contains(stdout, "setup [agent]") {
 		t.Fatalf("usage missing expected commands: %q", stdout)
 	}
-	for _, agent := range []string{"opencode", "pi", "claude-code", "gemini-cli", "codex", "antigravity-cli", "windsurf", "qwen", "kiro", "cursor", "vscode-copilot", "kilocode"} {
+	for _, agent := range []string{"opencode", "claude-code", "gemini-cli", "codex", "antigravity-cli", "windsurf", "qwen", "kiro", "cursor", "vscode-copilot", "kilocode"} {
 		if !strings.Contains(stdout, agent) {
 			t.Fatalf("usage missing setup agent %q: %q", agent, stdout)
 		}
@@ -193,12 +193,6 @@ func TestPrintPostInstall(t *testing.T) {
 			result:     &setup.Result{Agent: "opencode", TUIPluginEnabled: false},
 			expects:    []string{"Restart OpenCode", "auto-starts"},
 			notExpects: []string{"opencode-subagent-statusline", "engram serve &"},
-		},
-		{
-			name:       "pi",
-			result:     &setup.Result{Agent: "pi"},
-			expects:    []string{"Restart Pi", "pi list"},
-			notExpects: []string{"ENGRAM_BIN"},
 		},
 		{
 			name:    "gemini-cli",
