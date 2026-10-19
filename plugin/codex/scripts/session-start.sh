@@ -6,8 +6,6 @@
 # 3. Auto-imports git-synced chunks if .engram/manifest.json exists
 # 4. Injects Memory Protocol instructions + memory context
 
-ENGRAM_PORT="${ENGRAM_PORT:-7437}"
-ENGRAM_URL="http://127.0.0.1:${ENGRAM_PORT}"
 IMPORT_TIMEOUT_SECS=8
 LOCK_TTL_SECS=$((IMPORT_TIMEOUT_SECS + 4))
 LOCK_METADATA_STALE_SECS=$((LOCK_TTL_SECS * 5))
@@ -20,17 +18,32 @@ source "${SCRIPT_DIR}/_helpers.sh"
 INPUT=$(cat)
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty')
 CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
-OLD_PROJECT=$(basename "$CWD" | tr '[:upper:]' '[:lower:]')
-PROJECT=$(detect_project "$CWD")
 
-# Ensure engram server is running
+# Memory disabled (port held by another user): print and send nothing, start nothing.
+resolve_engram_url || exit 0
+
+# Ensure engram server is running (on the explicitly resolved port)
 if ! curl -sf "${ENGRAM_URL}/health" --max-time 1 > /dev/null 2>&1; then
-  engram serve &>/dev/null &
+  # Detach fully (new session, no stdio) so the server outlives this hook.
+  if command -v setsid >/dev/null 2>&1; then
+    ENGRAM_PORT="$ENGRAM_RESOLVED_PORT" setsid engram serve </dev/null >/dev/null 2>&1 &
+  else
+    ENGRAM_PORT="$ENGRAM_RESOLVED_PORT" nohup engram serve </dev/null >/dev/null 2>&1 &
+  fi
   sleep 0.5
 fi
 
-# Migrate project name if it changed (one-time, idempotent)
-if [ "$OLD_PROJECT" != "$PROJECT" ] && [ -n "$OLD_PROJECT" ] && [ -n "$PROJECT" ]; then
+# Project name: the server's answer wins; the local detection is only a
+# fallback. An ambiguous answer leaves PROJECT empty: no name is invented.
+resolve_project "$CWD" 3
+
+# Migrate the old name (canonical basename of the cwd) only from the git root,
+# only when the name came from the server, and not when disabled. The server
+# renames only into an empty target and answers "skipped" otherwise.
+OLD_PROJECT=$(canonical_project "$(basename "$CWD")")
+if [ "$PROJECT_FROM_SERVER" = "1" ] && [ "$PROJECT_AMBIGUOUS" != "1" ] && [ "${ENGRAM_NO_PROJECT_MIGRATE:-}" != "1" ] \
+  && [ "$OLD_PROJECT" != "$PROJECT" ] && [ -n "$PROJECT" ] \
+  && [ -n "$CWD" ] && [ "$(git -C "$CWD" rev-parse --show-toplevel 2>/dev/null)" = "$(cd -P "$CWD" 2>/dev/null && pwd -P)" ]; then
   curl -sf "${ENGRAM_URL}/projects/migrate" \
     -X POST \
     -H "Content-Type: application/json" \
@@ -40,7 +53,7 @@ if [ "$OLD_PROJECT" != "$PROJECT" ] && [ -n "$OLD_PROJECT" ] && [ -n "$PROJECT" 
 fi
 
 # Create session
-if [ -n "$SESSION_ID" ] && [ -n "$PROJECT" ]; then
+if [ -n "$SESSION_ID" ] && [ -n "$PROJECT" ] && [ "$PROJECT_FROM_SERVER" = "1" ]; then
   curl -sf "${ENGRAM_URL}/sessions" \
     -X POST \
     -H "Content-Type: application/json" \
@@ -53,7 +66,13 @@ fi
 if [ -f "${CWD}/.engram/manifest.json" ]; then
   (
     cd "$CWD" 2>/dev/null || exit 0
-    IMPORT_LOCK="/tmp/engram-sync-import-$(printf '%s' "$CWD" | cksum | cut -d ' ' -f 1).lock"
+    # Per-user lock directory (never a predictable shared /tmp path another user
+    # could pre-create): $XDG_RUNTIME_DIR, else ~/.engram.
+    LOCK_BASE="${XDG_RUNTIME_DIR:-$HOME/.engram}"
+    ( umask 077; mkdir -p "$LOCK_BASE" ) 2>/dev/null
+    [ -d "$LOCK_BASE" ] && [ -O "$LOCK_BASE" ] || exit 0
+    chmod 700 "$LOCK_BASE" 2>/dev/null
+    IMPORT_LOCK="${LOCK_BASE}/engram-sync-import-$(printf '%s' "$CWD" | cksum | cut -d ' ' -f 1).lock"
     write_import_lock_info() {
       LOCK_INFO_TMP="$IMPORT_LOCK/info.$$"
       printf '%s %s\n' "$LOCK_PID" "$LOCK_NOW" > "$LOCK_INFO_TMP" 2>/dev/null \
@@ -134,8 +153,11 @@ if [ -f "${CWD}/.engram/manifest.json" ]; then
 fi
 
 # Fetch memory context
-ENCODED_PROJECT=$(printf '%s' "$PROJECT" | jq -sRr @uri)
-CONTEXT=$(curl -sf "${ENGRAM_URL}/context?project=${ENCODED_PROJECT}" --max-time 3 2>/dev/null | jq -r '.context // empty')
+CONTEXT=""
+if [ -n "$PROJECT" ]; then
+  ENCODED_PROJECT=$(printf '%s' "$PROJECT" | jq -sRr @uri)
+  CONTEXT=$(curl -sf "${ENGRAM_URL}/context?project=${ENCODED_PROJECT}" --max-time 3 2>/dev/null | jq -r '.context // empty')
+fi
 
 # Inject Memory Protocol + context — stdout is returned to Codex as additionalContext
 cat <<'PROTOCOL'
@@ -143,12 +165,18 @@ cat <<'PROTOCOL'
 
 You have engram memory tools. This protocol is MANDATORY and ALWAYS ACTIVE.
 
+WHO SAVES: only the agent talking with the person saves memories. If another agent launched you
+(you received a task brief, not a conversation with the user), do not call mem_save, mem_update,
+mem_session_summary, mem_save_prompt, mem_session_start/end or mem_judge unless your brief
+explicitly asks for it. You may use mem_search, mem_context and mem_get_observation. Put durable
+findings in your final reply; whoever launched you decides what to save.
+
 ### CORE TOOLS — always available, no ToolSearch needed
 mem_save, mem_search, mem_context, mem_session_summary, mem_get_observation, mem_save_prompt
 
 Use ToolSearch for other tools: mem_update, mem_suggest_topic_key, mem_session_start, mem_session_end, mem_stats, mem_delete, mem_timeline, mem_capture_passive
 
-### PROACTIVE SAVE — do NOT wait for user to ask
+### PROACTIVE SAVE (only the agent talking with the person) — do NOT wait for user to ask
 Call `mem_save` IMMEDIATELY after ANY of these:
 - Decision made (architecture, convention, workflow, tool choice)
 - Bug fixed (include root cause)
@@ -170,7 +198,7 @@ Call `mem_save` IMMEDIATELY after ANY of these:
 - User mentions a topic you have no context on
 - User's FIRST message references the project, a feature, or a problem — call `mem_search` with keywords from their message to check for prior work before responding
 
-### SESSION CLOSE — before saying "done":
+### SESSION CLOSE (only the agent talking with the person) — before saying "done":
 Call `mem_session_summary` with: Goal, Discoveries, Accomplished, Next Steps, Relevant Files.
 PROTOCOL
 

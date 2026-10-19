@@ -13,8 +13,6 @@
 #
 # MUST exit 0 always and output valid JSON — otherwise Codex blocks the message.
 
-ENGRAM_PORT="${ENGRAM_PORT:-7437}"
-ENGRAM_URL="http://127.0.0.1:${ENGRAM_PORT}"
 
 print_toolsearch_message() {
   printf '%s\n' '{"systemMessage":"CRITICAL FIRST ACTION — Execute this ToolSearch NOW before responding to the user:\nselect:mcp__engram__mem_save,mcp__engram__mem_search,mcp__engram__mem_context,mcp__engram__mem_session_summary,mcp__engram__mem_session_start,mcp__engram__mem_session_end,mcp__engram__mem_get_observation,mcp__engram__mem_suggest_topic_key,mcp__engram__mem_capture_passive,mcp__engram__mem_save_prompt,mcp__engram__mem_update,mcp__engram__mem_current_project,mcp__engram__mem_judge\n\nAfter loading tools, call mem_context to check for prior session history before responding."}'
@@ -29,6 +27,12 @@ INPUT=$(cat)
 CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty')
 
+# Memory disabled (port held by another user): no request, no injection.
+if ! resolve_engram_url; then
+  echo "{}"
+  exit 0
+fi
+
 # ──────────────────────────────────────────────────────────────────────────────
 # PROMPT PERSIST
 #
@@ -39,7 +43,10 @@ SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty')
 PROMPT=$(echo "$INPUT" | jq -r '.prompt // empty')
 if [ -n "$PROMPT" ] && [ -n "$SESSION_ID" ]; then
   (
-    _PROMPT_PROJECT=$(detect_project "$CWD")
+    # Only a name the server gave is sent; otherwise the server derives it.
+    resolve_project "$CWD"
+    _PROMPT_PROJECT=""
+    [ "$PROJECT_FROM_SERVER" = "1" ] && _PROMPT_PROJECT="$PROJECT"
     curl -sf -X POST "${ENGRAM_URL}/prompts" --max-time 2 \
       -H 'Content-Type: application/json' \
       -d "$(jq -n --arg s "$SESSION_ID" --arg p "${_PROMPT_PROJECT:-}" --arg c "$PROMPT" \
@@ -99,8 +106,7 @@ if [ -n "$SESSION_ID" ]; then
   SESSION_KEY="engram-codex-${SESSION_ID}-tools-loaded"
 else
   # No session ID available — only then detect project for the fallback state key.
-  PROJECT=$(detect_project "$CWD")
-  SAFE_PROJECT=$(printf '%s' "${PROJECT:-unknown}" | tr -cs 'a-zA-Z0-9_-' '_')
+  SAFE_PROJECT=$(printf '%s' "$(canonical_project "$(basename "$CWD")")" | tr -cs 'a-zA-Z0-9_-' '_')
   SESSION_KEY="engram-codex-${SAFE_PROJECT}-$$-tools-loaded"
 fi
 
@@ -121,12 +127,10 @@ fi
 # ──────────────────────────────────────────────────────────────────────────────
 
 # Detect project only after the first-message path has had a chance to return.
-if [ -z "${PROJECT:-}" ]; then
-  PROJECT=$(detect_project "$CWD")
-fi
+resolve_project "$CWD"
 
-# Bail early if we can't determine the project
-if [ -z "$PROJECT" ]; then
+# Bail early if we can't determine the project (ambiguous: none is invented)
+if [ -z "$PROJECT" ] || [ "$PROJECT_AMBIGUOUS" = "1" ]; then
   echo "$OUTPUT"
   exit 0
 fi
