@@ -471,5 +471,3 @@ func cmdConflictsScan(cfg store.Config) {
 		}
 	}
 }
-
-// ─── deferred ─────────────────────────────────────────────────────────────────
