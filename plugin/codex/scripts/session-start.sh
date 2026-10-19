@@ -24,7 +24,7 @@ resolve_engram_url || exit 0
 
 # Ensure engram server is running (on the explicitly resolved port)
 SERVER_WARNING=""
-if ! HEALTH=$(curl -sf "${ENGRAM_URL}/health" --max-time 1 2>/dev/null); then
+if ! curl -sf "${ENGRAM_URL}/health" --max-time 1 >/dev/null 2>&1; then
   # Detach fully (new session, no stdio) so the server outlives this hook.
   if command -v setsid >/dev/null 2>&1; then
     ENGRAM_PORT="$ENGRAM_RESOLVED_PORT" setsid engram serve </dev/null >/dev/null 2>&1 &
@@ -34,7 +34,7 @@ if ! HEALTH=$(curl -sf "${ENGRAM_URL}/health" --max-time 1 2>/dev/null); then
   sleep 0.5
 else
   # A server that was already running may predate the installed binary.
-  SERVER_WARNING=$(engram_server_version_warning "$HEALTH")
+  SERVER_WARNING=$(engram_server_version_warning)
 fi
 
 # Project name: the server's answer wins; the local detection is only a

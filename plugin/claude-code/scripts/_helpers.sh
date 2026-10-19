@@ -24,17 +24,19 @@ canonical_project() {
   printf '%s' "$n"
 }
 
-# Project name as it is interpolated into text the model reads: the name is
-# printed VERBATIM when it is 1-100 characters of letters, digits, spaces and
-# . _ - only; otherwise nothing is printed and the function returns 1, so the
-# caller omits the whole project clause instead of showing an altered name that
-# does not exist. Only ASCII letters and digits are recognised here (bash
-# cannot match Unicode letters reliably): a name with any non-ASCII character
-# omits the clause in these hooks. Stored names are never changed by this.
+# Project name as it is interpolated into text the model reads: printed
+# VERBATIM only when it is a SINGLE token of 1-64 ASCII letters, digits and
+# . _ - (no spaces: a sentence must never pass as a name); otherwise nothing is
+# printed and the function returns 1, so the caller omits the whole project
+# clause instead of showing an altered name that does not exist. bash cannot
+# match Unicode letters reliably: a name with any non-ASCII character omits the
+# clause in these hooks. Residual risk: a single token can still contain
+# readable words, and the name comes from the repository or directory the user
+# chose to open. Stored names are never changed by this.
 safe_project_text() {
   local n="$1"
-  LC_ALL=C
-  [[ "$n" =~ ^[A-Za-z0-9._\ -]{1,100}$ ]] || return 1
+  local LC_ALL=C
+  [[ "$n" =~ ^[A-Za-z0-9._-]{1,64}$ ]] || return 1
   printf '%s' "$n"
 }
 
@@ -173,19 +175,45 @@ resolve_engram_url() {
 
 # ── Old server ──────────────────────────────────────────────────────────────
 # A server started by an older binary keeps running after the binary is
-# replaced, and nothing says so. engram_server_version_warning <health-json>
-# prints ONE warning line when the running server reports a version other than
-# this binary's, with the fix; it prints nothing when either version is unknown
-# (no jq, an old binary without `engram version`, no version in /health) or a
-# dev build. Callers use it only for a server that was already running.
+# replaced, and nothing says so. engram_server_version_warning asks the server
+# on ENGRAM_URL for /health and prints ONE warning line when it is an engram
+# server OLDER than this binary, with the fix; it prints nothing otherwise (a
+# newer, equal, dev or unknown version, no jq, an old binary without `engram
+# version`). /health is answered by whatever holds the port, so its text is
+# never shown as is: the body is capped, `.service` must be "engram" and the
+# version must look like a version, or nothing is printed. Callers use it only
+# for a server that was already running.
+
+# Success when dotted version $1 is strictly older than $2; fails (also) when
+# either is not a plain numeric dotted version (an optional "v" and any
+# -pre/+build suffix are ignored).
+_engram_version_lt() {
+  local a="${1#v}" b="${2#v}" i x y
+  a="${a%%[-+]*}"
+  b="${b%%[-+]*}"
+  [[ "$a" =~ ^[0-9]+(\.[0-9]+)*$ && "$b" =~ ^[0-9]+(\.[0-9]+)*$ ]] || return 1
+  local -a pa pb
+  IFS=. read -r -a pa <<< "$a"
+  IFS=. read -r -a pb <<< "$b"
+  for ((i = 0; i < ${#pa[@]} || i < ${#pb[@]}; i++)); do
+    x=$((10#${pa[i]:-0}))
+    y=$((10#${pb[i]:-0}))
+    [ "$x" -lt "$y" ] && return 0
+    [ "$x" -gt "$y" ] && return 1
+  done
+  return 1
+}
+
 engram_server_version_warning() {
-  local server_ver bin_ver
-  server_ver=$(printf '%s' "$1" | jq -r '.version // empty' 2>/dev/null) || return 0
-  [ -n "$server_ver" ] || return 0
+  local body server_ver bin_ver
+  [ -n "${ENGRAM_URL:-}" ] || return 0
+  body=$(LC_ALL=C curl -sf --max-time 1 --max-filesize 4096 "${ENGRAM_URL}/health" 2>/dev/null | head -c 4096)
+  [ -n "$body" ] || return 0
+  server_ver=$(printf '%s' "$body" | jq -r 'select(type == "object" and .service == "engram" and (.version | type) == "string") | .version' 2>/dev/null) || return 0
+  [[ "$server_ver" =~ ^[0-9A-Za-z.+_-]{1,32}$ ]] || return 0
   bin_ver=$(ENGRAM_NO_UPDATE_CHECK=1 engram version 2>/dev/null | awk 'NR == 1 && $1 == "engram" { print $2 }')
-  [ -n "$bin_ver" ] || return 0
-  [ "$server_ver" = "$bin_ver" ] && return 0
-  [ "$server_ver" = "dev" ] || [ "$bin_ver" = "dev" ] && return 0
+  [[ "$bin_ver" =~ ^[0-9A-Za-z.+_-]{1,32}$ ]] || return 0
+  _engram_version_lt "$server_ver" "$bin_ver" || return 0
   printf 'WARNING (engram): the engram server on port %s runs version %s but the installed binary is %s. An old `engram serve` kept running after the upgrade. Stop it (find it with `pgrep -af "engram serve"`, then `kill <pid>`); the next session starts the new one.' \
     "${ENGRAM_RESOLVED_PORT:-?}" "$server_ver" "$bin_ver"
 }
