@@ -80,9 +80,13 @@ Las ideas se acumulan acá y se toman por release.
 - **Restos de la nube.** Quedan la tabla `sync_apply_deferred` (solo lectura, y un `DELETE FROM sync_apply_deferred` en `applyRelationUpsertTx` que ya no tiene qué borrar), `CountDeferredAndDead` en las estadísticas de conflictos y los errores `ErrRelationFKMissing` y `ErrApplyDead`. Se pueden quitar sin tocar el esquema.
 - **`engram redact --scan` para las filas viejas.** El servidor no reescribe lo que ya está guardado. Un comando que solo busque credenciales en la base, y diga dónde, dejaría decidir qué hacer con ellas.
 - **Rendimiento del redactor.** Cuesta unos 45 ms por observación de 50 KB (cerca de 1 MB/s) y unos 250 ms en el peor caso, 262 144 bytes. Se puede optimizar `internal/redact` si molesta.
-- **Scripts del plugin de Codex.** `plugin/codex` no se tocó en la 1.22.0: lo cubre el rechazo del servidor, pero sus scripts no resuelven el puerto con `engram port`.
 - **Otros destinos de `engram setup` que todavía apuntan al original** (ver la sección anterior).
-- **Filas heredadas con un nombre de proyecto no canónico.** Hay que fusionarlas a mano con `mem_merge_projects` (`MergeProjects`). `/projects/migrate` ya no las mueve si el destino tiene filas.
+- **Huecos del catálogo de credenciales**, decididos para la próxima versión (Pegasus 7.9.1 y engram 1.22.1, porque el catálogo es de Pegasus y se vendoriza): claves en camelCase (`dbPassword`), `*_SECRET_KEY` y `AWS_SECRET_ACCESS_KEY`, contraseñas sin dígitos, `sk-ant-` y `sk-proj-` con guiones, `glpat-`, `AIza`, `npm_`, bloques PEM sin `END` y bloques de clave privada PGP, comillas escapadas que dejan filtrar el resto del valor, y `<private>` anidado o sin cerrar.
+- **`type` y `directory` no se sanean** (tampoco `project`, `scope` ni los IDs).
+- **Costo de leer `/proc` en cada conexión.** La guarda de uid lee `/proc/net/tcp` (y `tcp6`) al aceptar cada conexión nueva; una conexión keep-alive lo paga una sola vez. Si molesta, se puede cachear.
+- **`StartSession` no toca `started_at`.** Una sesión vieja que se retoma pierde frente a una sesión abierta más nueva en `MostRecentActiveSession`.
+- **Avisar de un `serve` viejo.** Tras actualizar puede seguir vivo el `serve` anterior. Los plugins podrían avisar cuando `/health` informe una versión menor a la que esperan.
+- **Prueba inestable de `internal/obsidian`** (`TestWatcherRunsImmediatelyThenTicks`, con una ventana de menos de 5 ms): falla a veces con la máquina cargada. Ya estaba antes de la 1.22.0.- **Filas heredadas con un nombre de proyecto no canónico.** Hay que fusionarlas a mano con `mem_merge_projects` (`MergeProjects`). `/projects/migrate` ya no las mueve si el destino tiene filas.
 
 ## Releases
 
@@ -102,7 +106,9 @@ Las ideas se acumulan acá y se toman por release.
 3. **Un puerto propio por usuario del sistema.**
    - `engram port` imprime el puerto de este usuario (solo el número). Si la memoria queda deshabilitada, sale con código 1 y explica por qué en stderr. `engram serve` usa la misma resolución.
    - La regla es la que Pegasus ya tiene del lado cliente, con sus vectores de prueba copiados en `internal/portowner/testdata/` (con un `ORIGEN.txt`; si la regla cambia allá, hay que recopiarlos): `ENGRAM_PORT` válido si nadie o este usuario escucha ahí; si no, 7437 con la misma condición; si no, `17437 + uid % 10000`. El puerto derivado se calcula, no se reserva. El dueño se lee de `/proc/net/tcp` y `tcp6`.
-   - El servidor rechaza con 403 (`foreign_uid`) a un cliente de otro uid, salvo en `/health`. Falla abierto: si no puede saber quién es, deja pasar. `root` pasa. `ENGRAM_ALLOW_OTHER_USERS=1` apaga la guarda.
+   - El servidor rechaza con 403 (`foreign_uid`) a un cliente de otro uid, salvo en `/health`. `root` pasa. `ENGRAM_ALLOW_OTHER_USERS=1` apaga la guarda.
+   - El dueño se resuelve al aceptar la conexión, cuando el socket del cliente todavía está establecido, y se guarda para esa conexión. Solo cuentan las filas `ESTABLISHED` (`01`); `root` solo cuenta si la fila está establecida. Un cliente que manda la petición y cierra enseguida dejaba una fila `TIME_WAIT` con uid 0 (o ninguna) y pasaba como `root` o por falla abierta.
+   - Falla cerrado: con `/proc` legible, un cliente de loopback sin fila establecida recibe 403, y un error de lectura a mitad de la tabla cuenta como «sin fila». Falla abierto solo si `/proc/net/tcp` no existe o no se puede abrir, con `ENGRAM_ALLOW_OTHER_USERS=1`, o si el cliente no es de loopback.
    - `/health` informa el `uid` y la versión real (`dev` si no se compiló con una).
 4. **El servidor tapa las credenciales en todo texto libre que guarda.**
    - Orden: cortar a 262 144 bytes, `Redact`, sacar `<private>` y truncar por runas (con `... [truncated]` si se cortó).
@@ -119,24 +125,34 @@ Las ideas se acumulan acá y se toman por release.
    - `GET /project/current` devuelve el nombre canónico y es el contrato de los plugins. Si es ambiguo, responde `project` vacío con `error_hint` y `available_projects`, y los plugins no deben inventar uno.
    - `available_projects` conserva a propósito el nombre tal como está en el disco (en minúsculas y sin espacios), por el flujo de recuperación de la ambigüedad.
 8. **`/projects/migrate` es seguro.** Canonicaliza los nombres y solo mueve si el destino no tiene filas (ni siquiera borradas lógicamente); si las tiene, responde 200 con `{"status":"skipped","reason":"target_not_empty"}`. Para fusionar proyectos existe `MergeProjects` (`mem_merge_projects`).
-9. **Importar un chunk local ya no falla por una relación con un extremo ausente:** la saltea y informa cuántas salteó. Ya no hay reintento diferido: se quitaron `engram conflicts deferred` y `/conflicts/deferred*`.
-10. **Arreglos menores de `purge`:** valida las fechas antes de abrir la base, rechaza `since` posterior a `until` y valores que parecen flags, los backups se llaman `engram-purge-AAAAMMDDTHHMMSSZ.db` (y `engram-repair-…`, con `-2`, `-3` si el nombre existe) y son `0600` en una carpeta `0700`, también el de `repair`; avisa si lo borrado difiere del plan, da los errores en JSON con `--json` y termina con un recordatorio.
+9. **Importar un chunk local ya no falla por una relación con un extremo ausente.** La importación hace varias pasadas estrictas y reintenta el chunk cuya relación apunta a una observación que llega en otro chunk de la misma corrida (`ErrRelationFKMissing`). Solo cuando una pasada no avanza importa los chunks que quedan salteando las relaciones cuyo extremo no está en ningún lado, y las cuenta (`RelationsSkipped`). Ya no hay reintento diferido entre corridas: se quitaron `engram conflicts deferred` y `/conflicts/deferred*`.
+10. **Arreglos menores de `purge`:** valida las fechas antes de abrir la base, rechaza `since` posterior a `until` y valores que parecen flags, los backups se llaman `engram-purge-AAAAMMDDTHHMMSSZ.db` (y `engram-repair-…`, con `-2`, `-3` si el nombre existe) y son `0600` en una carpeta `0700`, también el de `repair`; avisa si lo borrado difiere del plan, da los errores en JSON con `--json` y termina con un recordatorio. Los flags booleanos (`--yes`, `--include-pinned`…) rechazan `=valor`: antes `--yes=false` borraba.
 11. **Se quita el destino `pi`:** `engram setup pi` ahora responde «unknown agent», se fue `plugin/pi` y el README ya no documenta `ENGRAM_URL`, que solo leía ese plugin.
 12. **Se sacaron del repo dos binarios de macOS de 17 MB** (`cmd/engram/main` y `cmd/engram/gentle-creation`), y los builds quedan ignorados.
-13. **Los plugins de Claude Code (0.3.0) y de OpenCode del fork resuelven el puerto y el proyecto contra el servidor.**
-    - Los hooks de Claude Code piden el puerto a `engram port`. Si responde que la memoria está desactivada, el hook termina en silencio, sin mandar ni arrancar nada. Con un binario viejo, que no conoce `port`, usan `ENGRAM_PORT` o 7437 y comprueban el dueño con un `awk` sobre `/proc/net/tcp`.
-    - El plugin de OpenCode aplica la misma regla en TypeScript antes de cada petición, sin guardar el resultado. El plugin no tiene manifiesto, así que sus autores van en la cabecera del archivo.
-    - Los dos arrancan `serve` con un `ENGRAM_PORT` explícito y nunca le hablan a un puerto que tiene otro usuario.
-    - Toman el nombre del proyecto de `GET /project/current`, con un respaldo que aplica las mismas reglas canónicas. Si el nombre es ambiguo no inventan uno: no registran sesión, contexto ni migración para ese evento.
+13. **Los plugins de Claude Code (0.3.0), de Codex (0.2.0) y de OpenCode del fork resuelven el puerto y el proyecto contra el servidor.**
+    - Los hooks de Claude Code y de Codex comparten el mismo `_helpers.sh` (un test comprueba que son idénticos) y piden el puerto con `ENGRAM_NO_UPDATE_CHECK=1 engram port`, con stdout y stderr separados. La memoria cuenta como desactivada solo si sale con código 1, stdout vacío y un mensaje específico en stderr («memory is disabled» o «held by a process of another OS user»): entonces el hook termina en silencio, sin mandar ni arrancar nada. Una salida con código 0 que no es un número también la desactiva. Cualquier otro fallo (un binario viejo que no conoce `port`) usa `ENGRAM_PORT` o 7437 y comprueba el dueño con un `awk` sobre `/proc/net/tcp`. Lo mismo en el `.ps1` de Claude Code, sin prueba automática porque no hay `pwsh`.
+    - El plugin de OpenCode aplica la misma regla en TypeScript antes de cada petición, sin guardar el resultado. El plugin no tiene manifiesto, así que sus autores van en la cabecera del archivo. La copia embebida en el binario (`internal/setup/plugins/opencode/engram.ts`, la que instala `engram setup opencode`) se había quedado vieja: se regeneró con `go generate ./internal/setup/` y un test la compara byte a byte con `plugin/opencode/engram.ts`.
+    - Los tres arrancan `serve` con un `ENGRAM_PORT` explícito y nunca le hablan a un puerto que tiene otro usuario.
+    - Toman el nombre del proyecto de `GET /project/current`, con un respaldo que aplica las mismas reglas canónicas (incluidas las de `extractRepoName`; las minúsculas no ASCII, en la medida de lo posible, con `perl` o bash 4). Si el nombre es ambiguo no inventan uno: no registran sesión, contexto ni migración para ese evento.
+    - Migrar y registrar la sesión solo se hace con un nombre que dio el servidor (con 3 reintentos de 0,3 s en bash y 4 de 250 ms en TypeScript); el nombre de respaldo no migra ni registra. Un servidor sin `/project/current` no recibe sesiones.
     - Migran solo desde la raíz de git y respetan `ENGRAM_NO_PROJECT_MIGRATE=1`.
+    - El nombre del proyecto se sanea (`[a-z0-9._-]`, hasta 100 caracteres) donde se interpola en el texto que ve el modelo, y el id de la sesión se codifica en la URL.
+    - El candado de la importación vive en `XDG_RUNTIME_DIR` o en `~/.engram` (`0700`, del mismo uid), no en `TMPDIR`.
     - Llevan el texto WHO SAVES en el protocolo que le pasan al modelo.
-    - `plugin/codex` no cambia: lo cubre el rechazo 403 del servidor (queda en Ideas).
+14. **Otros arreglos de la revisión.**
+    - `Store.Import` y los chunks que se aplican canonicalizan `project`.
+    - En el servidor MCP, un `project` explícito que canonicaliza al `project_name` configurado ya no es una colisión.
+    - La comprobación de actualizaciones es anónima: ya no envía `GH_TOKEN` ni `GITHUB_TOKEN`.
+    - `engram serve [puerto]` con un puerto inválido es un error de uso, y la ayuda dice que el valor por defecto se resuelve por usuario.
+    - `EndSession` con un resumen de solo espacios cuenta como vacío y conserva el resumen guardado.
+    - Una carpeta `backups/` que ya existía con permisos de grupo u otros se aprieta a `0700`.
+    - Se quitó `tools/repair-missing-session-directory.sh` junto con el código de la nube: era un script de rescate de esa época.
 
 No cambia el esquema de la base: la 1.22.0 y la 1.21.x pueden abrir la misma base.
 
 Limitaciones aceptadas:
 
-- Sin `/proc` (macOS y Windows) no hay aislamiento entre usuarios: la guarda y la resolución de puerto no pueden saber quién es el dueño.
+- Sin `/proc` (macOS y Windows) no hay aislamiento entre usuarios: la guarda de 403 falla abierto y la resolución de puerto no puede saber quién es el dueño.
 - La guarda de uid es una defensa en profundidad, no autenticación. `engram serve` no autentica a nadie, salvo con `ENGRAM_HTTP_TOKEN`.
 - `--vacuum` necesita acceso exclusivo, y los bytes que muestra el ensayo son una estimación.
 - Si `VACUUM` falla después de borrar, los datos ya están borrados (el backup verificado sigue ahí).
