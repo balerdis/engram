@@ -1039,6 +1039,7 @@ func (s *Store) migrateFTSTopicKey() error {
 func (s *Store) CreateSession(id, project, directory string) error {
 	// Normalize project name before storing
 	project, _ = NormalizeProject(project)
+	directory = sanitizeStored(directory, 0)
 
 	return s.withTx(func(tx *sql.Tx) error {
 		if err := s.createSessionTx(tx, id, project, directory); err != nil {
@@ -1055,6 +1056,7 @@ func (s *Store) CreateSession(id, project, directory string) error {
 // may use it; implicit paths must keep CreateSession so a closed session stays closed.
 func (s *Store) StartSession(id, project, directory string) error {
 	project, _ = NormalizeProject(project)
+	directory = sanitizeStored(directory, 0)
 
 	return s.withTx(func(tx *sql.Tx) error {
 		if err := s.createSessionTx(tx, id, project, directory); err != nil {
@@ -1279,6 +1281,7 @@ func (s *Store) AddObservation(p AddObservationParams) (int64, error) {
 	title := sanitizeStored(p.Title, 0)
 	content := sanitizeStored(p.Content, s.cfg.MaxObservationLength)
 	p.ToolName = sanitizeStored(p.ToolName, 0)
+	p.Type = sanitizeStored(p.Type, 0)
 
 	scope := normalizeScope(p.Scope)
 	normHash := hashNormalized(content)
@@ -1835,7 +1838,7 @@ func (s *Store) UpdateObservation(id int64, p UpdateObservationParams) (*Observa
 		topicKey := derefString(obs.TopicKey)
 
 		if p.Type != nil {
-			typ = *p.Type
+			typ = sanitizeStored(*p.Type, 0)
 		}
 		if p.Title != nil {
 			title = sanitizeStored(*p.Title, 0)
@@ -2074,7 +2077,7 @@ func (s *Store) Search(query string, opts SearchOptions) ([]SearchResult, error)
 
 		if opts.Type != "" {
 			tkSQL += " AND type = ?"
-			tkArgs = append(tkArgs, opts.Type)
+			tkArgs = append(tkArgs, sanitizeStored(opts.Type, 0))
 		}
 		if opts.Project != "" {
 			tkSQL += " AND LOWER(project) = ?"
@@ -2126,7 +2129,7 @@ func (s *Store) Search(query string, opts SearchOptions) ([]SearchResult, error)
 
 	if opts.Type != "" {
 		sqlQ += " AND o.type = ?"
-		args = append(args, opts.Type)
+		args = append(args, sanitizeStored(opts.Type, 0))
 	}
 
 	if opts.Project != "" {
@@ -2495,6 +2498,7 @@ func (s *Store) Import(data *ExportData) (*ImportResult, error) {
 	for _, sess := range data.Sessions {
 		sess.Project, _ = NormalizeProject(sess.Project)
 		sess.Summary = sanitizeStoredPtr(sess.Summary, s.cfg.MaxObservationLength)
+		sess.Directory = sanitizeStored(sess.Directory, 0)
 		res, err := s.execHook(tx,
 			`INSERT OR IGNORE INTO sessions (id, project, directory, started_at, ended_at, summary)
 			 VALUES (?, ?, ?, ?, ?, ?)`,
@@ -2514,6 +2518,7 @@ func (s *Store) Import(data *ExportData) (*ImportResult, error) {
 			c, _ := NormalizeProject(*obs.Project)
 			obs.Project = &c
 		}
+		obs.Type = sanitizeStored(obs.Type, 0)
 		obs.Title = sanitizeStored(obs.Title, 0)
 		obs.Content = sanitizeStored(obs.Content, s.cfg.MaxObservationLength)
 		obs.ToolName = sanitizeStoredPtr(obs.ToolName, 0)
@@ -3532,6 +3537,7 @@ func (s *Store) applySessionPayloadTx(tx *sql.Tx, payload syncSessionPayload) er
 	}
 	payload.Project, _ = NormalizeProject(payload.Project)
 	payload.Summary = sanitizeStoredPtr(payload.Summary, s.cfg.MaxObservationLength)
+	payload.Directory = sanitizeStored(payload.Directory, 0)
 	_, err := s.execHook(tx,
 		`INSERT INTO sessions (id, project, directory, started_at, ended_at, summary)
 		 VALUES (?, ?, ?, COALESCE(NULLIF(?, ''), datetime('now')), ?, ?)
@@ -3569,6 +3575,7 @@ func (s *Store) applySessionDeleteTx(tx *sql.Tx, payload syncSessionPayload) err
 }
 
 func (s *Store) applyObservationUpsertTx(tx *sql.Tx, payload syncObservationPayload) error {
+	payload.Type = sanitizeStored(payload.Type, 0)
 	payload.Title = sanitizeStored(payload.Title, 0)
 	payload.Content = sanitizeStored(payload.Content, s.cfg.MaxObservationLength)
 	payload.ToolName = sanitizeStoredPtr(payload.ToolName, 0)

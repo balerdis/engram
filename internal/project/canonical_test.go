@@ -2,6 +2,7 @@ package project
 
 import (
 	"os/exec"
+	"strings"
 	"testing"
 )
 
@@ -76,5 +77,24 @@ func TestDetectProjectRemoteIsCanonical(t *testing.T) {
 	}
 	if got := DetectProject(dir); got != "my-repo" {
 		t.Fatalf("DetectProject = %q; want my-repo", got)
+	}
+}
+
+func TestCanonicalRedactsCredentialsDeterministically(t *testing.T) {
+	const secret = "sk-F4K3F4K3F4K3F4K3F4K3F4K3"
+	got, warn := Canonical("App-" + secret)
+	if strings.Contains(strings.ToLower(got), "f4k3") || strings.Contains(strings.ToLower(warn), "f4k3") {
+		t.Fatalf("credential survived: %q / %q", got, warn)
+	}
+	if got != "app-[redacted:openai_key]" {
+		t.Fatalf("got %q", got)
+	}
+	for _, in := range []string{"App-" + secret, "token=abcdefgh12345", "a://user:fakepassword1@h", "x_" + secret + "__y", "<private>x</private>", "Mi Proyecto"} {
+		a, _ := Canonical(in)
+		b, _ := Canonical(in)
+		c, _ := Canonical(a)
+		if a != b || a != c {
+			t.Errorf("Canonical(%q): %q %q, again %q", in, a, b, c)
+		}
 	}
 }
