@@ -244,7 +244,7 @@ engram/
 
 ```
 engram setup [agent]      Install/setup agent integration (opencode, claude-code, gemini-cli, codex)
-engram serve [port]       Start HTTP API server (default: 7437)
+engram serve [port]       Start HTTP API server (default resolved per user, see `engram port`)
 engram mcp                Start MCP server (stdio transport)
 engram tui                Launch interactive terminal UI
 engram search <query>     Search memories

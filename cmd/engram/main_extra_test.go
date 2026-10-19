@@ -217,7 +217,11 @@ func TestCmdServeParsesPortAndErrors(t *testing.T) {
 		{name: "env port", envPort: "8123", wantPort: 8123},
 		{name: "arg overrides env", envPort: "8123", argPort: "9001", wantPort: 9001},
 		{name: "invalid env keeps default", envPort: "nope", wantPort: 7437},
-		{name: "invalid arg keeps env", envPort: "8123", argPort: "bad", wantPort: 8123},
+		{name: "invalid arg is a usage error", envPort: "8123", argPort: "bad", wantPort: -1, wantFatal: true},
+		{name: "plus sign arg is a usage error", argPort: "+7437", wantPort: -1, wantFatal: true},
+		{name: "trailing garbage arg is a usage error", argPort: "07437x", wantPort: -1, wantFatal: true},
+		{name: "zero arg is a usage error", argPort: "0", wantPort: -1, wantFatal: true},
+		{name: "out of range arg is a usage error", argPort: "70000", wantPort: -1, wantFatal: true},
 		{name: "start failure", wantPort: 7437, startErr: errors.New("listen failed"), wantFatal: true},
 	}
 
@@ -258,7 +262,10 @@ func TestCmdServeParsesPortAndErrors(t *testing.T) {
 				if _, ok := recovered.(exitCode); !ok {
 					t.Fatalf("expected fatal exit, got %v", recovered)
 				}
-				if !strings.Contains(stderr, "listen failed") {
+				if tc.startErr == nil && !strings.Contains(stderr, "invalid port") {
+					t.Fatalf("stderr missing usage error: %q", stderr)
+				}
+				if tc.startErr != nil && !strings.Contains(stderr, "listen failed") {
 					t.Fatalf("stderr missing start error: %q", stderr)
 				}
 			} else if recovered != nil {

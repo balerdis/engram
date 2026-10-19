@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"runtime/debug"
 	"sort"
 	"strconv"
@@ -300,10 +301,18 @@ func cmdPort() {
 	fmt.Println(res.Port)
 }
 
+var servePortArg = regexp.MustCompile(`^[0-9]{1,5}$`)
+
 func cmdServe(cfg store.Config) {
 	argPort := ""
 	if len(os.Args) > 2 {
 		argPort = os.Args[2]
+		if !servePortArg.MatchString(argPort) {
+			fatal(fmt.Errorf("invalid port %q for `engram serve`: expected a number from 1 to 65535 (usage: engram serve [port])", argPort))
+		}
+		if n, _ := strconv.Atoi(argPort); n < 1 || n > 65535 {
+			fatal(fmt.Errorf("invalid port %q for `engram serve`: expected a number from 1 to 65535 (usage: engram serve [port])", argPort))
+		}
 	}
 	port, err := resolveServePort(argPort)
 	if err != nil {
@@ -2019,7 +2028,7 @@ Usage:
   engram <command> [arguments]
 
 Commands:
-  serve [port]       Start HTTP API server (default: 7437)
+  serve [port]       Start HTTP API server (default resolved per user, see: engram port)
   mcp [--tools=PROFILE] [--project NAME]
                      Start MCP server (stdio transport, for any AI agent)
                        Profiles: agent (15 tools), admin (4 tools), reader (5 read-only tools), all (default, 19)
