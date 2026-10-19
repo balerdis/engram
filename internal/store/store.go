@@ -4491,7 +4491,11 @@ func (s *Store) PassiveCapture(p PassiveCaptureParams) (*PassiveCaptureResult, e
 		// Truncate for title: first 60 chars
 		title := learning
 		if len(title) > 60 {
-			title = title[:60] + "..."
+			cut := 60
+			for cut > 0 && !utf8.RuneStart(title[cut]) {
+				cut-- // never split a rune
+			}
+			title = title[:cut] + "..."
 		}
 
 		_, err = s.AddObservation(AddObservationParams{

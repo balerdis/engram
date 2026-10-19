@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // fieldsHold reports whether needle (any case) is in a type, project or
@@ -163,5 +164,25 @@ func TestPassiveCaptureRedactsPrivateBlocksAcrossLearnings(t *testing.T) {
 	var n int
 	if err := s.db.QueryRow(`SELECT count(*) FROM observations WHERE instr(title, 'SECRET') OR instr(content, 'SECRET')`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("a private block leaked through passive capture (n=%d, err=%v)", n, err)
+	}
+}
+
+// The 60-byte title cut never splits a rune.
+func TestPassiveCaptureTitleIsRuneSafe(t *testing.T) {
+	s := newTestStore(t)
+	if err := s.CreateSession("s1", "p", "/x"); err != nil {
+		t.Fatal(err)
+	}
+	learning := strings.Repeat("a", 58) + "ñandú and some more words to make it long enough"
+	text := "## Key Learnings:\n\n1. " + learning + "\n"
+	if _, err := s.PassiveCapture(PassiveCaptureParams{SessionID: "s1", Project: "p", Content: text, Source: "t"}); err != nil {
+		t.Fatal(err)
+	}
+	var title string
+	if err := s.db.QueryRow(`SELECT title FROM observations LIMIT 1`).Scan(&title); err != nil {
+		t.Fatal(err)
+	}
+	if !utf8.ValidString(title) || !strings.HasSuffix(title, "...") {
+		t.Fatalf("title %q is not valid UTF-8 or not cut", title)
 	}
 }

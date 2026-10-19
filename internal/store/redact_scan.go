@@ -17,12 +17,36 @@ type RedactScanTable struct {
 	Fields      map[string]int `json:"fields_changed"`
 }
 
+// RedactScanCollisions counts what the redaction would make collide. The scan
+// never merges anything: these are reported so the person knows (accepted
+// limit, see docs).
+type RedactScanCollisions struct {
+	// TopicKey: observations that would share (project, scope, topic_key) after
+	// the rewrite, where at least one of them was changed by it.
+	TopicKey int `json:"topic_key_rows"`
+	// Identical: observations that would become equal in project, scope, type,
+	// title and content, where at least one of them was changed by it.
+	Identical int `json:"identical_rows"`
+	// ProjectRenames: project names that would be renamed onto a name that
+	// already exists or that another renamed name also maps to.
+	ProjectRenames int `json:"project_renames"`
+}
+
+func (c RedactScanCollisions) Any() bool {
+	return c.TopicKey+c.Identical+c.ProjectRenames > 0
+}
+
 type RedactScanResult struct {
-	Applied     bool              `json:"applied"`
-	Tables      []RedactScanTable `json:"tables"`
-	RowsChanged int               `json:"rows_changed"`
-	BackupPath  string            `json:"backup_path,omitempty"`
-	Warnings    []string          `json:"warnings,omitempty"`
+	Applied     bool                 `json:"applied"`
+	Tables      []RedactScanTable    `json:"tables"`
+	RowsChanged int                  `json:"rows_changed"`
+	Collisions  RedactScanCollisions `json:"collisions"`
+	// LegacySyncRows counts rows of the tables the removed cloud sync left
+	// behind. The scan does not rewrite them: `engram purge --sync-leftovers`
+	// deletes them.
+	LegacySyncRows map[string]int `json:"legacy_sync_rows,omitempty"`
+	BackupPath     string         `json:"backup_path,omitempty"`
+	Warnings       []string       `json:"warnings,omitempty"`
 }
 
 type scanColumn struct {
@@ -31,8 +55,9 @@ type scanColumn struct {
 }
 
 type scanTable struct {
-	name string
-	cols []scanColumn
+	name  string
+	cols  []scanColumn
+	extra []string // read-only columns, for the collision report
 }
 
 func scanText(v string) string { return sanitizeStored(v, 0) }
@@ -53,11 +78,15 @@ func scanProject(v string) string {
 }
 
 var redactScanTables = []scanTable{
-	{"sessions", []scanColumn{{"project", scanProject}, {"directory", scanText}, {"summary", scanText}}},
-	{"observations", []scanColumn{{"type", scanText}, {"title", scanText}, {"content", scanText}, {"tool_name", scanText}, {"project", scanProject}, {"topic_key", scanTopicKey}}},
-	{"user_prompts", []scanColumn{{"content", scanText}, {"project", scanProject}}},
-	{"memory_relations", []scanColumn{{"reason", scanText}, {"evidence", scanText}}},
+	{name: "sessions", cols: []scanColumn{{"project", scanProject}, {"directory", scanText}, {"summary", scanText}}},
+	{name: "observations", cols: []scanColumn{{"type", scanText}, {"title", scanText}, {"content", scanText}, {"tool_name", scanText}, {"project", scanProject}, {"topic_key", scanTopicKey}}, extra: []string{"scope", "deleted_at"}},
+	{name: "user_prompts", cols: []scanColumn{{"content", scanText}, {"project", scanProject}}},
+	{name: "prompt_tombstones", cols: []scanColumn{{"project", scanProject}}},
+	{name: "memory_relations", cols: []scanColumn{{"reason", scanText}, {"evidence", scanText}}},
 }
+
+// legacySyncTables are what the removed cloud sync left; reported, not rewritten.
+var legacySyncTables = []string{"sync_mutations", "sync_apply_deferred", "sync_enrolled_projects"}
 
 type scanQuerier interface {
 	Query(query string, args ...any) (*sql.Rows, error)
@@ -70,24 +99,90 @@ type scanUpdate struct {
 	args  []any
 }
 
+type collisionGroup struct {
+	n       int
+	changed bool
+}
+
+// collisionTracker finds what the rewrite would make collide.
+type collisionTracker struct {
+	topic    map[string]*collisionGroup
+	ident    map[string]*collisionGroup
+	projects map[string]bool   // every project name as stored now
+	renames  map[string]string // old name -> new name, for the changed ones
+}
+
+func newCollisionTracker() *collisionTracker {
+	return &collisionTracker{
+		topic: map[string]*collisionGroup{}, ident: map[string]*collisionGroup{},
+		projects: map[string]bool{}, renames: map[string]string{},
+	}
+}
+
+func (c *collisionTracker) group(m map[string]*collisionGroup, key string, changed bool) {
+	g := m[key]
+	if g == nil {
+		g = &collisionGroup{}
+		m[key] = g
+	}
+	g.n++
+	g.changed = g.changed || changed
+}
+
+func (c *collisionTracker) project(old, nv string) {
+	if old == "" {
+		return
+	}
+	c.projects[old] = true
+	if nv != old {
+		c.renames[old] = nv
+	}
+}
+
+func (c *collisionTracker) result() RedactScanCollisions {
+	var r RedactScanCollisions
+	for _, g := range c.topic {
+		if g.n > 1 && g.changed {
+			r.TopicKey += g.n
+		}
+	}
+	for _, g := range c.ident {
+		if g.n > 1 && g.changed {
+			r.Identical += g.n
+		}
+	}
+	targets := map[string]int{}
+	for _, nv := range c.renames {
+		targets[nv]++
+	}
+	for _, nv := range c.renames {
+		if c.projects[nv] || targets[nv] > 1 {
+			r.ProjectRenames++
+		}
+	}
+	return r
+}
+
 // redactScanCollect reads every row of the scanned tables and returns the
-// updates the redactor would make, with the counts.
-func redactScanCollect(q scanQuerier) ([]RedactScanTable, []scanUpdate, error) {
+// updates the redactor would make, with the counts and the collisions.
+func redactScanCollect(q scanQuerier) ([]RedactScanTable, []scanUpdate, RedactScanCollisions, error) {
 	var report []RedactScanTable
 	var updates []scanUpdate
+	track := newCollisionTracker()
 	for _, t := range redactScanTables {
-		names := make([]string, len(t.cols))
-		for i, c := range t.cols {
-			names[i] = c.name
+		names := make([]string, 0, len(t.cols)+len(t.extra))
+		for _, c := range t.cols {
+			names = append(names, c.name)
 		}
+		names = append(names, t.extra...)
 		rows, err := q.Query(`SELECT rowid, ` + strings.Join(names, ", ") + ` FROM ` + t.name)
 		if err != nil {
-			return nil, nil, fmt.Errorf("scan %s: %w", t.name, err)
+			return nil, nil, RedactScanCollisions{}, fmt.Errorf("scan %s: %w", t.name, err)
 		}
 		rep := RedactScanTable{Table: t.name, Fields: map[string]int{}}
 		for rows.Next() {
-			vals := make([]sql.NullString, len(t.cols))
-			dest := make([]any, 0, len(t.cols)+1)
+			vals := make([]sql.NullString, len(names))
+			dest := make([]any, 0, len(names)+1)
 			var rowid int64
 			dest = append(dest, &rowid)
 			for i := range vals {
@@ -95,15 +190,20 @@ func redactScanCollect(q scanQuerier) ([]RedactScanTable, []scanUpdate, error) {
 			}
 			if err := rows.Scan(dest...); err != nil {
 				rows.Close()
-				return nil, nil, fmt.Errorf("scan %s: %w", t.name, err)
+				return nil, nil, RedactScanCollisions{}, fmt.Errorf("scan %s: %w", t.name, err)
 			}
 			rep.Scanned++
 			up := scanUpdate{table: t.name, rowid: rowid}
+			newVals := make(map[string]string, len(t.cols))
+			changedCol := map[string]bool{}
 			for i, c := range t.cols {
+				newVals[c.name] = vals[i].String
 				if !vals[i].Valid || vals[i].String == "" {
 					continue
 				}
 				if nv := c.fn(vals[i].String); nv != vals[i].String {
+					newVals[c.name] = nv
+					changedCol[c.name] = true
 					up.cols = append(up.cols, c.name)
 					up.args = append(up.args, nv)
 					rep.Fields[c.name]++
@@ -113,6 +213,21 @@ func redactScanCollect(q scanQuerier) ([]RedactScanTable, []scanUpdate, error) {
 					}
 				}
 			}
+			if nv, ok := newVals["project"]; ok {
+				for i, c := range t.cols {
+					if c.name == "project" {
+						track.project(vals[i].String, nv)
+					}
+				}
+			}
+			if t.name == "observations" && !vals[len(t.cols)+1].Valid { // not soft-deleted
+				scope := vals[len(t.cols)].String
+				anyChanged := len(changedCol) > 0
+				if tk := newVals["topic_key"]; tk != "" {
+					track.group(track.topic, newVals["project"]+"\x00"+scope+"\x00"+tk, changedCol["topic_key"] || changedCol["project"])
+				}
+				track.group(track.ident, strings.Join([]string{newVals["project"], scope, newVals["type"], newVals["title"], hashNormalized(newVals["content"])}, "\x00"), anyChanged)
+			}
 			if len(up.cols) > 0 {
 				rep.RowsChanged++
 				updates = append(updates, up)
@@ -120,20 +235,44 @@ func redactScanCollect(q scanQuerier) ([]RedactScanTable, []scanUpdate, error) {
 		}
 		if err := rows.Err(); err != nil {
 			rows.Close()
-			return nil, nil, fmt.Errorf("scan %s: %w", t.name, err)
+			return nil, nil, RedactScanCollisions{}, fmt.Errorf("scan %s: %w", t.name, err)
 		}
 		rows.Close()
 		report = append(report, rep)
 	}
-	return report, updates, nil
+	return report, updates, track.result(), nil
 }
 
-func (r *RedactScanResult) fill(report []RedactScanTable) {
+func (r *RedactScanResult) fill(report []RedactScanTable, coll RedactScanCollisions) {
 	r.Tables = report
+	r.Collisions = coll
 	r.RowsChanged = 0
 	for _, t := range report {
 		r.RowsChanged += t.RowsChanged
 	}
+}
+
+// legacySyncRows counts the rows of the legacy sync tables that have any.
+func legacySyncRows(q scanQuerier) map[string]int {
+	out := map[string]int{}
+	for _, name := range legacySyncTables {
+		rows, err := q.Query(`SELECT COUNT(*) FROM ` + name)
+		if err != nil {
+			continue
+		}
+		var n int
+		if rows.Next() {
+			_ = rows.Scan(&n)
+		}
+		rows.Close()
+		if n > 0 {
+			out[name] = n
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // RedactScan re-redacts what was stored before the redactor existed (before
@@ -144,8 +283,10 @@ func (r *RedactScanResult) fill(report []RedactScanTable) {
 // It reports counts only: rows scanned, rows changed and changed fields per
 // table, never a value. Without apply nothing is written. With apply it takes
 // a verified 0600 backup first (like purge), then rewrites the changed rows in
-// one transaction and keeps the FTS index in sync (the observations triggers
-// maintain it row by row; the index is rebuilt at the end as well).
+// one transaction with secure_delete on, rebuilds the FTS indexes, VACUUMs and
+// truncates the WAL, so the old values are not left recoverable in free pages,
+// FTS shadow tables or the WAL. The backup still holds them: it is kept and its
+// path reported, never deleted automatically.
 //
 // Per field:
 //   - free text (title, content, summary, prompt content, reason, evidence,
@@ -153,17 +294,23 @@ func (r *RedactScanResult) fill(report []RedactScanTable) {
 //     row is truncated by the scan (text beyond the detection cap is dropped,
 //     as on every write).
 //   - topic_key: sanitized, and normalized only when the sanitizer changed it.
-//   - project: a name the redactor changes is canonicalised like a new write
-//     (lowercase, placeholder lowercased); one it leaves alone is untouched, so
-//     a legacy mixed-case name keeps its identity.
+//   - project (sessions, observations, user_prompts, prompt_tombstones): a name
+//     the redactor changes is canonicalised like a new write (lowercase,
+//     placeholder lowercased); one it leaves alone is untouched, so a legacy
+//     mixed-case name keeps its identity.
 //   - observations.normalized_hash is recomputed for a changed content.
+//
+// The legacy sync tables are only counted (LegacySyncRows). Nothing is merged:
+// rows that become identical, share a topic_key or land on an existing project
+// name are counted in Collisions.
 func (s *Store) RedactScan(apply bool) (*RedactScanResult, error) {
 	res := &RedactScanResult{}
-	report, updates, err := redactScanCollect(s.db)
+	report, updates, coll, err := redactScanCollect(s.db)
 	if err != nil {
 		return nil, err
 	}
-	res.fill(report)
+	res.fill(report, coll)
+	res.LegacySyncRows = legacySyncRows(s.db)
 	if !apply || len(updates) == 0 {
 		return res, nil
 	}
@@ -184,16 +331,25 @@ func (s *Store) RedactScan(apply bool) (*RedactScanResult, error) {
 			counts.Prompts = t.Scanned
 		case "memory_relations":
 			counts.Relations = t.Scanned
+		case "prompt_tombstones":
+			counts.PromptTombstones = t.Scanned
 		}
 	}
 	if err := verifyPurgeBackup(backup, counts); err != nil {
 		return nil, fmt.Errorf("redact scan aborted, nothing changed: backup verification failed (the backup file was left at %s): %w", backup, err)
 	}
 
-	obsChanged := false
+	// Freed pages are zeroed (the old values must not survive in them). The
+	// store holds one connection, so the setting covers every statement below.
+	if _, err := s.execHook(s.db, `PRAGMA secure_delete = ON`); err != nil {
+		res.Warnings = append(res.Warnings, "secure_delete could not be enabled: "+err.Error())
+	}
+	defer func() { _, _ = s.execHook(s.db, `PRAGMA secure_delete = OFF`) }()
+
+	obsChanged, promptsChanged := false, false
 	err = s.withTx(func(tx *sql.Tx) error {
 		// Recompute inside the write transaction so the rewrite is current.
-		fresh, ups, err := redactScanCollect(tx)
+		fresh, ups, freshColl, err := redactScanCollect(tx)
 		if err != nil {
 			return err
 		}
@@ -206,11 +362,14 @@ func (s *Store) RedactScan(apply bool) (*RedactScanResult, error) {
 			if _, err := s.execHook(tx, `UPDATE `+u.table+` SET `+strings.Join(set, ", ")+` WHERE rowid = ?`, args...); err != nil {
 				return fmt.Errorf("redact scan: update %s: %w", u.table, err)
 			}
-			if u.table == "observations" {
+			switch u.table {
+			case "observations":
 				obsChanged = true
+			case "user_prompts":
+				promptsChanged = true
 			}
 		}
-		res.fill(fresh)
+		res.fill(fresh, freshColl)
 		return nil
 	})
 	if err != nil {
@@ -222,8 +381,17 @@ func (s *Store) RedactScan(apply bool) (*RedactScanResult, error) {
 			res.Warnings = append(res.Warnings, "FTS rebuild failed: "+err.Error())
 		}
 	}
-	if _, err := s.execHook(s.db, `PRAGMA wal_checkpoint(PASSIVE)`); err != nil {
-		res.Warnings = append(res.Warnings, "WAL checkpoint failed: "+err.Error())
+	if promptsChanged {
+		if _, err := s.execHook(s.db, `INSERT INTO prompts_fts(prompts_fts) VALUES('rebuild')`); err != nil {
+			res.Warnings = append(res.Warnings, "prompts FTS rebuild failed: "+err.Error())
+		}
+	}
+	// Rewrite the file so no free page keeps an old value, then empty the WAL.
+	if _, err := s.execHook(s.db, `VACUUM`); err != nil {
+		res.Warnings = append(res.Warnings, "VACUUM failed, so old values may remain in the free pages of engram.db (stop engram serve and engram mcp and run the scan again, or VACUUM it yourself): "+err.Error())
+	}
+	if _, err := s.execHook(s.db, `PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+		res.Warnings = append(res.Warnings, "WAL checkpoint failed, so old values may remain in engram.db-wal: "+err.Error())
 	}
 	return res, nil
 }

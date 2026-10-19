@@ -1,7 +1,9 @@
 package store
 
 import (
+	"bytes"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -24,6 +26,7 @@ func seedLegacyRows(t *testing.T, s *Store) {
 	exec(`INSERT INTO observations (sync_id, session_id, type, title, content, project, scope, normalized_hash)
 	      VALUES ('obs-2', 's2', 'note', 'clean title', 'clean content otherword', 'MixedCase', 'project', 'h2')`)
 	exec(`INSERT INTO user_prompts (sync_id, session_id, content, project) VALUES ('prompt-1', 's1', ?, ?)`, "use "+fakeKey, "app-"+fakeKey)
+	exec(`INSERT INTO prompt_tombstones (sync_id, session_id, project) VALUES ('prompt-gone', 's1', ?)`, "app-"+fakeKey)
 	exec(`INSERT INTO memory_relations (sync_id, source_id, target_id, reason, evidence) VALUES ('rel-1', 'obs-1', 'obs-2', ?, ?)`, "because "+fakeKey, "password="+fakePass)
 }
 
@@ -46,7 +49,7 @@ func TestRedactScanDryRunApplyIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	if res.Applied || res.BackupPath != "" || scanChanged(res, "sessions") != 1 || scanChanged(res, "observations") != 1 ||
-		scanChanged(res, "user_prompts") != 1 || scanChanged(res, "memory_relations") != 1 || res.RowsChanged != 4 {
+		scanChanged(res, "user_prompts") != 1 || scanChanged(res, "memory_relations") != 1 || scanChanged(res, "prompt_tombstones") != 1 || res.RowsChanged != 5 {
 		t.Fatalf("unexpected dry-run: %+v", res)
 	}
 	var holds int
@@ -66,7 +69,7 @@ func TestRedactScanDryRunApplyIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !res.Applied || res.BackupPath == "" || res.RowsChanged != 4 {
+	if !res.Applied || res.BackupPath == "" || res.RowsChanged != 5 {
 		t.Fatalf("unexpected apply result: %+v", res)
 	}
 	if fi, err := os.Stat(res.BackupPath); err != nil || fi.Mode().Perm() != 0o600 {
@@ -112,6 +115,15 @@ func TestRedactScanDryRunApplyIdempotent(t *testing.T) {
 	if ftsHits != 0 {
 		t.Fatal("FTS index still holds the secret token")
 	}
+	// The tombstone project followed the same rewrite.
+	var tp string
+	s.db.QueryRow(`SELECT project FROM prompt_tombstones WHERE sync_id='prompt-gone'`).Scan(&tp)
+	if tp != want {
+		t.Fatalf("tombstone project %q, want %q", tp, want)
+	}
+	if _, err := s.db.Exec(`INSERT INTO prompts_fts(prompts_fts, rank) VALUES('integrity-check', 1)`); err != nil {
+		t.Fatalf("prompts FTS integrity-check: %v", err)
+	}
 	// The index agrees with the observations table (external-content check).
 	if _, err := s.db.Exec(`INSERT INTO observations_fts(observations_fts, rank) VALUES('integrity-check', 1)`); err != nil {
 		t.Fatalf("FTS integrity-check: %v", err)
@@ -136,4 +148,78 @@ func (r *RedactScanResult) dump() string {
 		}
 	}
 	return b.String()
+}
+
+// After --yes the old values are not recoverable from the database files: not
+// in free pages, not in the FTS shadow tables, not in the WAL.
+func TestRedactScanLeavesNoOldValueInTheDatabaseFiles(t *testing.T) {
+	s := newTestStore(t)
+	seedLegacyRows(t, s)
+	// Plenty of rows so that pages are freed and reused.
+	for i := 0; i < 200; i++ {
+		if _, err := s.db.Exec(`INSERT INTO observations (sync_id, session_id, type, title, content, project, scope, normalized_hash)
+			VALUES (?, 's1', 'note', ?, ?, 'p', 'project', 'h')`, "obs-bulk-"+strings.Repeat("x", i%7)+string(rune('a'+i%26))+strings.Repeat("y", i), "t "+fakeKey, "c password="+fakePass+" "+fakeKey); err != nil {
+			t.Fatal(err)
+		}
+	}
+	res, err := s.RedactScan(true)
+	if err != nil || !res.Applied {
+		t.Fatalf("%v %+v", err, res)
+	}
+	for _, w := range res.Warnings {
+		t.Errorf("warning: %s", w)
+	}
+	for _, name := range []string{"engram.db", "engram.db-wal", "engram.db-shm"} {
+		b, err := os.ReadFile(filepath.Join(s.cfg.DataDir, name))
+		if err != nil {
+			continue
+		}
+		low := bytes.ToLower(b)
+		for _, needle := range []string{fakeKeyN, fakePass} {
+			if n := bytes.Count(low, bytes.ToLower([]byte(needle))); n != 0 {
+				t.Fatalf("%s still holds %d copies of an old value", name, n)
+			}
+		}
+	}
+	// The backup is the one place that keeps them, and it is reported.
+	if res.BackupPath == "" {
+		t.Fatal("no backup path")
+	}
+}
+
+func TestRedactScanReportsLegacySyncRowsAndCollisions(t *testing.T) {
+	s := newTestStore(t)
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := s.db.Exec(q, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(`INSERT INTO sessions (id, project, directory) VALUES ('s1', 'p', '/x')`)
+	// Two observations that become identical after redaction, one topic_key shared.
+	exec(`INSERT INTO observations (sync_id, session_id, type, title, content, project, scope, topic_key, normalized_hash)
+	      VALUES ('o1', 's1', 'note', 'same', 'password=`+fakePass+`', 'p', 'project', ?, 'h1'),
+	             ('o2', 's1', 'note', 'same', 'password=OtherPass456', 'p', 'project', ?, 'h2')`, "topic/"+fakeKey, scanTopicKey("topic/"+fakeKey))
+	// A project that would be renamed onto a name that already exists.
+	existing, _ := NormalizeProject("app-" + fakeKey)
+	exec(`INSERT INTO sessions (id, project, directory) VALUES ('s2', ?, '/y'), ('s3', ?, '/z')`, "app-"+fakeKey, existing)
+	exec(`INSERT OR IGNORE INTO sync_state (target_key) VALUES ('local')`)
+	exec(`INSERT INTO sync_mutations (target_key, entity, entity_key, op, payload, source, project) VALUES ('local', 'observation', 'k', 'upsert', '{}', 'local', 'p')`)
+
+	res, err := s.RedactScan(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Collisions.Identical != 2 || res.Collisions.TopicKey != 2 || res.Collisions.ProjectRenames != 1 {
+		t.Fatalf("collisions: %+v", res.Collisions)
+	}
+	if res.LegacySyncRows["sync_mutations"] != 1 {
+		t.Fatalf("legacy sync rows: %v", res.LegacySyncRows)
+	}
+	// Nothing was merged or rewritten in the legacy table.
+	var n int
+	s.db.QueryRow(`SELECT count(*) FROM observations`).Scan(&n)
+	if n != 2 {
+		t.Fatalf("rows merged: %d", n)
+	}
 }

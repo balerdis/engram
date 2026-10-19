@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/Gentleman-Programming/engram/internal/redact"
@@ -154,10 +155,29 @@ func printRedactScan(res *store.RedactScanResult, yes bool) {
 			fmt.Printf("      %-16s %6d\n", f, t.Fields[f])
 		}
 	}
+	if c := res.Collisions; c.Any() {
+		verb := "would collide"
+		if yes {
+			verb = "now collide"
+		}
+		fmt.Printf("NOTE: after the rewrite rows %s (nothing is merged): %d observation(s) share a topic_key, %d are identical, %d project name(s) land on an existing one\n", verb, c.TopicKey, c.Identical, c.ProjectRenames)
+	}
+	if len(res.LegacySyncRows) > 0 {
+		names := make([]string, 0, len(res.LegacySyncRows))
+		for n := range res.LegacySyncRows {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		var parts []string
+		for _, n := range names {
+			parts = append(parts, fmt.Sprintf("%s: %d", n, res.LegacySyncRows[n]))
+		}
+		fmt.Printf("NOTE: the legacy sync tables still hold rows (%s); the scan does not rewrite them, run `engram purge --sync-leftovers` to delete them\n", strings.Join(parts, ", "))
+	}
 	for _, w := range res.Warnings {
 		fmt.Printf("WARNING: %s\n", w)
 	}
 	if yes && res.BackupPath != "" {
-		fmt.Printf("Backup kept at %s\nIt is not deleted automatically and holds the original data in clear text; remove it yourself once you no longer need it.\n", res.BackupPath)
+		fmt.Printf("Backup kept at %s: it still holds the OLD values in clear text; it is not deleted automatically, remove it yourself once you no longer need it.\n", res.BackupPath)
 	}
 }
