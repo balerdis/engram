@@ -27,12 +27,12 @@ Scope is a **search and filter signal**, not a privacy boundary. Concretely:
 
 ### What scope does NOT do today
 
-Scope **does not filter sync**. Sync operates by **project/session association**, not by scope: when a project is enrolled for cloud sync (or when you run `engram sync` locally), both `project` and `personal` observations of that project are exported and shared with whoever has access to the sync target.
+Scope **does not filter sync**. Sync operates by **project/session association**, not by scope: when you run `engram sync`, both `project` and `personal` observations of that project are exported and shared with whoever has access to the sync target.
 
 If you need true isolation for personal notes, two workarounds work today:
 
-1. **Use a separate project name for personal notes** (e.g. `myname-notes`) and do not enroll that project for cloud sync.
-2. **Do not enroll the shared project** if you save personal observations there.
+1. **Use a separate project name for personal notes** (e.g. `myname-notes`) and do not run `engram sync` for that project.
+2. **Do not save personal observations in the shared project.**
 
 A future change may add scope-aware sync filtering. Until then, treat scope as a semantic and search convention, not a transport-level guarantee.
 
@@ -103,23 +103,17 @@ The mechanics are already in place; what teams need is a written agreement. Thre
 
 ## Sync behavior today (read this if you collaborate)
 
-Two flows move observations off your machine:
+One flow moves observations off your machine: local `engram sync`, which exports project-scoped chunks to `.engram/` for sharing via git or any file-based transport. It exports observations of the target project regardless of their scope. `personal` does not stay local automatically. The recommended pattern today:
 
-- **Engram Cloud autosync.** When a project is enrolled and autosync is enabled, mutations push to the cloud server. See [`docs/AGENT-SETUP.md`](AGENT-SETUP.md#cloud-autosync-toggle) for the toggle.
-- **Local `engram sync`.** Exports project-scoped chunks to `.engram/` for sharing via git or any file-based transport.
+- **Shared work** → use a project name everyone on the team uses and share it with `engram sync`. Save shared knowledge as `scope: project` in the team lingua franca.
+- **Truly personal notes** → either (a) save them under a separate project name that you never sync, or (b) keep them off Engram entirely.
 
-Both flows export observations of the target project regardless of their scope. `personal` does not stay local automatically. The recommended pattern today:
-
-- **Shared work** → use a project name everyone on the team uses; enroll it for cloud sync. Save shared knowledge as `scope: project` in the team lingua franca.
-- **Truly personal notes** → either (a) save them under a separate project name that you do not enroll, or (b) keep them off Engram entirely.
-
-If your team needs scope-aware sync (personal observations stay on your machine, project observations sync to the team), open an issue describing the policy you want and the data flow you expect. The current contract is "enrolled project means full project export"; changing that needs a deliberate design decision.
+If your team needs scope-aware sync (personal observations stay on your machine, project observations sync to the team), open an issue describing the policy you want and the data flow you expect. The current contract is "a synced project means full project export"; changing that needs a deliberate design decision.
 
 ---
 
 ## Related docs
 
-- [`docs/AGENT-SETUP.md`](AGENT-SETUP.md) — per-agent setup, Memory Protocol, autosync toggle.
+- [`docs/AGENT-SETUP.md`](AGENT-SETUP.md) — per-agent setup, Memory Protocol.
 - [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) — session lifecycle, topic keys, memory hygiene.
-- [`docs/engram-cloud/README.md`](engram-cloud/README.md) — Engram Cloud overview and enrollment.
 - [`DOCS.md`](../DOCS.md) — full reference for tools, endpoints, and storage.

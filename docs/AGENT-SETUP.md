@@ -4,14 +4,6 @@
 
 Engram works with **any MCP-compatible agent**. Pick your agent below.
 
-> Cloud bootstrap automation in agent scripts/plugins is intentionally deferred in this rollout. Use `engram cloud ...` manually for now.
->
-> Deferred validation scope for this rollout:
->
-> - Setup/plugin scripts are **not** yet validated as cloud enrollment/login orchestrators.
-> - `engram setup ...` installs MCP/plugin integrations only; it does **not** auto-run `engram cloud config/enroll/upgrade`.
-> - Cloud onboarding contract remains CLI-first until script-level cloud flows are explicitly implemented.
-
 ## Quick Reference
 
 | Agent         | One-liner                                                                                    | Manual Config                                      |
@@ -811,8 +803,6 @@ Once the agent calls `mem_judge` with a verdict:
 - If the relation is `conflicts_with`, future `mem_search` results show `conflicts: #<id> (<title>)` on both observations.
 - If the relation is `compatible`, `related`, `scoped`, or `not_conflict`, the judgment is stored in `memory_relations` but no annotation appears in search results.
 
-**Cloud sync**: when the project is enrolled in Engram Cloud and autosync is enabled, `mem_judge` verdicts propagate to other machines via the standard mutation push/pull cycle. The annotation appears in `mem_search` results on any machine that has pulled the relevant mutations. Relations that reference an observation not yet present locally are deferred and retried automatically on subsequent pull cycles — the verdict is never lost.
-
 Nothing breaks if `mem_judge` is never called — pending relations accumulate unjudged but do not affect other operations.
 
 ### Proactive semantic comparison (mem_compare)
@@ -820,48 +810,3 @@ Nothing breaks if `mem_judge` is never called — pending relations accumulate u
 Agents can also proactively judge the relationship between any two memories using `mem_compare` (also available in the agent profile). Unlike `mem_judge`, which resolves a candidate surfaced by `mem_save`, `mem_compare` lets the agent compare any two observation IDs it has already read, and persist a verdict directly. This is useful for agent-initiated semantic audit workflows.
 
 See [Plugins → mem_compare reference](PLUGINS.md#mcp-tool-reference--mem_compare) for parameters and behavior.
-
----
-
-## Cloud Autosync toggle
-
-`engram serve` and `engram mcp` support continuous background replication to an Engram Cloud server. This is **opt-in** and never fatal on missing config.
-
-### Prerequisites
-
-1. A running Engram Cloud server (see `docker-compose.cloud.yml` or `engram cloud serve`). The server must be a build that includes the mutation endpoints (`POST /sync/mutations/push`, `GET /sync/mutations/pull`). If the server is older, autosync enters `PhaseBackoff` with `reason_code: transport_failed` and logs `server_unsupported` to stderr.
-
-2. A valid bearer token configured on the server.
-
-### Enable autosync
-
-```sh
-export ENGRAM_CLOUD_AUTOSYNC=1          # exact "1" only
-export ENGRAM_CLOUD_TOKEN=your-token    # bearer token
-export ENGRAM_CLOUD_SERVER=https://cloud.engram.example.com
-
-engram serve
-# or
-engram mcp
-```
-
-The process logs `[autosync] started (server=...)` on success. Missing token or server URL logs `[autosync] ERROR: ...` and the process starts normally without autosync.
-For `engram mcp`, autosync runs for the lifetime of the stdio MCP process and is stopped when that process exits.
-
----
-
-## Cloud dashboard (templ contributors)
-
-If you are contributing to the cloud dashboard (`internal/cloud/dashboard/`), the HTML components are rendered via [templ](https://templ.guide/). Before committing changes to any `.templ` file, regenerate the Go output:
-
-```sh
-# Download pinned version (first time only)
-go mod download
-
-# Regenerate
-make templ
-# or directly:
-go tool templ generate ./internal/cloud/dashboard/...
-```
-
-Commit the regenerated `components_templ.go`, `layout_templ.go`, and `login_templ.go` alongside your `.templ` source changes. CI will fail if they are missing or outdated (`TestTemplGeneratedFilesAreCheckedIn`).

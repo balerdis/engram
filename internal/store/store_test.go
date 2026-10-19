@@ -3723,10 +3723,6 @@ func TestExtractProjectFromPayloadWithoutProjectField(t *testing.T) {
 	}
 }
 
-// ─── Phase 4: SkipAckNonEnrolledMutations ────────────────────────────────────
-
-// ─── Phase 5: Empty/global project always syncs ──────────────────────────────
-
 // ─── MigrateProject ─────────────────────────────────────────────────────────
 
 func TestMigrateProject(t *testing.T) {

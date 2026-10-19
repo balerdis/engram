@@ -19,7 +19,7 @@ The memory flow does not start in the database. It starts with the agent decidin
    cwd → .engram/config.json → git remote/root → child repo → basename
 
 4. internal/store persists
-   sessions / observations / user_prompts / memory_relations / sync_mutations
+   sessions / observations / user_prompts / memory_relations
    FTS5 indexes for search
 
 5. Next session
@@ -35,8 +35,8 @@ The memory flow does not start in the database. It starts with the agent decidin
 | `observations_fts` | FTS5 search index. | `internal/store/store.go`, `DOCS.md#database-schema` |
 | `user_prompts` / `prompts_fts` | User prompt as retrievable context. | `internal/store/store.go`, `internal/server/server.go` |
 | `memory_relations` | Relationships/judgments between memories for semantic conflict surfacing. | `internal/store/relations.go`, `internal/mcp/mcp_judge_test.go` |
-| `sync_mutations` | Queue of changes for sync/autosync. | `internal/store/store.go`, `internal/sync/sync.go`, `internal/cloud/autosync/manager.go` |
-| `sync_apply_deferred` | Pull mutations deferred because dependencies are missing. | `internal/store/sync_apply_test.go`, `internal/server/server.go` |
+| `sync_chunks` | Chunks already imported or exported, per target. | `internal/store/store.go`, `internal/sync/sync.go` |
+| `sync_apply_deferred` | Relations deferred by earlier versions because dependencies were missing (read-only legacy; `engram conflicts deferred`). | `internal/store/sync_apply_test.go`, `internal/server/server.go` |
 
 For schema details, use [DOCS.md — Database Schema](../../DOCS.md#database-schema).
 

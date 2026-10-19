@@ -12,25 +12,20 @@ metadata:
 ## When to Use
 
 Use this skill when:
-- Changing enrollment, sync, auth, admin controls, or cloud behavior
-- Implementing project-level or org-level policy
-- Adjusting what data appears locally vs remotely
+- Changing sync, auth, or memory semantics
+- Adjusting what data is exported or imported
 
 ---
 
 ## Product Rules
 
 1. Local-first remains the default mental model.
-2. Org-wide security controls belong in cloud, not only in local clients.
-3. Project sync policy must be enforceable server-side if it is meant for admins.
-4. UI controls must map to real business rules, never fake toggles.
-5. Data visibility and sync permissions must be deterministic and testable.
+2. UI controls must map to real business rules, never fake toggles.
+3. Data visibility and sync behavior must be deterministic and testable.
 
 ---
 
 ## Sync Rules
 
-- Enrollment controls what may sync from local.
-- Cloud pause controls what the organization currently allows.
-- When a policy blocks sync, fail loudly rather than dropping data silently.
-- Preserve auditability whenever admin policy changes behavior.
+- Local `engram sync` exports one project at a time unless `--all` is given.
+- When something blocks sync, fail loudly rather than dropping data silently.

@@ -9,21 +9,17 @@
 | Document | Use |
 |---|---|
 | `README.md` | Landing, quickstart, product model, main links. |
-| `DOCS.md` | Complete technical reference: schema, endpoints, MCP tools, CLI/cloud. |
+| `DOCS.md` | Complete technical reference: schema, endpoints, MCP tools, CLI. |
 | `CONTRIBUTING.md` | Contribution flow and general standards. |
 | `SECURITY.md` | Security reporting. |
 | `CHANGELOG.md` | Change history. |
-| `docs/ARCHITECTURE.md` | Existing architecture, lifecycle, CLI reference, cloud/dashboard routes. |
+| `docs/ARCHITECTURE.md` | Existing architecture, lifecycle, CLI reference. |
 | `docs/AGENT-SETUP.md` | Per-agent setup, project detection, compaction survival. |
 | `docs/PLUGINS.md` | OpenCode/Claude plugin details and current limits. |
 | `docs/INSTALLATION.md` | Platform installation. |
 | `docs/DOCTOR.md` | Operational diagnosis and repair. |
 | `docs/COMPARISON.md` | Comparison with alternatives. |
-| `docs/BETA_TESTING.md` | Isolated beta flows. |
 | `docs/intended-usage.md` | Expected usage/product framing. |
-| `docs/engram-cloud/README.md` | Cloud landing. |
-| `docs/engram-cloud/quickstart.md` | Recommended cloud path. |
-| `docs/engram-cloud/troubleshooting.md` | Cloud failures and recovery. |
 | `docs/CODEBASE-GUIDE.md` | Codebase guide landing page and reading path. |
 | `docs/codebase/*.md` | Split codebase guide pages by topic. |
 
@@ -32,7 +28,6 @@
 | File/directory | Why it matters |
 |---|---|
 | `cmd/engram/main.go` | Main binary wiring. |
-| `cmd/engram/cloud.go` | Cloud subcommands and runtime. |
 | `cmd/engram/doctor.go` | CLI doctor. |
 | `cmd/engram/conflicts.go` | Conflicts CLI. |
 | `internal/store/store.go` | Local persistence core. |
@@ -42,19 +37,6 @@
 | `internal/server/server.go` | Local JSON API. |
 | `internal/sync/sync.go` | Chunks, manifest, import/export, bootstrap. |
 | `internal/sync/transport.go` | Sync transport abstraction. |
-| `internal/cloud/config.go` | Cloud config from environment. |
-| `internal/cloud/chunkcodec/` | Chunk canonicalization, IDs, and mutation payload decoding. |
-| `internal/cloud/remote/transport.go` | Remote sync/mutations client. |
-| `internal/cloud/autosync/manager.go` | Background push/pull manager. |
-| `internal/cloud/cloudserver/cloudserver.go` | Cloud HTTP runtime + dashboard mount. |
-| `internal/cloud/cloudserver/mutations.go` | Cloud mutation endpoints/contract. |
-| `internal/cloud/cloudstore/cloudstore.go` | Postgres cloud store. |
-| `internal/cloud/cloudstore/dashboard_queries.go` | Dashboard read model. |
-| `internal/cloud/cloudstore/project_controls.go` | Per-project sync controls. |
-| `internal/cloud/cloudstore/audit_log.go` | Cloud/dashboard audit. |
-| `internal/cloud/auth/auth.go` | Bearer/session auth. |
-| `internal/cloud/dashboard/dashboard.go` | Dashboard routes and handlers. |
-| `internal/cloud/dashboard/static/styles.css` | Dashboard styles. |
 | `internal/project/detect.go` | Project detection. |
 | `internal/project/similar.go` | Name similarity/consolidation. |
 | `internal/setup/setup.go` | Integration installation. |
@@ -76,8 +58,7 @@
 | [Repository Map](repository-map.md) | Package ownership and placement rules. |
 | [Memory Core](memory-core.md) | Store entities, save/retrieve flow, and invariants. |
 | [Interfaces](interfaces.md) | CLI, MCP, local API, and TUI responsibilities. |
-| [Sync and Cloud](sync-and-cloud.md) | Chunk sync, cloud sync, autosync, transport, and cloudstore. |
-| [Dashboard](dashboard.md) | Browser dashboard architecture and invariant. |
+| [Sync](sync.md) | Chunk sync: export/import, manifest, transport, chunk IDs. |
 | [Integrations](integrations.md) | Agent integrations, thin plugin principle, and setup boundaries. |
 | [Maintainer Playbook](maintainer-playbook.md) | Capabilities, navigation, guardrails, checklists, and review playbook. |
 

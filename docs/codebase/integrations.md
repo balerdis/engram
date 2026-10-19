@@ -1,4 +1,4 @@
-[← Codebase Guide](../CODEBASE-GUIDE.md) | [← Previous: Dashboard](dashboard.md) | [Next: Maintainer Playbook →](maintainer-playbook.md)
+[← Codebase Guide](../CODEBASE-GUIDE.md) | [← Previous: Sync](sync.md) | [Next: Maintainer Playbook →](maintainer-playbook.md)
 
 # Integrations
 
@@ -63,7 +63,7 @@ For per-agent details, use [docs/AGENT-SETUP.md](../AGENT-SETUP.md) and [docs/PL
 
 ## Setup boundary
 
-`internal/setup` owns idempotent installation of implemented agent integrations. It should not promise automatic cloud bootstrap or login if that flow is still CLI-first and documented elsewhere.
+`internal/setup` owns idempotent installation of implemented agent integrations.
 
 ## Plugins/setup change checklist
 
@@ -72,8 +72,7 @@ For per-agent details, use [docs/AGENT-SETUP.md](../AGENT-SETUP.md) and [docs/PL
 - [ ] Setup is idempotent.
 - [ ] Windows/macOS/Linux or documented paths remain correct.
 - [ ] `docs/AGENT-SETUP.md` and `docs/PLUGINS.md` reflect the exact current flow.
-- [ ] Do not promise automatic cloud bootstrap if it is still CLI-first.
 
 ---
 
-[← Previous: Dashboard](dashboard.md) | [Next: Maintainer Playbook →](maintainer-playbook.md)
+[← Previous: Sync](sync.md) | [Next: Maintainer Playbook →](maintainer-playbook.md)

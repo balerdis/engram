@@ -28,7 +28,6 @@ For other docs:
 | Doc                                         | Description                                                                                   |
 | ------------------------------------------- | --------------------------------------------------------------------------------------------- |
 | [Installation](docs/INSTALLATION.md)        | All install methods + platform support                                                        |
-| [Engram Cloud](docs/engram-cloud/README.md) | Cloud landing page, quickstart path, branding, and reference links                            |
 | [Agent Setup](docs/AGENT-SETUP.md)          | Per-agent configuration + compaction survival                                                 |
 | [Codebase Guide](docs/CODEBASE-GUIDE.md)    | Definitive guide to repository structure, package ownership, flows, and maintainer guardrails |
 | [Architecture](docs/ARCHITECTURE.md)        | How it works, session lifecycle, CLI reference, project structure                             |
@@ -47,8 +46,9 @@ For other docs:
 - **observations_fts** — FTS5 virtual table synced via triggers (`title`, `content`, `tool_name`, `type`, `project`)
 - **user_prompts** — `id` (INTEGER PK AUTOINCREMENT), `session_id` (FK), `content`, `project`, `created_at`
 - **prompts_fts** — FTS5 virtual table synced via triggers (`content`, `project`)
+- **Legacy sync tables** — `sync_mutations`, `sync_state`, `sync_enrolled_projects`, `cloud_upgrade_state` and `sync_apply_deferred` are still created so older binaries can open the same database. Nothing writes to `sync_mutations`, `sync_enrolled_projects` or `cloud_upgrade_state` any more; `sync_state` keeps only the `local` row that chunk import advances, and `sync_apply_deferred` only holds rows left by earlier versions (`engram conflicts deferred`).
 - **sync_chunks** — `target_key` (TEXT), `chunk_id` (TEXT), `imported_at`; composite PK (`target_key`, `chunk_id`) for target-scoped chunk tracking
-- **memory_relations** — stores conflict-surfacing verdicts from `mem_judge`; columns include `id` (INTEGER PK AUTOINCREMENT), `sync_id` (TEXT UNIQUE), `source_id`, `target_id`, `relation`, `judgment_status` (`pending` | `judged` | `orphaned` | `ignored`), `reason`, `evidence`, `confidence`, `marked_by_actor`, `marked_by_kind`, `marked_by_model`, `session_id`. The SQLite table does not store a `project` column; project is carried in relation sync payloads and derived from joined observations for project-scoped listing. Syncs across machines via local chunks and via cloud autosync when the project is enrolled.
+- **memory_relations** — stores conflict-surfacing verdicts from `mem_judge`; columns include `id` (INTEGER PK AUTOINCREMENT), `sync_id` (TEXT UNIQUE), `source_id`, `target_id`, `relation`, `judgment_status` (`pending` | `judged` | `orphaned` | `ignored`), `reason`, `evidence`, `confidence`, `marked_by_actor`, `marked_by_kind`, `marked_by_model`, `session_id`. The SQLite table does not store a `project` column; project is carried in relation sync payloads and derived from joined observations for project-scoped listing. Syncs across machines via local chunks (`engram sync`).
 - **sync_apply_deferred** — holds pulled mutations that could not be applied locally due to a missing FK dependency (e.g. relation references an observation not yet present); columns: `sync_id` (TEXT PK), `entity`, `payload`, `apply_status` (`deferred` | `applied` | `dead`), `retry_count`, `last_error`, `last_attempted_at`, `first_seen_at`. Rows with `apply_status='dead'` have exceeded the retry cap (5 attempts) and will not be retried automatically.
 
 ### SQLite Configuration
@@ -62,62 +62,11 @@ For other docs:
 
 ## HTTP API Endpoints
 
-Engram exposes two different runtimes. Keep routes split by runtime:
-
-- **Local runtime (`engram serve`, JSON on `127.0.0.1:7437`)**
-  - `GET /health` (local service health)
-  - includes memory CRUD/search/context endpoints documented below
-  - includes `GET /sync/status` (local node sync status)
-- **Cloud runtime (`engram cloud serve`)**
-  - `GET /health` (cloud service health)
-  - `GET /sync/pull`, `GET /sync/pull/{chunkID}`, `POST /sync/push`, `POST /sync/mutations/push`, `GET /sync/mutations/pull` (cloud sync transport)
-  - `GET /dashboard/*` HTML routes (browser dashboard)
-
-Dashboard route tree (`engram cloud serve`):
-
-- Public
-  - `GET /dashboard/health` — dashboard subsystem health
-  - `GET /dashboard/login` — login surface (authenticated mode), redirects to `/dashboard/` when already authenticated
-  - `POST /dashboard/login` — login submit (authenticated mode), redirect-only no-op in insecure mode
-  - `POST /dashboard/logout` — clear session cookie and redirect to login
-  - `GET /dashboard/static/*` — embedded CSS/JS assets
-- Protected (requires dashboard session in authenticated mode; open in insecure mode)
-  - `GET /dashboard` and `GET /dashboard/` — dashboard overview
-  - `GET /dashboard/stats`
-  - `GET /dashboard/activity`
-  - `GET /dashboard/browser`
-  - `GET /dashboard/browser/observations` (`HX-Request: true` returns fragment; plain GET returns full page)
-  - `GET /dashboard/browser/sessions` (`HX-Request: true` returns fragment; plain GET returns full page)
-  - `GET /dashboard/browser/sessions/{sessionID}`
-  - `GET /dashboard/browser/prompts` (`HX-Request: true` returns fragment; plain GET returns full page)
-  - `GET /dashboard/projects`
-  - `GET /dashboard/projects/list` — HTMX partial; paginated project list with "Paused" badges
-  - `GET /dashboard/projects/{project}`
-  - `GET /dashboard/projects/{name}/observations` — HTMX partial for project detail
-  - `GET /dashboard/projects/{name}/sessions` — HTMX partial for project detail
-  - `GET /dashboard/projects/{name}/prompts` — HTMX partial for project detail
-  - `GET /dashboard/contributors`
-  - `GET /dashboard/contributors/list` — HTMX partial; paginated contributor list
-  - `GET /dashboard/contributors/{contributor}`
-  - `GET /dashboard/admin` (also requires admin token/session)
-  - `GET /dashboard/admin/projects`
-  - `GET /dashboard/admin/users` (admin-gated)
-  - `GET /dashboard/admin/users/list` (admin-gated; HTMX partial)
-  - `GET /dashboard/admin/health` (admin-gated)
-  - `POST /dashboard/admin/projects/{name}/sync` (admin-gated; toggle sync enabled/disabled)
-  - `GET /dashboard/admin/projects/{name}/sync/form` (admin-gated; HTMX partial)
-  - `GET /dashboard/admin/audit-log` (admin-gated)
-  - `GET /dashboard/admin/audit-log/list` (admin-gated; HTMX partial)
-  - `GET /dashboard/sessions/{project}/{sessionID}` — session detail with observations + prompts sub-lists
-  - `GET /dashboard/observations/{project}/{sessionID}/{syncID}` — observation detail
-  - `GET /dashboard/prompts/{project}/{sessionID}/{syncID}` — prompt detail
-
-Engram is local-first: local SQLite is authoritative; cloud features are optional replication/shared access and enrollment controls.
+Engram serves one runtime: `engram serve` (JSON on `127.0.0.1:7437`). Local SQLite is authoritative.
 
 ### Health
 
-- Local runtime (`engram serve`): `GET /health` — Returns `{"status": "ok", "service": "engram", "version": "0.1.0"}`
-- Cloud runtime (`engram cloud serve`): `GET /health` — Returns `{"status": "ok", "service": "engram-cloud"}`
+- `GET /health` — Returns `{"status": "ok", "service": "engram", "version": "0.1.0"}`
 
 ### Sessions
 
@@ -129,7 +78,6 @@ Engram is local-first: local SQLite is authoritative; cloud features are optiona
   - `200` when deleted
   - `404` when session does not exist
   - `409` when session still has observations (delete/migrate observations first)
-  - For cloud-enrolled projects: returns `200` and additionally enqueues a `session/delete` mutation that propagates the deletion to cloud replicas
 
 ### Observations
 
@@ -200,7 +148,7 @@ Engram is local-first: local SQLite is authoritative; cloud features are optiona
 
 ### Conflict Audit (admin — local runtime only)
 
-These endpoints are served by `engram serve` on the local runtime only. They are not exposed on the cloud runtime. All routes are additive — no existing routes changed.
+These endpoints are served by `engram serve` on the local runtime only. All routes are additive — no existing routes changed.
 
 #### GET /conflicts
 
@@ -437,51 +385,16 @@ Response:
 }
 ```
 
-### Sync Status (local runtime only)
-
-- `GET /sync/status` — Runtime sync-state status for the local node (`engram serve` only).
-- In `engram serve`, sync status is wired to persisted SQLite sync state (project-scoped for detected/current project).
-- Response fields when provider is injected:
-  - `enabled`
-  - `phase`
-  - `last_error`
-  - `consecutive_failures`
-  - `backoff_until`
-  - `last_sync_at`
-  - `reason_code`
-  - `reason_message`
-  - `deferred_count` — number of pulled mutations awaiting retry (FK dependency not yet local)
-  - `dead_count` — number of pulled mutations that exhausted retries (5 failures) and will not be retried
-  - `upgrade` (nested object)
-    - `stage`
-    - `reason_code`
-    - `reason_message`
-- `enabled` semantics:
-  - `true` when cloud runtime is configured for the resolved + enrolled project, or when meaningful persisted sync state exists for that resolved project while runtime is not configured.
-  - `false` when no explicit project scope resolves, cloud runtime is malformed/missing, or enrollment/status checks fail.
-- Generic/embedded local server usage may return the fallback `enabled=false` response if no provider is injected.
-
 ### Environment Variables
 
 | Variable                        | Description                                                                                                                                                                                                                                               | Default              |
 | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
 | `ENGRAM_DATA_DIR`               | Override data directory                                                                                                                                                                                                                                   | `~/.engram`          |
 | `ENGRAM_PORT`                   | Override HTTP server port                                                                                                                                                                                                                                 | `7437`               |
-| `ENGRAM_PROJECT`                | Process-level default project override. For `engram serve`: used as the fallback when `GET /sync/status` receives no `project` query param. For `engram mcp`: sets `MCPConfig.DefaultProject`, which takes precedence over cwd detection for all read and write tools for the lifetime of that MCP process. When unset, cwd detection is used as the fallback. | cwd-detected project |
+| `ENGRAM_PROJECT`                | Process-level default project override. For `engram mcp`: sets `MCPConfig.DefaultProject`, which takes precedence over cwd detection for all read and write tools for the lifetime of that MCP process. When unset, cwd detection is used as the fallback. | cwd-detected project |
 | `ENGRAM_HTTP_TOKEN`             | Optional Bearer auth for the local HTTP server. When set, the following routes require `Authorization: Bearer <token>`: `DELETE /sessions/{id}`, `DELETE /observations/{id}`, `DELETE /prompts/{id}`, `GET /export`, `POST /import`, `POST /projects/migrate`. Comparison is constant-time. Token is read at request time (no restart needed). When unset, all routes are open (zero-config default). | (unset — open) |
-| `ENGRAM_TIMEZONE`               | Timezone for timestamp display in the TUI and cloud dashboard. Accepts any IANA zone name (e.g. `America/New_York`, `Europe/Berlin`). Falls back to system local time when unset or invalid.                                                               | system local         |
+| `ENGRAM_TIMEZONE`               | Timezone for timestamp display in the TUI. Accepts any IANA zone name (e.g. `America/New_York`, `Europe/Berlin`). Falls back to system local time when unset or invalid.                                                               | system local         |
 | `ENGRAM_AGENT_CLI`              | LLM runner name used by `engram conflicts scan --semantic` and the HTTP `/conflicts/scan` endpoint. Accepted values: `claude`, `opencode`.                                                                                                                | (unset)              |
-| `ENGRAM_CLOUD_AUTOSYNC`         | Set to `1` to enable background autosync. Requires `ENGRAM_CLOUD_TOKEN` and `ENGRAM_CLOUD_SERVER` to also be set.                                                                                                                                         | (unset — disabled)   |
-| `ENGRAM_CLOUD_SERVER`           | Cloud server URL used by the autosync manager and `engram sync --cloud`.                                                                                                                                                                                  | (unset)              |
-| `ENGRAM_DATABASE_URL`           | Postgres DSN for `engram cloud serve`.                                                                                                                                                                                                                    | (unset)              |
-| `ENGRAM_CLOUD_HOST`             | Bind host for `engram cloud serve`.                                                                                                                                                                                                                       | `127.0.0.1`          |
-| `ENGRAM_CLOUD_MAX_PUSH_BYTES`   | Max cloud push payload bytes.                                                                                                                                                                                                                             | `8388608`            |
-| `ENGRAM_CLOUD_TOKEN`            | Bearer token required in authenticated `engram cloud serve` mode.                                                                                                                                                                                         | (unset)              |
-| `ENGRAM_CLOUD_INSECURE_NO_AUTH` | Set to `1` for local insecure cloud serve (no auth). Cannot be combined with `ENGRAM_CLOUD_TOKEN`.                                                                                                                                                        | (unset)              |
-| `ENGRAM_CLOUD_ALLOWED_PROJECTS` | Comma-separated project allowlist enforced by `engram cloud serve`. Required in both token-auth and insecure modes. Use `*` to allow all projects (dev/internal deploys) — bypasses per-project name enforcement while still requiring a non-empty project on each request. | (unset) |
-| `ENGRAM_JWT_SECRET`             | Required in authenticated cloud serve mode. Must be explicitly set to a non-default value.                                                                                                                                                                | (unset)              |
-| `ENGRAM_CLOUD_ADMIN`            | Optional admin-only dashboard token in authenticated cloud serve mode. Ignored/rejected in insecure mode.                                                                                                                                                 | (unset)              |
-| `ENGRAM_CLOUD_TOKEN_PEPPER`     | Dedicated secret used to hash managed cloud tokens. Required both to issue tokens via `engram cloud bootstrap admin --issue-token` (and the admin API/dashboard) and to enable managed-token authentication on `engram cloud serve`. Distinct from `ENGRAM_JWT_SECRET` on purpose — see [Managed users, tokens, and CLI bootstrap](#managed-users-tokens-and-cli-bootstrap). | (unset)              |
 
 ### Conflict Audit CLI (admin)
 
@@ -535,189 +448,6 @@ Inspect or replay the `sync_apply_deferred` queue.
 - Default: list rows with sync_id, apply_status, retry_count, first_seen_at.
 - `--inspect <sync_id>`: print full decoded payload for one row; exits non-zero when not found.
 - `--replay`: call `ReplayDeferred()` and print retried/succeeded/failed/dead counts.
-
-### Cloud CLI (opt-in)
-
-- `engram cloud status` — show current cloud config state plus auth/sync readiness without mutating local state. When cloud is configured, also probes the local `engram serve` daemon at `127.0.0.1:7437` (respects `ENGRAM_PORT`) and prints a `Local daemon:` line (`running` / `not running` / `unreachable`) so you can detect a silently dead autosync. Exit code is unaffected; the line is informational
-- `engram cloud enroll <project>` — enroll one project for cloud replication
-- `engram cloud config --server <url>` — persist cloud server URL to `~/.engram/cloud.json`
-- `engram cloud serve` — run cloud backend API + dashboard (`/dashboard`) using Postgres config from env
-- `engram cloud upgrade doctor --project <project>` — deterministic read-only readiness diagnosis (`ready|blocked`, class/reason)
-- `engram cloud upgrade repair --project <project> [--dry-run|--apply]` — deterministic local-safe repair planner/apply (no remote mutation)
-- `engram cloud upgrade bootstrap --project <project> [--resume]` — resumable checkpointed enroll/push/verify flow
-- `engram cloud upgrade status --project <project>` — show upgrade stage/class/reason
-- `engram cloud upgrade rollback --project <project>` — restore pre-upgrade local snapshot before `bootstrap_verified`; blocked afterwards
-- `engram cloud repair materialize-mutations --project <project> (--dry-run|--apply)` — explicit server-side Postgres repair that backfills existing `cloud_mutations` into compatible `cloud_chunks` without deleting remote data
-- `engram cloud bootstrap admin --username <name> [--email <email>] [--grant-project <project>]... [--issue-token [name]]` — create the first managed admin (see [Managed users, tokens, and CLI bootstrap](#managed-users-tokens-and-cli-bootstrap))
-
-Cloud auth token is provided at runtime via `ENGRAM_CLOUD_TOKEN` (not by a dedicated CLI subcommand).
-Cloud server startup fails closed when the token is missing unless `ENGRAM_CLOUD_INSECURE_NO_AUTH=1` is explicitly set for local insecure development.
-`ENGRAM_CLOUD_INSECURE_NO_AUTH=1` cannot be combined with `ENGRAM_CLOUD_TOKEN`.
-Cloud server always requires `ENGRAM_CLOUD_ALLOWED_PROJECTS` (comma-separated), including insecure mode, so project scope remains server-enforced.
-`ENGRAM_CLOUD_TOKEN` + `ENGRAM_CLOUD_ALLOWED_PROJECTS` are server-side requirements for authenticated mode and must be configured before `engram cloud serve` (or compose startup).
-Authenticated mode also requires an explicit non-default `ENGRAM_JWT_SECRET`; implicit development defaults are rejected.
-Dashboard requests support browser login in authenticated mode: use `/dashboard/login` to exchange the bearer token for an HttpOnly dashboard cookie scoped to `/dashboard`. Protected `/dashboard/*` HTML routes require that cookie and do **not** treat raw `Authorization: Bearer ...` headers as an authenticated browser session. Sync API routes (`/sync/pull`, `/sync/pull/{chunkID}`, `/sync/push`, `/sync/mutations/push`, `/sync/mutations/pull`) remain header-auth only. In insecure mode (`ENGRAM_CLOUD_INSECURE_NO_AUTH=1` + no `ENGRAM_CLOUD_TOKEN`), dashboard auth is bypassed and `/dashboard/login` redirects to `/dashboard/`.
-
-`ENGRAM_CLOUD_ADMIN` is optional in authenticated mode; when set, `/dashboard/admin` is allowed only for sessions established with that exact token.
-`ENGRAM_CLOUD_ADMIN` is rejected in insecure mode (`ENGRAM_CLOUD_INSECURE_NO_AUTH=1`) to avoid an incoherent admin/browser auth path.
-
-Cloud runtime bind host is controlled by `ENGRAM_CLOUD_HOST`:
-
-- default: `127.0.0.1` (local-only, safer default)
-- container/compose: set `ENGRAM_CLOUD_HOST=0.0.0.0` so published host ports can reach the cloud server
-
-Cloud runtime envs for `engram cloud serve`:
-
-| Variable                        | Required                 | Notes                                                                                 |
-| ------------------------------- | ------------------------ | ------------------------------------------------------------------------------------- |
-| `ENGRAM_DATABASE_URL`           | yes                      | Postgres DSN for cloud chunk storage/dashboard read model                             |
-| `ENGRAM_PORT`                   | no                       | Runtime port (default `8080`)                                                         |
-| `ENGRAM_CLOUD_HOST`             | no                       | Bind host (default `127.0.0.1`; use `0.0.0.0` for containers)                         |
-| `ENGRAM_CLOUD_MAX_PUSH_BYTES`   | no                       | Max chunk/mutation push request body bytes (default `8388608`)                        |
-| `ENGRAM_CLOUD_ALLOWED_PROJECTS` | yes                      | Comma-separated allowlist; always required (authenticated + insecure modes). Use `*` to allow all projects (dev/internal deploys) — bypasses per-project name enforcement while still requiring a non-empty project on each request. |
-| `ENGRAM_CLOUD_TOKEN`            | yes (authenticated mode) | Enables bearer auth mode                                                              |
-| `ENGRAM_JWT_SECRET`             | yes (authenticated mode) | Must be explicitly set and non-default when token mode is enabled                     |
-| `ENGRAM_CLOUD_INSECURE_NO_AUTH` | no                       | Set to `1` only for local insecure mode; cannot be combined with `ENGRAM_CLOUD_TOKEN` |
-| `ENGRAM_CLOUD_ADMIN`            | no                       | Optional admin dashboard token in authenticated mode; rejected in insecure mode       |
-| `ENGRAM_CLOUD_TOKEN_PEPPER`     | no (required to enable managed-token auth) | Dedicated managed-token hashing secret. Must differ from `ENGRAM_JWT_SECRET`. Required both by `engram cloud bootstrap admin --issue-token` and by `engram cloud serve` to accept managed tokens at runtime (see below). |
-
-### Managed users, tokens, and CLI bootstrap
-
-`engram cloud bootstrap admin` creates the first **managed admin** — a principal record stored in the cloud Postgres database (`cloud_principals` / `cloud_human_users`), independent from the legacy `ENGRAM_CLOUD_TOKEN` / `ENGRAM_CLOUD_ADMIN` env-token model:
-
-```bash
-# Create the first managed admin (safe: refuses to create a duplicate first admin)
-engram cloud bootstrap admin --username alice
-
-# Also grant project access and issue a sync token in the same command
-engram cloud bootstrap admin --username alice \
-  --grant-project my-project \
-  --issue-token first-token
-```
-
-- `--username` is required; `--email` is optional.
-- `--grant-project <project>` may be repeated to grant one or more projects (managed principals are deny-by-default: no grants means no sync access).
-- `--issue-token [name]` issues a managed bearer token and prints the **raw token exactly once** in the command output. It is never logged, persisted, or re-printed — store it immediately. Issuing a token requires `ENGRAM_CLOUD_TOKEN_PEPPER` to be set to a dedicated secret (distinct from `ENGRAM_JWT_SECRET`); the command fails clearly, before creating anything, if the pepper is missing.
-- Running the command again once a managed admin already exists is rejected (no silent duplicate first-admin creation); the attempt is still recorded as a denied `bootstrap.cli` audit event.
-- Every bootstrap attempt (accepted or denied) writes a `bootstrap.cli` audit event to `cloud_auth_audit_log`, with the same non-secret metadata rules (no raw tokens, hashes, or bearer headers) as every other cloud auth audit event.
-- Grant/role/duplicate-admin validation reuses the exact same `cloudstore` methods and last-admin guard used by the dashboard's own first-admin bootstrap flow — there is no parallel/looser bootstrap path.
-
-**Runtime authentication:** `engram cloud serve` resolves managed tokens first, then falls back to the legacy env-token credentials (`ENGRAM_CLOUD_TOKEN` for sync, `ENGRAM_CLOUD_ADMIN` for dashboard bootstrap/admin), on every `/sync/*`, `/admin/*`, and dashboard-login request:
-
-- Set `ENGRAM_CLOUD_TOKEN_PEPPER` to enable managed-token authentication. A token issued by `engram cloud bootstrap admin --issue-token` (or by the dashboard/`/admin/*` token-create routes) then authenticates directly against `/sync/*` and `/admin/*`, and can log into the dashboard as its resolved principal/role.
-- If `ENGRAM_CLOUD_TOKEN_PEPPER` is not set, managed-token authentication is simply disabled: the server still starts normally, and `ENGRAM_CLOUD_TOKEN` / `ENGRAM_CLOUD_ADMIN` continue to authenticate exactly as before (legacy-only mode).
-- Managed principals are deny-by-default for project sync: a managed token only reaches projects explicitly granted via `--grant-project` (or the dashboard/`/admin/*` grant routes). Legacy `ENGRAM_CLOUD_TOKEN` keeps its existing `ENGRAM_CLOUD_ALLOWED_PROJECTS` allowlist behavior, unaffected by managed grants.
-- Disabled managed users, revoked managed tokens, and revoked project grants stop authenticating/authorizing on the very next request — no server restart required.
-- No rollback action is required to keep using legacy credentials: legacy `ENGRAM_CLOUD_TOKEN` / `ENGRAM_CLOUD_ADMIN` behavior is unchanged and remains fully supported whether or not `ENGRAM_CLOUD_TOKEN_PEPPER` is configured.
-
-Cloud sync is still local-first and explicit:
-
-```bash
-# Explicit cloud sync call
-engram sync --cloud --project my-project
-
-# Optional env toggle for cloud mode in sync command
-ENGRAM_CLOUD_SYNC=1 engram sync --status --project my-project
-```
-
-When `engram sync --cloud --project <project>` or autosync hits a known repairable cloud sync/upsert/canonicalization failure, Engram preserves the original error and appends guidance to run:
-
-### Cloud Upgrade Flow
-
-```bash
-engram cloud upgrade doctor --project <project>
-engram cloud upgrade repair --project <project> --dry-run
-engram cloud upgrade repair --project <project> --apply
-engram sync --cloud --project <project>
-```
-
-Sync/autosync never auto-applies repairs; only the explicit `repair --apply` command mutates local repairable upgrade state.
-
-For cloud servers that already accepted mutation pushes before mutation payloads were materialized into chunk history, run the server-side backfill against the Postgres DSN used by `engram cloud serve`:
-
-```bash
-ENGRAM_DATABASE_URL='postgres://...' engram cloud repair materialize-mutations --project <project> --dry-run
-ENGRAM_DATABASE_URL='postgres://...' engram cloud repair materialize-mutations --project <project> --apply
-```
-
-The backfill is project-scoped, non-destructive, and idempotent: it inserts missing compatible chunks and leaves existing `cloud_mutations` and chunks in place.
-
-`engram cloud serve` also runs this materialization repair automatically for every configured `ENGRAM_CLOUD_ALLOWED_PROJECTS` entry at startup. The explicit repair command remains available for operator verification, dry-runs, and re-running a project after an upgrade.
-
-### Local Cloud Bring-Up (Docker + Postgres)
-
-```bash
-# 1) SERVER-SIDE startup requirements (configure before startup)
-# docker-compose.cloud.yml includes defaults for browser-demo smoke usage:
-# ENGRAM_CLOUD_INSECURE_NO_AUTH=1
-# ENGRAM_CLOUD_ALLOWED_PROJECTS=smoke-project
-docker compose -f docker-compose.cloud.yml up -d
-
-# source-run flow (without compose): set BOTH token + allowlist before startup
-# ENGRAM_DATABASE_URL="postgres://engram:engram_dev@127.0.0.1:5433/engram_cloud?sslmode=disable" \
-# ENGRAM_JWT_SECRET="replace-with-32+-byte-random-secret" \
-# ENGRAM_CLOUD_TOKEN="your-token" \
-# ENGRAM_CLOUD_ALLOWED_PROJECTS="my-project" \
-# engram cloud serve
-
-# 2) CLIENT-SIDE CLI setup
-# compose runtime flow: published :18080
-engram cloud config --server http://127.0.0.1:18080
-# compose runtime default is insecure local-dev mode; keep token unset
-# client sync preflight only requires the configured cloud server URL; no
-# client-side ENGRAM_CLOUD_INSECURE_NO_AUTH flag is required for compose flow
-unset ENGRAM_CLOUD_TOKEN
-
-# 3) Enroll project + run explicit cloud sync
-engram cloud enroll smoke-project
-engram cloud upgrade doctor --project smoke-project
-engram cloud upgrade repair --project smoke-project --dry-run
-engram cloud upgrade repair --project smoke-project --apply
-engram cloud upgrade bootstrap --project smoke-project --resume
-engram cloud upgrade status --project smoke-project
-engram sync --cloud --status --project smoke-project
-
-# source-run client endpoint (without compose): default :8080
-# engram cloud config --server http://127.0.0.1:8080
-
-# cloud mode enforces a single explicit project scope
-# engram sync --cloud --all  # blocked by design
-```
-
-Deterministic reason codes shared across store/CLI/server:
-
-- `blocked_unenrolled`
-- `auth_required`
-- `cloud_config_error`
-- `policy_forbidden`
-- `paused`
-- `transport_failed`
-
-### Cloud Status Visibility Matrix
-
-Cloud failure visibility must stay deterministic across supported surfaces:
-
-| Scenario                                                                                               | Expected deterministic reason        | Surfaces                    |
-| ------------------------------------------------------------------------------------------------------ | ------------------------------------ | --------------------------- |
-| Unconfigured cloud sync preflight (missing server URL)                                                 | `cloud_config_error`                 | CLI stderr                  |
-| Cloud runtime not configured in status provider (takes precedence even if project scope is unresolved) | `cloud_not_configured`               | `/sync/status`              |
-| `/sync/status` project cannot be resolved (no query/default project) while cloud runtime is configured | `project_required`                   | `/sync/status`              |
-| Unenrolled project cloud sync                                                                          | `blocked_unenrolled`                 | CLI stderr + `/sync/status` |
-| Runtime auth/policy failure from remote API                                                            | `auth_required` / `policy_forbidden` | CLI stderr + `/sync/status` |
-| Explicit paused state                                                                                  | `paused`                             | `/sync/status`              |
-| Remote/network failure                                                                                 | `transport_failed`                   | CLI stderr + `/sync/status` |
-
-`engram sync --cloud --status --project <name>` is read-only: it does **not** mutate `/sync/status` lifecycle fields.
-
-Machine-actionable validation/policy failures from cloud sync routes include:
-
-- `error_class` (`repairable` | `blocked` | `policy` | `invalid_request`)
-- `error_code` (stable deterministic code)
-- `error` (human-readable message)
-
-This envelope is used consistently by `/sync/push` validation/control failures and by `/sync/pull` / `/sync/pull/{chunkID}` project-required or policy failures. `/sync/mutations/push` uses the envelope for empty batches, empty projects, project policy failures, and pause-control failures; relation-payload validation currently returns `error`, `reason_code`, and `invalid` instead. `/sync/mutations/pull` success responses include the project envelope, but internal listing errors currently use plain `http.Error`.
-
----
 
 ## MCP Project Resolution
 
@@ -947,7 +677,7 @@ Parameters:
 
 Re-judging an existing relation overwrites it (deliberate revision). Two agents judging the same pair persist as separate rows — Phase 1 surfaces both; cross-actor reconciliation is Phase 2.
 
-Search results subsequently expose annotation lines like `supersedes: #<id> (<title>)`, `superseded_by: #<id> (<title>)`, and `conflicts: #<id> (<title>)` so the recalling agent sees relevant verdicts at-a-glance. For enrolled projects with autosync enabled, judgments propagate to other machines via the cloud mutation pipeline — the annotation appears in `mem_search` results on any machine that has pulled the relevant mutations.
+Search results subsequently expose annotation lines like `supersedes: #<id> (<title>)`, `superseded_by: #<id> (<title>)`, and `conflicts: #<id> (<title>)` so the recalling agent sees relevant verdicts at-a-glance.
 
 ### mem_compare
 
@@ -1150,7 +880,6 @@ Share memories through git repositories using compressed chunks with a manifest 
 - `engram sync --all` — Exports ALL memories from every project
 - `engram sync --import` — Imports chunks listed in the manifest that haven't been imported yet
 - `engram sync --status` — Shows how many chunks exist locally vs remotely (filesystem mode)
-- `engram sync --cloud --status --project <name>` — Shows local, remote, and pending chunk counts for the specified cloud project
 - `engram sync --project NAME` — Filters export to a specific project
 
 ```
@@ -1226,7 +955,7 @@ Interactive Bubbletea-based terminal UI. Launch with `engram tui`.
 
 ## Running as a Service
 
-Without a service supervisor, `engram serve` dies whenever the binary is replaced (e.g. when it is upgraded) or the host reboots, and autosync stops silently. The templates below restart it automatically. Use `engram cloud status` afterwards to confirm — the `Local daemon:` line should report `running on port 7437`.
+Without a service supervisor, `engram serve` dies whenever the binary is replaced (e.g. when it is upgraded) or the host reboots. The templates below restart it automatically. Confirm afterwards with `curl http://127.0.0.1:7437/health`.
 
 ### Using systemd (Linux)
 
@@ -1258,13 +987,13 @@ WantedBy=default.target
 
 > Homebrew is not available for this fork; the binary comes from Pegasus Harness, DARQ or the releases page.
 
-With `KeepAlive=true`, launchd relaunches `engram serve` automatically after an upgrade replaces the binary, so autosync survives upgrades.
+With `KeepAlive=true`, launchd relaunches `engram serve` automatically after an upgrade replaces the binary.
 
 1. Find your binary path: `which engram` (typically `/opt/homebrew/bin/engram` on Apple Silicon or `/usr/local/bin/engram` on Intel)
 2. Create the data dir if missing: `mkdir -p ~/.engram`
 3. Create `~/Library/LaunchAgents/com.gentleman-programming.engram.plist` with the contents below — replace `<HOME>` with the absolute path of your home directory (`echo $HOME`) and adjust the binary path if `which engram` returned something different
 4. Load it: `launchctl load ~/Library/LaunchAgents/com.gentleman-programming.engram.plist`
-5. Verify: `launchctl list | grep engram` and `engram cloud status` (the `Local daemon:` line should report `running on port 7437`)
+5. Verify: `launchctl list | grep engram` and `curl http://127.0.0.1:7437/health`
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -1284,14 +1013,6 @@ With `KeepAlive=true`, launchd relaunches `engram serve` automatically after an 
     <dict>
         <key>ENGRAM_DATA_DIR</key>
         <string><HOME>/.engram</string>
-        <!-- Uncomment and fill these to enable cloud autosync:
-        <key>ENGRAM_CLOUD_AUTOSYNC</key>
-        <string>1</string>
-        <key>ENGRAM_CLOUD_SERVER</key>
-        <string>https://your-cloud-host</string>
-        <key>ENGRAM_CLOUD_TOKEN</key>
-        <string>your-cloud-token</string>
-        -->
     </dict>
     <key>RunAtLoad</key>
     <true/>
@@ -1311,14 +1032,14 @@ To unload (stop and disable): `launchctl unload ~/Library/LaunchAgents/com.gentl
 
 ### Using Windows Task Scheduler
 
-Windows Task Scheduler is the native service equivalent on Windows. It restarts `engram serve` on login and after reboots, keeping autosync alive without a third-party service manager.
+Windows Task Scheduler is the native service equivalent on Windows. It restarts `engram serve` on login and after reboots, without a third-party service manager.
 
 **Setup steps:**
 
 1. Confirm `engram.exe` is in your `PATH`: open PowerShell and run `Get-Command engram`.
-2. Set `ENGRAM_CLOUD_TOKEN` (and any other cloud vars) as a **user or system environment variable** in System Properties → Advanced → Environment Variables. Task Scheduler does not inherit session environment variables, so tokens set in your shell profile or in `$env:...` within a PowerShell session will not be visible to the scheduled task.
+2. Set `ENGRAM_DATA_DIR` (and any other Engram variables) as a **user or system environment variable** in System Properties → Advanced → Environment Variables. Task Scheduler does not inherit session environment variables, so tokens set in your shell profile or in `$env:...` within a PowerShell session will not be visible to the scheduled task.
 3. Create the scheduled task by running the PowerShell snippet below in an elevated terminal (Run as Administrator), or import it manually through the Task Scheduler GUI.
-4. Verify: after the next login (or trigger manually), run `engram cloud status` — the `Local daemon:` line should report `running on port 7437`.
+4. Verify: after the next login (or trigger manually), run `curl http://127.0.0.1:7437/health`.
 
 ```powershell
 $action  = New-ScheduledTaskAction `
@@ -1342,7 +1063,7 @@ Register-ScheduledTask `
     -Description "Engram persistent memory server (engram serve)"
 ```
 
-> **Environment variables:** `ENGRAM_CLOUD_TOKEN`, `ENGRAM_CLOUD_SERVER`, `ENGRAM_CLOUD_AUTOSYNC`, and `ENGRAM_DATA_DIR` must be set as persistent user or system environment variables (Control Panel → System → Advanced → Environment Variables) so Task Scheduler can read them. Variables you `export` or set with `$env:` in a terminal session are not visible to scheduled tasks.
+> **Environment variables:** `ENGRAM_DATA_DIR` must be set as a persistent user or system environment variable (Control Panel → System → Advanced → Environment Variables) so Task Scheduler can read it. Variables you `export` or set with `$env:` in a terminal session are not visible to scheduled tasks.
 
 > **Logs:** To capture stdout/stderr, redirect output in the PowerShell command string, for example: `... -Command "Start-Process engram -ArgumentList 'serve' -NoNewWindow -RedirectStandardOutput '$env:USERPROFILE\.engram\serve.out.log' -RedirectStandardError '$env:USERPROFILE\.engram\serve.err.log'"`. Ensure the log files are opened with UTF-8 encoding (`-Encoding UTF8`) if you post-process them.
 
@@ -1379,161 +1100,6 @@ Register-ScheduledTask `
 
 - `@opencode-ai/plugin` — OpenCode plugin types and helpers
 - Runtime: Bun (built into OpenCode)
-
----
-
-## Dashboard templ regeneration
-
-The cloud dashboard uses [templ](https://templ.guide/) for server-side HTML components. Generated `*_templ.go` files are committed alongside their `.templ` sources. If you modify any `.templ` file in `internal/cloud/dashboard/`, you must regenerate the Go output before committing.
-
-### Prerequisite
-
-Download the pinned templ binary:
-
-```sh
-go mod download
-```
-
-### Regenerate
-
-```sh
-make templ
-# or directly:
-go tool templ generate ./internal/cloud/dashboard/...
-```
-
-The regenerated `components_templ.go`, `layout_templ.go`, and `login_templ.go` must be committed together with the `.templ` source changes. The test `TestTemplGeneratedFilesAreCheckedIn` in `internal/cloud/dashboard/templ_policy_test.go` will fail in CI if generated files are missing or outdated.
-
-**Important**: Always use the pinned version `github.com/a-h/templ v0.3.1001` (already in `go.mod`). Regenerating with a different version produces diff churn in generated output.
-
----
-
-## Cloud Autosync
-
-Autosync is a background push/pull replication service that keeps your local Engram store in sync with the Engram Cloud server without blocking local writes.
-
-### Enabling Autosync
-
-Autosync is **opt-in**. Set all three environment variables before starting `engram serve` or `engram mcp`:
-
-| Variable                | Required          | Description                                                             |
-| ----------------------- | ----------------- | ----------------------------------------------------------------------- |
-| `ENGRAM_CLOUD_AUTOSYNC` | Yes (exact `"1"`) | Enables autosync. Any other value disables it.                          |
-| `ENGRAM_CLOUD_TOKEN`    | Yes               | Bearer token for the cloud server.                                      |
-| `ENGRAM_CLOUD_SERVER`   | Yes               | Base URL of the cloud server (e.g. `https://cloud.engram.example.com`). |
-
-Example:
-
-```sh
-ENGRAM_CLOUD_AUTOSYNC=1 \
-ENGRAM_CLOUD_TOKEN=your-token \
-ENGRAM_CLOUD_SERVER=https://cloud.engram.example.com \
-engram serve
-
-# Or, for stdio MCP agents:
-ENGRAM_CLOUD_AUTOSYNC=1 \
-ENGRAM_CLOUD_TOKEN=your-token \
-ENGRAM_CLOUD_SERVER=https://cloud.engram.example.com \
-engram mcp
-```
-
-Missing `ENGRAM_CLOUD_TOKEN` or `ENGRAM_CLOUD_SERVER` logs an `ERROR` and disables autosync gracefully — `engram serve` or `engram mcp` still starts.
-
-### Autosync Phase Table
-
-| Phase         | Meaning                                | Dashboard Status          |
-| ------------- | -------------------------------------- | ------------------------- |
-| `idle`        | Loop running, no cycle yet             | running                   |
-| `pushing`     | Pushing local mutations to cloud       | running                   |
-| `pulling`     | Pulling remote mutations               | running                   |
-| `healthy`     | Last cycle succeeded                   | healthy                   |
-| `push_failed` | Last push failed                       | degraded                  |
-| `pull_failed` | Last pull failed                       | degraded                  |
-| `backoff`     | Too many consecutive failures; waiting | degraded                  |
-| `disabled`    | Paused by `StopForUpgrade`             | degraded (upgrade_paused) |
-
-### Reason Code Table
-
-`reason_code` appears in `Manager.Status().ReasonCode` and is surfaced via `/sync/status`:
-
-| `reason_code`      | Cause                                                   | Resolution                                                                   |
-| ------------------ | ------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `transport_failed` | Network error, server 5xx, or 404 on mutation endpoints | Check server health and network; if 404, see `server_unsupported` note below |
-| `auth_required`    | Bearer token rejected (401)                             | Rotate `ENGRAM_CLOUD_TOKEN`                                                  |
-| `policy_forbidden` | Project access denied (403)                             | Check `ENGRAM_CLOUD_ALLOWED_PROJECTS` on the server                          |
-| `internal_error`   | Panic inside the sync cycle                             | Check logs for stack trace                                                   |
-| `upgrade_paused`   | Autosync paused during cloud upgrade (`PhaseDisabled`)  | Call `ResumeAfterUpgrade` or restart                                         |
-
-Note: when the cloud server returns 404 on mutation endpoints, the transport logs `[autosync] cloud mutation endpoint returned 404 (server_unsupported)` and the transport-level `ErrorCode` is `"server_unsupported"`, but the manager surfaces this as `reason_code: transport_failed`.
-
-### Troubleshooting
-
-For a step-by-step recovery guide covering `chunk_id does not match payload content hash`, `session payload directory is required`, and the temporary missing-directory repair helper, see [Engram Cloud Troubleshooting](docs/engram-cloud/troubleshooting.md).
-
-**`transport_failed` with `server_unsupported` in logs**: Older pre-mutation cloud server deployments may not implement `POST /sync/mutations/push` or `GET /sync/mutations/pull`, causing 404 responses from those endpoints. Deploy a server version that includes these routes before enabling `ENGRAM_CLOUD_AUTOSYNC=1`. Check logs for the line containing `server_unsupported`.
-
-**Autosync not starting**: Check that `ENGRAM_CLOUD_AUTOSYNC` is exactly `"1"` (not `"true"` or `"yes"`), and that both `ENGRAM_CLOUD_TOKEN` and `ENGRAM_CLOUD_SERVER` are non-empty. The process logs an `[autosync] ERROR` line explaining which variable is missing.
-
-**Local writes still blocked**: Autosync runs in its own goroutine and never holds locks shared with the local write path. If local writes appear blocked, investigate the SQLite store layer, not the autosync manager.
-
----
-
----
-
-## Cloud Sync Audit Log
-
-When project sync is paused and a push is rejected, Engram records an audit entry in `cloud_sync_audit_log`. This gives operators a persistent trail of every rejection event, visible in the admin dashboard under **Admin > Audit Log**.
-
-### Schema
-
-| Column        | Type                      | Description                                                                 |
-| ------------- | ------------------------- | --------------------------------------------------------------------------- |
-| `id`          | SERIAL PK                 | Auto-incrementing row identifier                                            |
-| `occurred_at` | TIMESTAMPTZ DEFAULT NOW() | Timestamp of the rejection event                                            |
-| `contributor` | TEXT NOT NULL             | Identity of the caller (from `created_by` field in request, or `"unknown"`) |
-| `project`     | TEXT NOT NULL             | Project name that was paused and rejected                                   |
-| `action`      | TEXT NOT NULL             | Push type discriminator: `mutation_push` or `chunk_push`                    |
-| `outcome`     | TEXT NOT NULL             | Rejection outcome: always `rejected_project_paused` in v1                   |
-| `entry_count` | INT DEFAULT 0             | Number of entries in the rejected batch                                     |
-| `reason_code` | TEXT                      | Short machine-readable reason code (e.g. `sync-paused`)                     |
-| `metadata`    | JSONB                     | Reserved for future structured context; not populated in v1                 |
-
-### Outcome Vocabulary
-
-| Outcome                   | Meaning                                                                           |
-| ------------------------- | --------------------------------------------------------------------------------- |
-| `rejected_project_paused` | Push was rejected because the project's sync is paused via the admin sync control |
-
-### Action Discriminator
-
-| Action          | Meaning                                                     |
-| --------------- | ----------------------------------------------------------- |
-| `mutation_push` | Rejection occurred on `POST /sync/mutations/push`           |
-| `chunk_push`    | Rejection occurred on `POST /sync/push` (legacy chunk push) |
-
-Pull requests (`GET /sync/mutations/pull`) are never gated on pause status and never emit audit entries. Paused projects continue to serve reads to enrolled contributors without restriction.
-
-### Retention and Pruning
-
-There is no automatic retention policy in v1. Audit rows accumulate indefinitely. To prune entries older than 90 days, connect to Postgres and run:
-
-```sql
-DELETE FROM cloud_sync_audit_log
-WHERE occurred_at < NOW() - INTERVAL '90 days';
-```
-
-Wrap in a transaction and add a `LIMIT` clause if the table is large:
-
-```sql
-BEGIN;
-DELETE FROM cloud_sync_audit_log
-WHERE id IN (
-  SELECT id FROM cloud_sync_audit_log
-  WHERE occurred_at < NOW() - INTERVAL '90 days'
-  LIMIT 10000
-);
-COMMIT;
-```
 
 ---
 

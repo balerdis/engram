@@ -8,7 +8,7 @@
 engram doctor
 engram doctor --json
 engram doctor --project engram
-engram doctor --check sync_mutation_required_fields
+engram doctor --check sqlite_lock_contention
 engram doctor repair --project sias-app --check session_project_directory_mismatch --plan
 engram doctor repair --project sias-app --check session_project_directory_mismatch --dry-run
 engram doctor repair --project sias-app --check session_project_directory_mismatch --apply
@@ -61,19 +61,18 @@ The CLI `--json` and MCP tool return:
 
 - `session_project_directory_mismatch` — warns when `sessions.project` disagrees with the project inferred from trusted repository evidence for the session directory. The MVP trusts `git_remote` and `git_root` only; it ignores basename fallback, ambiguous workspaces, missing directories, and child-repo auto-promotion to avoid noisy false positives.
 - `manual_session_name_project_mismatch` — warns when a `manual-save-{suffix}` session name disagrees with `sessions.project`.
-- `sync_mutation_required_fields` — blocks when a pending `sync_mutations.payload` is missing required fields.
 - `sqlite_lock_contention` — warns on conservative SQLite contention signals; returns an error if lock state cannot be evaluated.
 
 ## Safety
 
 Plain `engram doctor` remains diagnostic-only. Findings that imply data movement set `requires_confirmation=true` so agents know a human must review evidence before repair.
 
-`engram doctor repair` is intentionally narrow and local-first: local SQLite remains the source of truth, and cloud/sync repair is out of scope. The repair MVP only supports project reclassification for:
+`engram doctor repair` is intentionally narrow and local-first: local SQLite remains the source of truth, and sync repair is out of scope. The repair MVP only supports project reclassification for:
 
 - `session_project_directory_mismatch`, using trusted `git_remote` or `git_root` evidence from doctor findings.
 - `manual_session_name_project_mismatch`, only for exact `manual-save-{known_project}` sessions, and only when trusted directory evidence does not contradict the manual-name target.
 
-Repair never deletes or deduplicates rows, never edits sync cursors, never mutates `sync_state`/`sync_mutations`, and never writes cloud state. `--plan` and `--dry-run` are non-mutating. `--apply` creates a SQLite backup under `<ENGRAM_DATA_DIR>/backups/` before a transaction updates only:
+Repair never deletes or deduplicates rows, never edits sync cursors, and never mutates `sync_state`/`sync_mutations`. `--plan` and `--dry-run` are non-mutating. `--apply` creates a SQLite backup under `<ENGRAM_DATA_DIR>/backups/` before a transaction updates only:
 
 - `sessions.project`
 - `observations.project`

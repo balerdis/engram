@@ -2,10 +2,6 @@
 
 # Plugins
 
-> Deferred scope note: plugin-level automatic cloud enrollment/login/upgrade orchestration is not part of this rollout yet. Current cloud flows are CLI-driven (`engram cloud ...`).
->
-> Validation boundary (current): plugin scripts are validated for memory/session workflows, not as cloud bootstrap orchestrators. Use CLI for cloud config/auth/enrollment/upgrade.
-
 - [Current plugin coverage](#current-plugin-coverage)
 - [OpenCode Plugin](#opencode-plugin)
 - [Claude Code Plugin](#claude-code-plugin)
@@ -220,12 +216,6 @@ Multiple entries appear on separate lines (one per related observation), in quer
 
 > **Parser note**: match by prefix (`supersedes:`, `superseded_by:`, `conflicts:`, `conflict:`). The format `#<integer-id> (<title>)` within parentheses is stable. Do not attempt to parse the title itself — it may contain any characters.
 
-### Cloud sync for judgments
-
-When a project is enrolled in Engram Cloud and autosync is enabled, `mem_judge` verdicts sync across machines. The `memory_relations` table propagates via the standard mutation push/pull cycle — the same pipeline used for observations and sessions. Judgments appear in `mem_search` annotations on any machine that has pulled the relevant mutations.
-
-Relations where the referenced observation does not yet exist locally are deferred (see `sync_apply_deferred`) and retried automatically on subsequent pull cycles.
-
 ### mem_save envelope fields (conflict surfacing)
 
 When `mem_save` detects candidates, the JSON response includes:
@@ -275,7 +265,7 @@ For the full HTTP API reference and CLI flag details, see [DOCS.md](../DOCS.md).
 
 ### HTTP endpoints
 
-All six `/conflicts/*` endpoints are served by `engram serve` on the local runtime (`127.0.0.1:7437`). They are not exposed on the cloud runtime. Full request/response documentation is in [DOCS.md](../DOCS.md).
+All six `/conflicts/*` endpoints are served by `engram serve` on the local runtime (`127.0.0.1:7437`). Full request/response documentation is in [DOCS.md](../DOCS.md).
 
 | Route | Purpose |
 |-------|---------|

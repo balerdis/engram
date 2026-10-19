@@ -474,18 +474,12 @@ func TestConflictLoop_SyncRegression(t *testing.T) {
 			t.Fatalf("G.4 mem_judge: err=%v isError=%v", err, judgeRes.IsError)
 		}
 	} else {
-		t.Logf("G.4: no candidates returned after save B (FTS similarity below floor); judge step skipped — enrollment-gate assertion still covers the unenrolled guard")
+		t.Logf("G.4: no candidates returned after save B (FTS similarity below floor); judge step skipped — the empty sync_mutations assertion still runs")
 	}
 
-	// ── Step 3: Assert no relation entity in sync_mutations (enrollment gate). ──
-	// This store is UNENROLLED — the enrollment gate in JudgeRelation /
-	// JudgeBySemantic must prevent any relation sync_mutations row from being
-	// written. Sessions ('session') and observations ('observation') are expected;
-	// a relation-entity row here would mean the enrollment guard was bypassed.
+	// ── Step 3: sync_mutations stays empty: nothing writes to it any more. ──
 	assertNoRelationSyncMutations(t, s)
 
-	// ── Step 4: Verify observation sync payloads exclude decay fields. ────────
-	// REQ-009: new observation columns must NOT appear in the sync wire format.
 }
 
 // ─── G.5 — Backwards compatibility ──────────────────────────────────────────

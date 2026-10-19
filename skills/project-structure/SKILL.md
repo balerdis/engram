@@ -21,18 +21,15 @@ Use this skill when:
 ## Placement Rules
 
 1. Put behavior near its domain, not near the caller that happens to use it.
-2. Keep templates in `internal/cloud/dashboard/*.templ` and generated files checked in.
-3. Keep dashboard styling in `internal/cloud/dashboard/static/styles.css` unless a new static asset is clearly needed.
-4. Put HTTP handlers in server packages, not in store packages.
-5. Put persistence queries in store/cloudstore, not in handlers.
+2. Put HTTP handlers in server packages, not in store packages.
+3. Put persistence queries in the store, not in handlers.
 
 ---
 
 ## File Creation Rules
 
-- New route -> handler + tests in dashboard/server package
-- New DB behavior -> store/cloudstore code + focused tests
-- New UI partial/page -> templ component + generated `_templ.go`
+- New route -> handler + tests in the server package
+- New DB behavior -> store code + focused tests
 - New contributor guidance -> update docs/catalog in same change
 
 ---

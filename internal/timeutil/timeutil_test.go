@@ -45,10 +45,9 @@ func TestFormatLocal(t *testing.T) {
 	}
 }
 
-// TestFormatLocalWithLayoutPreservesCallerLayout covers the dashboard use case:
-// UI surfaces pass a friendly layout (e.g. "02 Jan 2006 15:04") and still get
-// ENGRAM_TIMEZONE-aware conversion. The dashboard regression test in
-// internal/cloud/dashboard/helpers_test.go relies on this contract.
+// TestFormatLocalWithLayoutPreservesCallerLayout covers UI surfaces that pass a
+// friendly layout (e.g. "02 Jan 2006 15:04") and still get ENGRAM_TIMEZONE-aware
+// conversion.
 func TestFormatLocalWithLayoutPreservesCallerLayout(t *testing.T) {
 	old := os.Getenv("ENGRAM_TIMEZONE")
 	defer os.Setenv("ENGRAM_TIMEZONE", old)

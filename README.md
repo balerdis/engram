@@ -1,17 +1,16 @@
 > **Fork notice.** This repository is a fork of [engram](https://github.com/Gentleman-Programming/engram), frozen at 1.20 and maintained independently. It is distributed only as GitHub release assets, with no Homebrew, npm or Docker image from this fork. Fork decisions: [docs/arquitectura-engram.md](docs/arquitectura-engram.md).
 
 <p align="center">
-  <img width="1024" alt="Engram — One Brain. Local or Cloud." src="assets/branding/engram-banner.png" />
+  <img width="1024" alt="Engram — One Brain." src="assets/branding/engram-banner.png" />
 </p>
 
 <p align="center">
   <strong>Persistent memory for AI coding agents</strong><br>
-  <em>One brain. Local or cloud. Agent-agnostic, single binary, zero dependencies.</em>
+  <em>One brain. Local. Agent-agnostic, single binary, zero dependencies.</em>
 </p>
 
 <p align="center">
   <a href="docs/INSTALLATION.md">Installation</a> &bull;
-  <a href="docs/engram-cloud/README.md">Engram Cloud</a> &bull;
   <a href="docs/AGENT-SETUP.md">Agent Setup</a> &bull;
   <a href="docs/CODEBASE-GUIDE.md">Codebase Guide</a> &bull;
   <a href="docs/ARCHITECTURE.md">Architecture</a> &bull;
@@ -154,7 +153,7 @@ engram tui
 
 Share memories across machines. Uses compressed chunks — no merge conflicts, no huge files.
 
-Local SQLite remains the source of truth. Cloud integration is opt-in replication.
+Local SQLite remains the source of truth.
 
 ```bash
 engram sync                    # Export new memories as compressed chunk
@@ -164,182 +163,6 @@ engram sync --status           # Check sync status
 ```
 
 Full sync documentation → [DOCS.md](DOCS.md)
-
-## Cloud Integration (Opt-In Replication)
-
-Cloud is optional. Local SQLite stays authoritative; cloud is replication/shared access only.
-
-**Recommended first path (local smoke):**
-
-```bash
-docker compose -f docker-compose.cloud.yml up -d
-engram cloud config --server http://127.0.0.1:18080
-engram cloud enroll smoke-project
-engram sync --cloud --project smoke-project
-```
-
-Cloud mode is always project-scoped (`--project` is required; `engram sync --cloud --all` is intentionally blocked).
-`ENGRAM_CLOUD_ALLOWED_PROJECTS` is required for `engram cloud serve` in both token-auth and insecure modes. Set it to `*` to allow all projects (useful for dev/internal deploys) — this bypasses per-project name enforcement while still requiring a non-empty project on each request.
-Known repairable cloud sync/upsert/canonicalization failures keep the original error visible and recommend the explicit `doctor`/`repair` flow below; Engram never auto-applies repair from sync or autosync.
-For blocked cloud sync, `transport_failed`, or legacy session directory repair, see [Engram Cloud Troubleshooting](docs/engram-cloud/troubleshooting.md).
-If cloud sync stays blocked after `doctor`/`repair`, download the rescue helper and run the recommended exported-row repair:
-
-```bash
-tools/repair-missing-session-directory.sh --apply --interactive --fix-exported <project>
-engram sync --cloud --project <project>
-```
-
-`--fix-exported` repairs local exported `sessions[].directory` and `observations[]` required fields that can still break the final push after `doctor` reports ready. For sequential legacy `sync_mutations` blockers, use `tools/repair-missing-session-directory.sh --apply --interactive --all <project>`.
-
-**After upgrading `engram` while an MCP client is already running:**
-
-```bash
-engram setup claude-code
-```
-
-Then restart Claude Code so it reloads the Engram MCP subprocess and refreshed hook/config files. Updating the `engram` binary on disk does not replace an already-running stdio MCP process.
-
-**Upgrade flow for existing local databases** (diagnose → repair → bootstrap → status):
-
-```bash
-engram cloud upgrade doctor --project smoke-project        # read-only readiness check
-engram cloud upgrade repair --project smoke-project --dry-run
-engram cloud upgrade repair --project smoke-project --apply
-engram cloud upgrade bootstrap --project smoke-project     # resumable enroll + push + verify
-engram cloud upgrade status --project smoke-project        # stage/class/reason
-```
-
-See [DOCS.md — Cloud upgrade flow](DOCS.md#cloud-upgrade-flow) for the full state machine.
-
-`engram cloud bootstrap admin` creates the first managed admin (with optional project grants and a one-time issued token) directly in the cloud database. Set `ENGRAM_CLOUD_TOKEN_PEPPER` on `engram cloud serve` to enable managed tokens to authenticate at runtime (resolved first, before falling back to legacy `ENGRAM_CLOUD_TOKEN`/`ENGRAM_CLOUD_ADMIN`); without it, the server still starts and continues to authenticate via the legacy env-token credentials only. See [DOCS.md — Managed users, tokens, and CLI bootstrap](DOCS.md#managed-users-tokens-and-cli-bootstrap).
-
-For authenticated mode, upgrade flow, dashboard behavior, reason codes, and full runtime/env details:
-
-- [Engram Cloud docs landing](docs/engram-cloud/README.md)
-- [Engram Cloud quickstart](docs/engram-cloud/quickstart.md)
-- [DOCS.md — Cloud CLI reference](DOCS.md#cloud-cli-opt-in)
-- [DOCS.md — Cloud Autosync](DOCS.md#cloud-autosync)
-
-## Steps to Test (Beta — Phases 2+3+4)
-
-Try the new memory-conflict-surfacing features in **complete isolation** from your existing engram setup. Docker uses non-default ports + a separate data dir + a beta-only token, so your prod cloud and `~/.engram/` are untouched. Cleanup is one command.
-
-**What's in the beta**:
-
-- 🔄 Cloud sync of conflict relations cross-machine
-- 🔍 `engram conflicts` CLI + HTTP API for retroactive audit + scan
-- 🧠 `--semantic` scan that uses **your existing Claude Code or OpenCode CLI** to judge FTS5 conflict candidates with LLM reasoning — **$0 if you're on a Pro/Max/Plus subscription**
-
-### Setup (4 commands)
-
-```bash
-git clone https://github.com/balerdis/engram.git engram-beta-repo
-cd engram-beta-repo && git checkout feat/memory-conflict-surfacing-cloud-sync
-docker compose -f docker-compose.beta.yml up -d
-go build -o ./engram-beta ./cmd/engram
-
-# Isolated env (does NOT touch ~/.engram or your prod cloud)
-export ENGRAM_DATA_DIR=/tmp/engram-beta-data
-export ENGRAM_CLOUD_SERVER=http://127.0.0.1:28080
-export ENGRAM_CLOUD_TOKEN=beta-token-CHANGE-ME-please-32chars
-mkdir -p "$ENGRAM_DATA_DIR"
-```
-
-### Use cases
-
-**1️⃣ Phase 1 — Conflict detection on save (sanity)**
-
-```bash
-./engram-beta save \
-  "Use Clean Architecture" \
-  "Layers: entities, use cases, adapters." \
-  --type architecture --project beta-test
-
-./engram-beta save \
-  "Use Hexagonal Architecture" \
-  "Ports and adapters separate domain from infra." \
-  --type architecture --project beta-test
-```
-
-✅ Second save returns `candidates[]` with the first memory's id.
-
-**2️⃣ Phase 2 — Cloud sync of relations cross-machine**
-
-```bash
-./engram-beta cloud enroll beta-test
-./engram-beta sync --cloud --project beta-test
-./engram-beta cloud status
-
-# Simulate a "second machine"
-ENGRAM_DATA_DIR=/tmp/engram-beta-data-2 ./engram-beta cloud enroll beta-test
-ENGRAM_DATA_DIR=/tmp/engram-beta-data-2 ./engram-beta sync --cloud --project beta-test
-ENGRAM_DATA_DIR=/tmp/engram-beta-data-2 ./engram-beta search "Architecture"
-```
-
-✅ The "second machine" sees memories synced from the first.
-
-**3️⃣ Phase 3 — Admin CLI + HTTP API**
-
-```bash
-./engram-beta conflicts list --project beta-test
-./engram-beta conflicts stats --project beta-test
-./engram-beta conflicts scan --project beta-test --dry-run
-./engram-beta conflicts scan --project beta-test --apply --max-insert 10
-
-# In another terminal: ./engram-beta serve
-curl -s "http://127.0.0.1:7437/conflicts?project=beta-test" | jq
-```
-
-✅ List/scan/stats return sensible data.
-
-**4️⃣ Phase 4 — Semantic LLM-judge (the killer feature) 🎯**
-
-```bash
-export ENGRAM_AGENT_CLI=claude   # or opencode
-
-./engram-beta conflicts scan --project beta-test --semantic --apply \
-  --max-semantic 5 --concurrency 3 --yes
-```
-
-✅ Your agent's LLM judges semantic similarity. **$0 if on a subscription**.
-
-**5️⃣ The case where FTS5 finds a candidate, then the LLM judges meaning**
-
-Lexically related candidate titles with a semantic conflict:
-
-```bash
-./engram-beta save \
-  "Use Postgres for the user database" \
-  "Postgres 15 is our SQL store for users." \
-  --type architecture --project beta-test
-
-./engram-beta save \
-  "Replace the user database with MongoDB" \
-  "Document store now backs the user collection. SQL is gone." \
-  --type decision --project beta-test
-
-./engram-beta conflicts scan --project beta-test --semantic --apply \
-  --max-semantic 5 --yes
-
-./engram-beta conflicts list --project beta-test --status judged
-```
-
-✅ FTS5 supplies the candidate pair through shared title terms like `user` / `database`; the LLM then judges whether it is `supersedes` / `conflicts_with`. `--semantic` does not discover totally lexically unrelated pairs on its own.
-
-### Cleanup (zero residue)
-
-```bash
-docker compose -f docker-compose.beta.yml down -v
-rm -rf /tmp/engram-beta-data /tmp/engram-beta-data-2 ./engram-beta
-```
-
-Your production engram is fully untouched throughout.
-
-### Full guide + troubleshooting
-
-→ [docs/BETA_TESTING.md](docs/BETA_TESTING.md)
-
-→ Report feedback: [issues with `beta-phase-2-3-4` label](https://github.com/balerdis/engram/issues)
 
 ## CLI Reference
 
@@ -363,7 +186,6 @@ Your production engram is fully untouched throughout.
 | `engram sync`                              | Git sync export/import                                          |
 | `engram conflicts <sub>`                   | Inspect and manage memory conflict relations                    |
 | `engram doctor`                            | Run read-only operational diagnostics                           |
-| `engram cloud <subcommand>`                | Opt-in cloud config/status/enrollment + cloud runtime (`serve`) |
 | `engram projects list\|consolidate\|prune` | Manage project names                                            |
 | `engram obsidian-export`                   | Export to Obsidian vault (beta)                                 |
 | `engram version`                           | Show version                                                    |
@@ -378,10 +200,7 @@ Full CLI with all flags → [docs/ARCHITECTURE.md#cli-reference](docs/ARCHITECTU
 | `ENGRAM_PORT`                   | Override HTTP server port                                                                                              | `7437`         |
 | `ENGRAM_URL`                    | Point the **Pi plugin** at an existing `engram serve` instance instead of auto-starting one. Not an MCP endpoint — used by the HTTP event-capture path only. (The OpenCode plugin honors `ENGRAM_PORT`/`ENGRAM_BIN`, not `ENGRAM_URL`.) | (unset, defaults to `http://127.0.0.1:<ENGRAM_PORT>`) |
 | `ENGRAM_HTTP_TOKEN`             | Optional Bearer auth for local HTTP server. When set, destructive and export routes require `Authorization: Bearer <token>`. Unset = open (zero-config default). | (unset) |
-| `ENGRAM_TIMEZONE`               | Timezone for timestamp display in TUI and cloud dashboard (e.g. `America/New_York`). Falls back to system local when unset or invalid. | system local |
-| `ENGRAM_CLOUD_AUTOSYNC`         | Set to `1` to enable background autosync (also requires `ENGRAM_CLOUD_TOKEN` + `ENGRAM_CLOUD_SERVER`).                 | (unset)        |
-| `ENGRAM_CLOUD_ALLOWED_PROJECTS` | Comma-separated project allowlist for `engram cloud serve`. Use `*` to allow all projects.                             | (unset)        |
-| `ENGRAM_CLOUD_TOKEN_PEPPER`     | Dedicated secret used to hash managed tokens. Required to issue tokens via `engram cloud bootstrap admin --issue-token` AND to enable managed-token authentication on `engram cloud serve`; must differ from `ENGRAM_JWT_SECRET`. Without it, `engram cloud serve` still starts and authenticates via legacy `ENGRAM_CLOUD_TOKEN`/`ENGRAM_CLOUD_ADMIN` only. | (unset)        |
+| `ENGRAM_TIMEZONE`               | Timezone for timestamp display in the TUI (e.g. `America/New_York`). Falls back to system local when unset or invalid. | system local |
 
 Full environment variable reference → [DOCS.md#environment-variables](DOCS.md#environment-variables)
 
@@ -390,7 +209,6 @@ Full environment variable reference → [DOCS.md#environment-variables](DOCS.md#
 | Doc                                           | Description                                                            |
 | --------------------------------------------- | ---------------------------------------------------------------------- |
 | [Installation](docs/INSTALLATION.md)          | All install methods + platform support                                 |
-| [Engram Cloud](docs/engram-cloud/README.md)   | Cloud landing page, quickstart, branding, and deep links               |
 | [Agent Setup](docs/AGENT-SETUP.md)            | Per-agent configuration + Memory Protocol                              |
 | [Codebase Guide](docs/CODEBASE-GUIDE.md)      | Guide to the repository structure, flows, and implementation landmarks |
 | [Architecture](docs/ARCHITECTURE.md)          | How it works + MCP tools + project structure                           |
@@ -400,8 +218,6 @@ Full environment variable reference → [DOCS.md#environment-variables](DOCS.md#
 | [Obsidian Brain](docs/beta/obsidian-brain.md) | Export memories as Obsidian knowledge graph (beta)                     |
 | [Contributing](CONTRIBUTING.md)               | Contribution workflow + standards                                      |
 | [Full Docs](DOCS.md)                          | Complete technical reference                                           |
-
-> **Dashboard contributors**: if you modify `.templ` files in `internal/cloud/dashboard/`, run `make templ` to regenerate before committing. See [DOCS.md — Dashboard templ regeneration](DOCS.md#dashboard-templ-regeneration).
 
 ## License
 

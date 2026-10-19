@@ -1,4 +1,4 @@
-[← Codebase Guide](../CODEBASE-GUIDE.md) | [← Previous: Memory Core](memory-core.md) | [Next: Sync and Cloud →](sync-and-cloud.md)
+[← Codebase Guide](../CODEBASE-GUIDE.md) | [← Previous: Memory Core](memory-core.md) | [Next: Sync →](sync.md)
 
 # Interfaces
 
@@ -6,7 +6,7 @@
 
 ## CLI: `cmd/engram`
 
-`cmd/engram/main.go` and neighboring files are the binary entry point. They connect store, HTTP, MCP, TUI, sync, autosync, setup, doctor, conflicts, cloud, and Obsidian.
+`cmd/engram/main.go` and neighboring files are the binary entry point. They connect store, HTTP, MCP, TUI, sync, setup, doctor, conflicts, and Obsidian.
 
 Do not put core behavior in the command if it can live in a testable package. The command should coordinate, parse flags, and adapt errors for humans.
 
@@ -31,9 +31,9 @@ For tool parameters and envelopes, use [DOCS.md — MCP Tools](../../DOCS.md#mcp
 
 ## Local API: `internal/server`
 
-`internal/server/server.go` is a simple JSON API over the local store. It also exposes `GET /sync/status` for autosync/degraded-state visibility.
+`internal/server/server.go` is a simple JSON API over the local store.
 
-Use it for plugins, hooks, or local external clients. Do not confuse it with cloud: the cloud runtime has its own server.
+Use it for plugins, hooks, or local external clients.
 
 For exact local routes, use [DOCS.md — HTTP API Endpoints](../../DOCS.md#http-api-endpoints).
 
@@ -61,7 +61,7 @@ The TUI uses Bubbletea and reads from the local store. The separation is classic
 
 ### Local API
 
-- [ ] The route belongs to `engram serve`, not cloud.
+- [ ] The route belongs to `engram serve`.
 - [ ] `internal/server/server.go` only orchestrates request/response and calls store/services.
 - [ ] Status codes and JSON errors are deterministic.
 - [ ] Tests in `internal/server/*_test.go` cover errors and success.
@@ -69,4 +69,4 @@ The TUI uses Bubbletea and reads from the local store. The separation is classic
 
 ---
 
-[← Previous: Memory Core](memory-core.md) | [Next: Sync and Cloud →](sync-and-cloud.md)
+[← Previous: Memory Core](memory-core.md) | [Next: Sync →](sync.md)
