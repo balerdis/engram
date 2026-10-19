@@ -2,6 +2,7 @@ package plugin_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -9,14 +10,77 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
-// runHookScript runs a Claude Code plugin script with the given stdin against
-// a fake engram server on a free port and returns the requests it received.
-func runHookScript(t *testing.T, script, stdin string) (paths []string, bodies []string) {
+// fakeEngramBody is the default fake `engram` binary: `port` prints the fake
+// server's port, `serve` only records the ENGRAM_PORT it was given.
+const fakeEngramBody = `#!/bin/sh
+case "$1" in
+  port) echo "$FAKE_ENGRAM_PORT" ;;
+  serve) echo "serve ENGRAM_PORT=$ENGRAM_PORT" >> "$FAKE_ENGRAM_LOG" ;;
+  protocol-mode) echo full ;;
+  sync) ;;
+  *) echo "unknown command: $1" >&2; exit 1 ;;
+esac
+`
+
+// fakeEngramOld is a binary that predates `engram port`.
+const fakeEngramOld = `#!/bin/sh
+case "$1" in
+  serve) echo "serve ENGRAM_PORT=$ENGRAM_PORT" >> "$FAKE_ENGRAM_LOG" ;;
+  protocol-mode) echo full ;;
+  *) echo "unknown command: $1" >&2; exit 1 ;;
+esac
+`
+
+// fakeEngramDisabled makes `engram port` answer that memory is disabled.
+const fakeEngramDisabled = `#!/bin/sh
+case "$1" in
+  port) echo "engram: memory disabled: port held by another user" >&2; exit 1 ;;
+  serve) echo "serve ENGRAM_PORT=$ENGRAM_PORT" >> "$FAKE_ENGRAM_LOG" ;;
+  protocol-mode) echo full ;;
+  *) echo "unknown command: $1" >&2; exit 1 ;;
+esac
+`
+
+type hookOpts struct {
+	cwd         string
+	engram      string                 // fake engram script; empty = fakeEngramBody
+	tcp4        *string                // fake /proc/net/tcp contents; nil = file absent
+	tcp4Builder func(port int) *string // like tcp4, built once the fake server port is known
+	env         []string               // extra environment
+	projectResp string                 // body of GET /project/current; empty = {}
+	healthDown  bool                   // /health answers 500
+}
+
+type hookResult struct {
+	paths, bodies []string
+	queries       []string
+	stdout        string
+	serveLog      string
+	port          string
+}
+
+// tcpTable builds a fake /proc/net/tcp with one LISTEN row per (port, uid).
+func tcpTable(rows ...[2]int) *string {
+	var b strings.Builder
+	b.WriteString("  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n")
+	for i, r := range rows {
+		fmt.Fprintf(&b, "   %d: 0100007F:%04X 00000000:0000 0A 00000000:00000000 00:00000000 00000000  %d        0 %d 1\n", i, r[0], r[1], 1000+i)
+	}
+	s := b.String()
+	return &s
+}
+
+// runHook runs a Claude Code plugin script against a fake engram server on a
+// free port, with a fake `engram` binary first on PATH, and returns what the
+// server received. Nothing here depends on the real /proc or a real engram.
+func runHook(t *testing.T, script, stdin string, o hookOpts) hookResult {
 	t.Helper()
 	for _, bin := range []string{"bash", "jq", "curl"} {
 		if _, err := exec.LookPath(bin); err != nil {
@@ -25,13 +89,27 @@ func runHookScript(t *testing.T, script, stdin string) (paths []string, bodies [
 	}
 
 	var mu sync.Mutex
+	var res hookResult
+	projectResp := o.projectResp
+	if projectResp == "" {
+		projectResp = `{}`
+	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
+		if r.URL.Path == "/health" && o.healthDown {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		mu.Lock()
-		paths = append(paths, r.URL.Path)
-		bodies = append(bodies, string(b))
+		res.paths = append(res.paths, r.URL.Path)
+		res.bodies = append(res.bodies, string(b))
+		res.queries = append(res.queries, r.URL.RawQuery)
 		mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/project/current" {
+			_, _ = w.Write([]byte(projectResp))
+			return
+		}
 		_, _ = w.Write([]byte(`{}`))
 	}))
 	defer srv.Close()
@@ -39,23 +117,76 @@ func runHookScript(t *testing.T, script, stdin string) (paths []string, bodies [
 	if err != nil {
 		t.Fatalf("split addr: %v", err)
 	}
+	res.port = port
+
+	bin := t.TempDir()
+	body := o.engram
+	if body == "" {
+		body = fakeEngramBody
+	}
+	if err := os.WriteFile(filepath.Join(bin, "engram"), []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	logFile := filepath.Join(t.TempDir(), "serve.log")
+
+	env := append(os.Environ(),
+		"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"ENGRAM_PORT="+port,
+		"FAKE_ENGRAM_PORT="+port,
+		"FAKE_ENGRAM_LOG="+logFile,
+		"ENGRAM_PORT_PROC_TCP6="+filepath.Join(t.TempDir(), "absent-tcp6"),
+		"ENGRAM_NO_PROJECT_MIGRATE=",
+	)
+	if o.tcp4Builder != nil {
+		p, _ := strconv.Atoi(port)
+		o.tcp4 = o.tcp4Builder(p)
+	}
+	tcp4 := filepath.Join(t.TempDir(), "tcp")
+	if o.tcp4 != nil {
+		if err := os.WriteFile(tcp4, []byte(*o.tcp4), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	env = append(env, "ENGRAM_PORT_PROC_TCP4="+tcp4)
+	env = append(env, o.env...)
 
 	path := filepath.Join(repoRoot(t), "plugin", "claude-code", "scripts", script)
 	cmd := exec.Command("bash", path)
 	cmd.Stdin = strings.NewReader(stdin)
-	cmd.Env = append(os.Environ(), "ENGRAM_PORT="+port)
+	cmd.Env = env
 	var stdout strings.Builder
 	cmd.Stdout = &stdout
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("%s failed: %v\n%s", script, err, stdout.String())
 	}
+	res.stdout = stdout.String()
 	if script == "user-prompt-submit.sh" && stdout.Len() != 0 {
 		t.Fatalf("%s must print nothing, got %q", script, stdout.String())
+	}
+	// A backgrounded fake `serve` may land slightly after the script returns.
+	for i := 0; i < 20; i++ {
+		if _, err := os.Stat(logFile); err == nil {
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	if b, err := os.ReadFile(logFile); err == nil {
+		res.serveLog = string(b)
 	}
 
 	mu.Lock()
 	defer mu.Unlock()
-	return append([]string(nil), paths...), append([]string(nil), bodies...)
+	res.paths = append([]string(nil), res.paths...)
+	res.bodies = append([]string(nil), res.bodies...)
+	res.queries = append([]string(nil), res.queries...)
+	return res
+}
+
+// runHookScript keeps the original simple shape for the basic tests.
+func runHookScript(t *testing.T, script, stdin string) (paths []string, bodies []string) {
+	t.Helper()
+	r := runHook(t, script, stdin, hookOpts{})
+	return r.paths, r.bodies
 }
 
 func TestSubagentStopHookSendsLastAssistantMessage(t *testing.T) {
@@ -67,6 +198,10 @@ func TestSubagentStopHookSendsLastAssistantMessage(t *testing.T) {
 		"stdout":                 "legacy field must be ignored",
 	})
 	paths, bodies := runHookScript(t, "subagent-stop.sh", string(input))
+	// The project lookup (GET /project/current) precedes the capture.
+	if len(paths) == 2 && paths[0] == "/project/current" {
+		paths, bodies = paths[1:], bodies[1:]
+	}
 	if len(paths) != 1 || paths[0] != "/observations/passive" {
 		t.Fatalf("requests = %v, want one POST /observations/passive", paths)
 	}
@@ -145,9 +280,15 @@ func TestUserPromptSubmitHookIsSilentAndExitsZeroWhenServerDown(t *testing.T) {
 	_, port, _ := net.SplitHostPort(l.Addr().String())
 	_ = l.Close()
 
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "engram"), []byte(fakeEngramBody), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	cmd := exec.Command("bash", filepath.Join(repoRoot(t), "plugin", "claude-code", "scripts", "user-prompt-submit.sh"))
 	cmd.Stdin = strings.NewReader(`{"session_id":"s","prompt":"hi"}`)
-	cmd.Env = append(os.Environ(), "ENGRAM_PORT="+port)
+	cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"ENGRAM_PORT="+port, "FAKE_ENGRAM_PORT="+port,
+		"ENGRAM_PORT_PROC_TCP4="+filepath.Join(t.TempDir(), "absent"))
 	var stdout strings.Builder
 	cmd.Stdout = &stdout
 	if err := cmd.Run(); err != nil {

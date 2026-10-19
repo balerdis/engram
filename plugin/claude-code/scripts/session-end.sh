@@ -6,8 +6,10 @@
 # capped at 1s and failures are ignored. The body is empty on purpose: the
 # server keeps any summary already stored for the session.
 
-ENGRAM_PORT="${ENGRAM_PORT:-7437}"
-ENGRAM_URL="http://127.0.0.1:${ENGRAM_PORT}"
+
+# Load shared helpers
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "${SCRIPT_DIR}/_helpers.sh"
 
 INPUT=$(cat)
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty')
@@ -15,6 +17,9 @@ SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty')
 if [ -z "$SESSION_ID" ]; then
   exit 0
 fi
+
+# Memory disabled (port held by another user): send nothing.
+resolve_engram_url || exit 0
 
 curl -sf --max-time 1 "${ENGRAM_URL}/sessions/${SESSION_ID}/end" \
   -X POST \
