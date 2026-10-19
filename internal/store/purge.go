@@ -5,8 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"os"
-	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -111,6 +110,36 @@ func ParsePurgeBound(value string) (ts string, dateOnly bool, err error) {
 	return "", false, fmt.Errorf("invalid date %q: use YYYY-MM-DD or RFC3339", value)
 }
 
+// ValidatePurgeBounds checks the --since/--until values without touching any
+// database: both must parse, and --since must not be after --until. A date-only
+// --until covers its whole UTC day, so it is compared by its last second.
+func ValidatePurgeBounds(since, until string) error {
+	since, until = strings.TrimSpace(since), strings.TrimSpace(until)
+	var sinceTS, untilTS string
+	if since != "" {
+		ts, _, err := ParsePurgeBound(since)
+		if err != nil {
+			return fmt.Errorf("--since: %w", err)
+		}
+		sinceTS = ts
+	}
+	if until != "" {
+		ts, dateOnly, err := ParsePurgeBound(until)
+		if err != nil {
+			return fmt.Errorf("--until: %w", err)
+		}
+		untilTS = ts
+		if dateOnly {
+			t, _ := time.Parse(purgeTSLayout, ts)
+			untilTS = t.Add(24*time.Hour - time.Second).Format(purgeTSLayout)
+		}
+	}
+	if sinceTS != "" && untilTS != "" && sinceTS > untilTS {
+		return fmt.Errorf("%w: --since is after --until", ErrPurgeRefused)
+	}
+	return nil
+}
+
 type purgeWhere struct {
 	sinceTS  string
 	untilTS  string // exclusive when untilExcl
@@ -125,6 +154,9 @@ func (s *Store) purgeResolve(tx *sql.Tx, sel *PurgeSelector) (*purgeWhere, error
 	sel.Until = strings.TrimSpace(sel.Until)
 	if sel.Project == "" && sel.SessionID == "" && sel.Since == "" && sel.Until == "" {
 		return nil, fmt.Errorf("%w: at least one selector (project, session, since, until) is required", ErrPurgeRefused)
+	}
+	if err := ValidatePurgeBounds(sel.Since, sel.Until); err != nil {
+		return nil, err
 	}
 	w := &purgeWhere{}
 	if sel.Since != "" {
@@ -334,7 +366,7 @@ func (s *Store) purgeBuild(tx *sql.Tx, sel PurgeSelector, opts PurgeOptions) (*P
 	for p := range projSet {
 		plan.Projects = append(plan.Projects, p)
 	}
-	sortStrings(plan.Projects)
+	sort.Strings(plan.Projects)
 
 	// Refusals.
 	if err := s.purgeCount(tx, `SELECT COUNT(*) FROM observations WHERE pinned = 1 AND id IN (SELECT id FROM purge_obs)`, nil, &plan.Counts.Pinned); err != nil {
@@ -516,14 +548,6 @@ func purgeTruncate(v string, n int) string {
 	return string(r[:n]) + "..."
 }
 
-func sortStrings(v []string) {
-	for i := 1; i < len(v); i++ {
-		for j := i; j > 0 && v[j] < v[j-1]; j-- {
-			v[j], v[j-1] = v[j-1], v[j]
-		}
-	}
-}
-
 func purgeDropTemp(tx *sql.Tx) {
 	for _, t := range []string{"purge_obs", "purge_prompts", "purge_sessions", "purge_rel"} {
 		_, _ = tx.Exec(`DROP TABLE IF EXISTS temp.` + t)
@@ -587,34 +611,21 @@ func (s *Store) Purge(sel PurgeSelector, opts PurgeOptions) (*PurgeResult, error
 	if err != nil {
 		return nil, fmt.Errorf("purge failed, nothing was deleted; the backup at %s holds the untouched data: %w", backup, err)
 	}
+	if diff := purgeCountDiffs(plan.Counts, res.Deleted); len(diff) > 0 {
+		res.Warnings = append(res.Warnings, fmt.Sprintf(
+			"the rows deleted differ from the plan shown (%s): the data changed between the preview and the delete, so rows added after the backup at %s are not in it",
+			strings.Join(diff, "; "), backup))
+	}
 	if _, err := s.execHook(s.db, `PRAGMA wal_checkpoint(PASSIVE)`); err != nil {
 		res.Warnings = append(res.Warnings, "WAL checkpoint failed: "+err.Error())
 	}
 	return res, nil
 }
 
-// purgeBackup writes engram-purge-<timestamp>.db under <data dir>/backups. The
-// directory is created 0700 only when missing (an existing one is left alone)
-// and the file is 0600: it holds the purged data in clear text.
+// purgeBackup writes engram-purge-<YYYYMMDDTHHMMSSZ>.db under <data dir>/backups
+// (see backupInto for the collision suffix and the modes).
 func (s *Store) purgeBackup() (string, error) {
-	backupDir := filepath.Join(s.cfg.DataDir, "backups")
-	if _, err := os.Stat(backupDir); os.IsNotExist(err) {
-		if err := os.MkdirAll(backupDir, 0o700); err != nil {
-			return "", fmt.Errorf("create backup dir: %w", err)
-		}
-	}
-	path := filepath.Join(backupDir, "engram-purge-"+time.Now().UTC().Format("20060102T150405.000000000Z")+".db")
-	// VACUUM INTO accepts an existing empty file, so pre-create it with 0600.
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return "", fmt.Errorf("create backup file: %w", err)
-	}
-	f.Close()
-	if _, err := s.execHook(s.db, `VACUUM INTO ?`, path); err != nil {
-		_ = os.Remove(path)
-		return "", fmt.Errorf("backup sqlite database: %w", err)
-	}
-	return path, nil
+	return s.backupInto("engram-purge-")
 }
 
 // verifyPurgeBackup opens the backup read-only, runs integrity_check and makes
@@ -660,4 +671,31 @@ func verifyPurgeBackup(path string, planned PurgeCounts) error {
 		}
 	}
 	return nil
+}
+
+// purgeCountDiffs lists the tables whose deleted count differs from the
+// planned one (observations_soft_deleted and _pinned are descriptive, not
+// deleted rows, so they are not compared).
+func purgeCountDiffs(planned, deleted PurgeCounts) []string {
+	var out []string
+	for _, c := range []struct {
+		name         string
+		plan, actual int
+	}{
+		{"sessions", planned.Sessions, deleted.Sessions},
+		{"observations", planned.Observations, deleted.Observations},
+		{"user_prompts", planned.Prompts, deleted.Prompts},
+		{"memory_relations", planned.Relations, deleted.Relations},
+		{"prompt_tombstones", planned.PromptTombstones, deleted.PromptTombstones},
+		{"sync_mutations", planned.SyncMutations, deleted.SyncMutations},
+		{"sync_apply_deferred", planned.SyncApplyDeferred, deleted.SyncApplyDeferred},
+		{"sync_state", planned.SyncState, deleted.SyncState},
+		{"sync_enrolled_projects", planned.SyncEnrolled, deleted.SyncEnrolled},
+		{"cloud_upgrade_state", planned.CloudUpgradeState, deleted.CloudUpgradeState},
+	} {
+		if c.plan != c.actual {
+			out = append(out, fmt.Sprintf("%s: planned %d, deleted %d", c.name, c.plan, c.actual))
+		}
+	}
+	return out
 }

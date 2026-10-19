@@ -4,10 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
-	"time"
 )
 
 // DiagnosticSessionEvidence is the read-only session projection used by
@@ -152,16 +149,10 @@ func (s *Store) ApplySessionProjectReclassification(actions []SessionProjectRecl
 	return result, nil
 }
 
+// BackupSQLite writes engram-repair-<timestamp>.db under <data dir>/backups
+// (dir 0700 when created, file 0600, like purge's backup).
 func (s *Store) BackupSQLite() (string, error) {
-	backupDir := filepath.Join(s.cfg.DataDir, "backups")
-	if err := os.MkdirAll(backupDir, 0755); err != nil {
-		return "", fmt.Errorf("create sqlite backup dir: %w", err)
-	}
-	path := filepath.Join(backupDir, "engram-repair-"+time.Now().UTC().Format("20060102T150405.000000000Z")+".db")
-	if _, err := s.execHook(s.db, `VACUUM INTO ?`, path); err != nil {
-		return "", fmt.Errorf("backup sqlite database: %w", err)
-	}
-	return path, nil
+	return s.backupInto("engram-repair-")
 }
 
 func normalizeSessionProjectReclassificationActions(actions []SessionProjectReclassification) []SessionProjectReclassification {
