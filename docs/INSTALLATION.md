@@ -94,6 +94,7 @@ Expand-Archive engram_*_windows_amd64.zip -DestinationPath "$env:USERPROFILE\bin
 > **Other Windows notes:**
 > - Data is stored in `%USERPROFILE%\.engram\engram.db`
 > - Override with `ENGRAM_DATA_DIR` environment variable
+> - On Unix the default data directory is created `0700` and `engram.db` `0600`; a directory you pick with `ENGRAM_DATA_DIR` keeps its permissions (only the database files are tightened)
 > - All core features work natively: CLI, MCP server, TUI, HTTP API, Git Sync
 > - No WSL required for the core binary — it's a native Windows executable
 
