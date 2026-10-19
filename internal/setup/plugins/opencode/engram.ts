@@ -279,14 +279,19 @@ function canonicalProject(name: string): string {
 }
 
 /** Project name as it is interpolated into text the model reads: the name
- *  VERBATIM when it is non-empty, at most 100 characters and every character
- *  is a Unicode letter or digit, a space, "." "_" or "-"; otherwise null and
- *  the caller omits the whole project clause (an altered name would not exist).
- *  The stored name is not changed. */
+ *  VERBATIM only when it is a SINGLE token (no spaces) of 1-64 Unicode letters,
+ *  combining marks, digits, "." "_" or "-", and none of the invisible Hangul
+ *  fillers (U+115F, U+1160, U+3164, U+FFA0, which are "letters" that render as
+ *  nothing); otherwise null and the caller omits the whole project clause (an
+ *  altered name would not exist, and a sentence must never pass as a name).
+ *  Residual risk: a single token can still contain readable words, and the name
+ *  comes from the repository or directory the user chose to open. The stored
+ *  name is not changed. */
 function safeProjectText(name: string): string | null {
   const n = name ?? ""
-  if (n === "" || [...n].length > 100) return null
-  return /^[\p{L}\p{N} ._-]+$/u.test(n) ? n : null
+  if (n === "" || [...n].length > 64) return null
+  if (/[\u115F\u1160\u3164\uFFA0]/.test(n)) return null
+  return /^[\p{L}\p{M}\p{N}._-]+$/u.test(n) ? n : null
 }
 
 function safeProjectClause(project: string): string {
