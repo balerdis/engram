@@ -21,7 +21,8 @@ fi
 # Memory disabled (port held by another user): send nothing.
 resolve_engram_url || exit 0
 
-curl -sf --max-time 1 "${ENGRAM_URL}/sessions/${SESSION_ID}/end" \
+ENCODED_SESSION=$(printf '%s' "$SESSION_ID" | jq -sRr @uri)
+curl -sf --max-time 1 "${ENGRAM_URL}/sessions/${ENCODED_SESSION}/end" \
   -X POST \
   -H "Content-Type: application/json" \
   -d '{}' \

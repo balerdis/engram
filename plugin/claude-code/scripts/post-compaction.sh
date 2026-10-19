@@ -17,10 +17,10 @@ CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
 resolve_engram_url || exit 0
 
 # Ambiguous project: PROJECT stays empty and project-scoped work is skipped.
-resolve_project "$CWD"
+resolve_project "$CWD" 3
 
 # Ensure session exists
-if [ -n "$SESSION_ID" ] && [ -n "$PROJECT" ]; then
+if [ -n "$SESSION_ID" ] && [ -n "$PROJECT" ] && [ "$PROJECT_FROM_SERVER" = "1" ]; then
   curl -sf "${ENGRAM_URL}/sessions" \
     -X POST \
     -H "Content-Type: application/json" \
@@ -102,8 +102,10 @@ fi
 echo "CRITICAL INSTRUCTION POST-COMPACTION — follow these steps IN ORDER:"
 
 if [ -n "$PROJECT" ]; then
-  PROJECT_CLAUSE=" Use project: '${PROJECT}'."
-  PROJECT_CLAUSE_CTX=" with project: '${PROJECT}'"
+  # Sanitized: the name ends up in text the model reads as an instruction.
+  SAFE_PROJECT=$(safe_project_text "$PROJECT")
+  PROJECT_CLAUSE=" Use project: '${SAFE_PROJECT}'."
+  PROJECT_CLAUSE_CTX=" with project: '${SAFE_PROJECT}'"
 else
   PROJECT_CLAUSE=""
   PROJECT_CLAUSE_CTX=""

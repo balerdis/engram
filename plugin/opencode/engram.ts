@@ -241,7 +241,17 @@ function extractProjectName(directory: string): string {
     if (result.exitCode === 0) {
       const url = result.stdout?.toString().trim()
       if (url) {
-        const name = url.replace(/\.git$/, "").split(/[/:]/).pop()
+        // Same rules as the server: scheme://host without a path has no name,
+        // trailing slashes and a ".git" suffix (any case) are dropped.
+        let path = url
+        const scheme = path.indexOf("://")
+        if (scheme >= 0) {
+          const rest = path.slice(scheme + 3)
+          const slash = rest.indexOf("/")
+          path = slash < 0 ? "" : rest.slice(slash)
+        }
+        path = path.replace(/\/+$/, "").replace(/\.git$/i, "").replace(/\/+$/, "")
+        const name = path.split(/[/:]/).filter(Boolean).pop()
         if (name) return name
       }
     }
@@ -266,6 +276,13 @@ function canonicalProject(name: string): string {
   while (n.includes("--")) n = n.replaceAll("--", "-")
   while (n.includes("__")) n = n.replaceAll("__", "_")
   return n === "" ? "unknown" : n
+}
+
+/** Project name as it is interpolated into text the model reads: only
+ *  [a-z0-9._-] survive (anything else becomes "-") and it is capped at 100
+ *  characters. The stored name is not changed. */
+function safeProjectText(name: string): string {
+  return (name ?? "").toLowerCase().replace(/[^a-z0-9._-]/g, "-").slice(0, 100)
 }
 
 /** Project name from the server (GET /project/current); the git/basename
@@ -349,7 +366,9 @@ export const Engram: Plugin = async (ctx) => {
         projectFromServer = true
       }
     }
-    if (!project) return // ambiguous project: do not invent a name
+    // Ambiguous project: do not invent a name. A name that did not come from
+    // the server is only a fallback for reading, never for registering.
+    if (!project || !projectFromServer) return
     knownSessions.add(sessionId)
     await engramFetch("/sessions", {
       method: "POST",
@@ -381,12 +400,19 @@ export const Engram: Plugin = async (ctx) => {
 
   // Migrate project name if it changed (one-time, idempotent)
   // Must run AFTER server startup to ensure the endpoint is available
-  const resolved = await resolveProject(ctx.directory)
+  // A cold-started server may need a moment: retry a few times before settling
+  // for the fallback name.
+  let resolved = await resolveProject(ctx.directory)
+  for (let i = 0; i < 4 && !resolved.fromServer && engramUrl() !== null; i++) {
+    await new Promise((r) => setTimeout(r, 250))
+    resolved = await resolveProject(ctx.directory)
+  }
   project = resolved.name
   projectFromServer = resolved.fromServer
   // Only from the git root, never when disabled, and never for an ambiguous
   // name. The server renames only into an empty target ("skipped" is normal).
   if (
+    resolved.fromServer &&
     !resolved.ambiguous &&
     project &&
     oldProject !== project &&
@@ -674,7 +700,7 @@ export const Engram: Plugin = async (ctx) => {
         `The agent has access to Engram persistent memory via MCP tools.\n` +
         `You MUST include the following instruction at the TOP of the compacted summary:\n\n` +
         `"FIRST ACTION REQUIRED: Call mem_session_summary with the content of this compacted summary. ` +
-        `${project ? `Use project: '${project}'. ` : ""}This preserves what was accomplished before compaction. Do this BEFORE any other work."\n\n` +
+        `${project ? `Use project: '${safeProjectText(project)}'. ` : ""}This preserves what was accomplished before compaction. Do this BEFORE any other work."\n\n` +
         `This is NOT optional. Without this, everything done before compaction is lost from memory.`
       )
     },

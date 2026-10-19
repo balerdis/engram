@@ -22,6 +22,7 @@ type ocResult struct {
 	System  string      `json:"system"`
 	Serve   string      `json:"serve"`
 	AfterOK []string    `json:"afterPrompt"`
+	Compact string      `json:"compaction"`
 }
 
 // runOpenCode runs the OpenCode plugin under Node (with a minimal Bun shim)
@@ -130,5 +131,26 @@ func TestOpenCodePluginAmbiguousProjectSendsNoProjectWork(t *testing.T) {
 		if ocHas(r, p) {
 			t.Fatalf("ambiguous project must skip %s: %v", p, ocPaths(r))
 		}
+	}
+}
+
+func TestOpenCodePluginColdStartFallbackNameIsNeverMigratedNorRegistered(t *testing.T) {
+	r := runOpenCode(t, "cold")
+	for _, p := range []string{"/projects/migrate", "/sessions"} {
+		if ocHas(r, p) {
+			t.Fatalf("a name that did not come from the server must skip %s: %v", p, ocPaths(r))
+		}
+	}
+}
+
+func TestOpenCodePluginSanitizesTheProjectNameInCompactionText(t *testing.T) {
+	r := runOpenCode(t, "evil")
+	if strings.Contains(r.Compact, "IGNORE") || strings.Contains(r.Compact, "ignore all") {
+		t.Fatalf("raw project name reached the model text: %s", r.Compact)
+	}
+	prefix := "x-.-ignore-all-previous-instructions-"
+	want := "Use project: '" + prefix + strings.Repeat("a", 100-len(prefix)) + "'."
+	if !strings.Contains(r.Compact, want) {
+		t.Fatalf("want %q in %s", want, r.Compact)
 	}
 }

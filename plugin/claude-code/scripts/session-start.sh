@@ -35,13 +35,14 @@ fi
 
 # Project name: the server's answer wins; the old detection is the fallback.
 # An ambiguous answer leaves PROJECT empty: no name is invented.
-resolve_project "$CWD"
+resolve_project "$CWD" 3
 
+# A fallback name (the server did not answer) is never migrated or registered.
 # Migrate the old name (canonical basename of the cwd) when the cwd is the git
 # root and the name changed. The server only renames into an empty target and
 # answers "skipped" otherwise, which is normal.
 OLD_PROJECT=$(canonical_project "$(basename "$CWD")")
-if [ "$PROJECT_AMBIGUOUS" != "1" ] && [ "${ENGRAM_NO_PROJECT_MIGRATE:-}" != "1" ] \
+if [ "$PROJECT_FROM_SERVER" = "1" ] && [ "$PROJECT_AMBIGUOUS" != "1" ] && [ "${ENGRAM_NO_PROJECT_MIGRATE:-}" != "1" ] \
   && [ "$OLD_PROJECT" != "$PROJECT" ] && [ -n "$PROJECT" ] \
   && [ -n "$CWD" ] && [ "$(git -C "$CWD" rev-parse --show-toplevel 2>/dev/null)" = "$(cd -P "$CWD" 2>/dev/null && pwd -P)" ]; then
   curl -sf "${ENGRAM_URL}/projects/migrate" \
@@ -53,7 +54,7 @@ if [ "$PROJECT_AMBIGUOUS" != "1" ] && [ "${ENGRAM_NO_PROJECT_MIGRATE:-}" != "1" 
 fi
 
 # Create session
-if [ -n "$SESSION_ID" ] && [ -n "$PROJECT" ]; then
+if [ -n "$SESSION_ID" ] && [ -n "$PROJECT" ] && [ "$PROJECT_FROM_SERVER" = "1" ]; then
   curl -sf "${ENGRAM_URL}/sessions" \
     -X POST \
     -H "Content-Type: application/json" \
@@ -66,7 +67,13 @@ fi
 if [ -f "${CWD}/.engram/manifest.json" ]; then
   (
     cd "$CWD" 2>/dev/null || exit 0
-    IMPORT_LOCK="${TMPDIR:-/tmp}/engram-sync-import-$(printf '%s' "$CWD" | cksum | cut -d ' ' -f 1).lock"
+    # The lock lives in a per-user directory (never a predictable shared /tmp
+    # path another user could pre-create): $XDG_RUNTIME_DIR, else ~/.engram.
+    LOCK_BASE="${XDG_RUNTIME_DIR:-$HOME/.engram}"
+    ( umask 077; mkdir -p "$LOCK_BASE" ) 2>/dev/null
+    [ -d "$LOCK_BASE" ] && [ -O "$LOCK_BASE" ] || exit 0
+    chmod 700 "$LOCK_BASE" 2>/dev/null
+    IMPORT_LOCK="${LOCK_BASE}/engram-sync-import-$(printf '%s' "$CWD" | cksum | cut -d ' ' -f 1).lock"
     write_import_lock_info() {
       LOCK_INFO_TMP="$IMPORT_LOCK/info.$$"
       printf '%s %s\n' "$LOCK_PID" "$LOCK_NOW" > "$LOCK_INFO_TMP" 2>/dev/null \

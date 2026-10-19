@@ -1,6 +1,8 @@
 /**
  * Engram — OpenCode plugin adapter
  *
+ * Authors: Gentleman Programming, Sergio Balerdi
+ *
  * Thin layer that connects OpenCode's event system to the Engram Go binary.
  * The Go binary runs as a local HTTP server and handles all persistence.
  *
@@ -15,12 +17,81 @@
  */
 
 import type { Plugin } from "@opencode-ai/plugin"
+import { existsSync, readFileSync, realpathSync } from "node:fs"
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
-const ENGRAM_PORT = parseInt(process.env.ENGRAM_PORT ?? "7437")
-const ENGRAM_URL = `http://127.0.0.1:${ENGRAM_PORT}`
 const ENGRAM_BIN = process.env.ENGRAM_BIN ?? "engram"
+
+// ─── Port resolution ─────────────────────────────────────────────────────────
+// The engram port is shared by every OS user of the machine. It is resolved
+// again before EVERY request (a cached answer goes stale the dangerous way:
+// our server dies and another user takes its port) and is never used when only
+// another uid listens on it. Same rule as `engram port`:
+//   valid ENGRAM_PORT -> used if free or ours, else disabled (no fallback);
+//   else 7437 if free/ours; else 17437 + uid % 10000 if free/ours; else disabled.
+// Without /proc/net/tcp the owner cannot be told and the port is used as is.
+// Test seams: ENGRAM_PORT_PROC_TCP4, ENGRAM_PORT_PROC_TCP6, ENGRAM_PORT_FALLBACK_BASE.
+const DEFAULT_ENGRAM_PORT = 7437
+const LISTEN_STATE = "0A"
+const LOOPBACK_V4 = ["0100007F", "00000000"]
+const LOOPBACK_V6 = [
+  "00000000000000000000000001000000",
+  "0000000000000000FFFF00000100007F",
+  "00000000000000000000000000000000",
+  "0000000000000000FFFF000000000000",
+]
+
+function listenerUids(path: string, port: number, loopbacks: string[]): Set<number> {
+  const uids = new Set<number>()
+  let lines: string[]
+  try {
+    lines = readFileSync(path, "latin1").split("\n")
+  } catch {
+    return uids
+  }
+  for (const line of lines.slice(1)) {
+    const fields = line.trim().split(/\s+/)
+    if (fields.length < 8 || fields[3] !== LISTEN_STATE) continue
+    const [address, hexport] = fields[1].split(":")
+    if (!loopbacks.includes((address ?? "").toUpperCase())) continue
+    if (!/^[0-9a-fA-F]{1,8}$/.test(hexport ?? "") || !/^[0-9]{1,10}$/.test(fields[7])) continue
+    if (parseInt(hexport, 16) !== port) continue
+    uids.add(parseInt(fields[7], 10))
+  }
+  return uids
+}
+
+function listenersOf(port: number): Set<number> | null {
+  const tcp4 = process.env.ENGRAM_PORT_PROC_TCP4 || "/proc/net/tcp"
+  const tcp6 = process.env.ENGRAM_PORT_PROC_TCP6 || "/proc/net/tcp6"
+  if (!existsSync(tcp4)) return null
+  return new Set([...listenerUids(tcp4, port, LOOPBACK_V4), ...listenerUids(tcp6, port, LOOPBACK_V6)])
+}
+
+function resolveEngramPort(): number | null {
+  const raw = (process.env.ENGRAM_PORT ?? "").trim()
+  const explicit = /^[0-9]{1,5}$/.test(raw) && +raw >= 1 && +raw <= 65535 ? +raw : null
+  const uid = process.getuid?.()
+  if (uid === undefined || listenersOf(DEFAULT_ENGRAM_PORT) === null) return explicit ?? DEFAULT_ENGRAM_PORT
+  const usable = (port: number): boolean => {
+    const held = listenersOf(port)
+    return held === null || held.size === 0 || held.has(uid)
+  }
+  if (explicit !== null) return usable(explicit) ? explicit : null
+  if (usable(DEFAULT_ENGRAM_PORT)) return DEFAULT_ENGRAM_PORT
+  const baseText = (process.env.ENGRAM_PORT_FALLBACK_BASE ?? "").trim()
+  let base = 17437
+  if (/^[0-9]{1,5}$/.test(baseText) && +baseText >= 1 && +baseText + (uid % 10000) <= 65535) base = +baseText
+  const fallback = base + (uid % 10000)
+  return usable(fallback) ? fallback : null
+}
+
+/** Base URL of our engram server, or null when memory is disabled. Never cached. */
+function engramUrl(): string | null {
+  const port = resolveEngramPort()
+  return port === null ? null : `http://127.0.0.1:${port}`
+}
 
 // Engram's own MCP tools — don't count these as "tool calls" for session stats
 const ENGRAM_TOOLS = new Set([
@@ -46,7 +117,13 @@ const MEMORY_INSTRUCTIONS = `## Engram Persistent Memory — Protocol
 
 You have access to Engram, a persistent memory system that survives across sessions and compactions.
 
-### WHEN TO SAVE (mandatory — not optional)
+WHO SAVES: only the agent talking with the person saves memories. If another agent launched you
+(you received a task brief, not a conversation with the user), do not call mem_save, mem_update,
+mem_session_summary, mem_save_prompt, mem_session_start/end or mem_judge unless your brief
+explicitly asks for it. You may use mem_search, mem_context and mem_get_observation. Put durable
+findings in your final reply; whoever launched you decides what to save.
+
+### WHEN TO SAVE (only the agent talking with the person — mandatory, not optional)
 
 Call \`mem_save\` IMMEDIATELY after any of these:
 - Bug fix completed
@@ -86,7 +163,7 @@ Also search memory PROACTIVELY when:
 - The user mentions a topic you have no context on — check if past sessions covered it
 - The user's FIRST message references the project, a feature, or a problem — call \`mem_search\` with keywords from their message to check for prior work before responding
 
-### SESSION CLOSE PROTOCOL (mandatory)
+### SESSION CLOSE PROTOCOL (only the agent talking with the person — mandatory)
 
 Before ending a session or saying "done" / "that's it", you MUST:
 1. Call \`mem_session_summary\` with this structure:
@@ -128,7 +205,9 @@ async function engramFetch(
   opts: { method?: string; body?: any } = {}
 ): Promise<any> {
   try {
-    const res = await fetch(`${ENGRAM_URL}${path}`, {
+    const base = engramUrl()
+    if (base === null) return null // memory disabled: send nothing
+    const res = await fetch(`${base}${path}`, {
       method: opts.method ?? "GET",
       headers: opts.body ? { "Content-Type": "application/json" } : undefined,
       body: opts.body ? JSON.stringify(opts.body) : undefined,
@@ -142,7 +221,9 @@ async function engramFetch(
 
 async function isEngramRunning(): Promise<boolean> {
   try {
-    const res = await fetch(`${ENGRAM_URL}/health`, {
+    const base = engramUrl()
+    if (base === null) return false
+    const res = await fetch(`${base}/health`, {
       signal: AbortSignal.timeout(500),
     })
     return res.ok
@@ -160,7 +241,17 @@ function extractProjectName(directory: string): string {
     if (result.exitCode === 0) {
       const url = result.stdout?.toString().trim()
       if (url) {
-        const name = url.replace(/\.git$/, "").split(/[/:]/).pop()
+        // Same rules as the server: scheme://host without a path has no name,
+        // trailing slashes and a ".git" suffix (any case) are dropped.
+        let path = url
+        const scheme = path.indexOf("://")
+        if (scheme >= 0) {
+          const rest = path.slice(scheme + 3)
+          const slash = rest.indexOf("/")
+          path = slash < 0 ? "" : rest.slice(slash)
+        }
+        path = path.replace(/\/+$/, "").replace(/\.git$/i, "").replace(/\/+$/, "")
+        const name = path.split(/[/:]/).filter(Boolean).pop()
         if (name) return name
       }
     }
@@ -177,6 +268,45 @@ function extractProjectName(directory: string): string {
 
   // Final fallback: cwd basename
   return directory.split("/").pop() ?? "unknown"
+}
+
+/** Canonical project name: same rules as the engram server. */
+function canonicalProject(name: string): string {
+  let n = (name ?? "").trim().toLowerCase()
+  while (n.includes("--")) n = n.replaceAll("--", "-")
+  while (n.includes("__")) n = n.replaceAll("__", "_")
+  return n === "" ? "unknown" : n
+}
+
+/** Project name as it is interpolated into text the model reads: only
+ *  [a-z0-9._-] survive (anything else becomes "-") and it is capped at 100
+ *  characters. The stored name is not changed. */
+function safeProjectText(name: string): string {
+  return (name ?? "").toLowerCase().replace(/[^a-z0-9._-]/g, "-").slice(0, 100)
+}
+
+/** Project name from the server (GET /project/current); the git/basename
+ *  detection is only the fallback when the server does not answer. An
+ *  ambiguous answer yields name "" (no name is invented). */
+async function resolveProject(directory: string): Promise<{ name: string; ambiguous: boolean; fromServer: boolean }> {
+  const data = await engramFetch(`/project/current?cwd=${encodeURIComponent(directory)}`)
+  if (data && typeof data === "object" && "project" in data) {
+    const name = typeof data.project === "string" ? data.project : ""
+    return { name, ambiguous: name === "", fromServer: true }
+  }
+  return { name: canonicalProject(extractProjectName(directory)), ambiguous: false, fromServer: false }
+}
+
+/** True when `directory` is the git root of its repository. */
+function isGitRoot(directory: string): boolean {
+  try {
+    const result = Bun.spawnSync(["git", "-C", directory, "rev-parse", "--show-toplevel"])
+    if (result.exitCode !== 0) return false
+    const root = result.stdout?.toString().trim()
+    return !!root && realpathSync(root) === realpathSync(directory)
+  } catch {
+    return false
+  }
 }
 
 function truncate(str: string, max: number): string {
@@ -197,8 +327,11 @@ function stripPrivateTags(str: string): string {
 // ─── Plugin Export ───────────────────────────────────────────────────────────
 
 export const Engram: Plugin = async (ctx) => {
-  const oldProject = ctx.directory.split("/").pop() ?? "unknown"
-  const project = extractProjectName(ctx.directory)
+  const oldProject = canonicalProject(ctx.directory.split("/").pop() ?? "unknown")
+  // Resolved after the server is up (see below). "" = ambiguous: project-scoped
+  // work is skipped rather than guessed.
+  let project = canonicalProject(extractProjectName(ctx.directory))
+  let projectFromServer = false
 
   // Track tool counts per session (in-memory only, not critical)
   const toolCounts = new Map<string, number>()
@@ -225,6 +358,17 @@ export const Engram: Plugin = async (ctx) => {
     if (!sessionId || knownSessions.has(sessionId)) return
     // Do not register sub-agent sessions in Engram (issue #116).
     if (subAgentSessions.has(sessionId)) return
+    // The server was not up when the plugin loaded: ask again now.
+    if (!projectFromServer) {
+      const resolved = await resolveProject(ctx.directory)
+      if (resolved.fromServer) {
+        project = resolved.name
+        projectFromServer = true
+      }
+    }
+    // Ambiguous project: do not invent a name. A name that did not come from
+    // the server is only a fallback for reading, never for registering.
+    if (!project || !projectFromServer) return
     knownSessions.add(sessionId)
     await engramFetch("/sessions", {
       method: "POST",
@@ -238,12 +382,15 @@ export const Engram: Plugin = async (ctx) => {
 
   // Try to start engram server if not running
   const running = await isEngramRunning()
-  if (!running) {
+  const startPort = resolveEngramPort()
+  if (!running && startPort !== null) {
     try {
+      // Pass the resolved port explicitly: the server must listen where we send.
       Bun.spawn([ENGRAM_BIN, "serve"], {
         stdout: "ignore",
         stderr: "ignore",
         stdin: "ignore",
+        env: { ...process.env, ENGRAM_PORT: String(startPort) },
       })
       await new Promise((r) => setTimeout(r, 500))
     } catch {
@@ -253,7 +400,25 @@ export const Engram: Plugin = async (ctx) => {
 
   // Migrate project name if it changed (one-time, idempotent)
   // Must run AFTER server startup to ensure the endpoint is available
-  if (oldProject !== project) {
+  // A cold-started server may need a moment: retry a few times before settling
+  // for the fallback name.
+  let resolved = await resolveProject(ctx.directory)
+  for (let i = 0; i < 4 && !resolved.fromServer && engramUrl() !== null; i++) {
+    await new Promise((r) => setTimeout(r, 250))
+    resolved = await resolveProject(ctx.directory)
+  }
+  project = resolved.name
+  projectFromServer = resolved.fromServer
+  // Only from the git root, never when disabled, and never for an ambiguous
+  // name. The server renames only into an empty target ("skipped" is normal).
+  if (
+    resolved.fromServer &&
+    !resolved.ambiguous &&
+    project &&
+    oldProject !== project &&
+    process.env.ENGRAM_NO_PROJECT_MIGRATE !== "1" &&
+    isGitRoot(ctx.directory)
+  ) {
     await engramFetch("/projects/migrate", {
       method: "POST",
       body: { old_project: oldProject, new_project: project },
@@ -352,7 +517,7 @@ export const Engram: Plugin = async (ctx) => {
       const finalContent = content || fallback
 
       // Only capture non-trivial prompts (>10 chars)
-      if (finalContent.length > 10) {
+      if (finalContent.length > 10 && project) {
         await ensureSession(sessionId)
         await engramFetch("/prompts", {
           method: "POST",
@@ -384,7 +549,7 @@ export const Engram: Plugin = async (ctx) => {
       // Passive capture: extract learnings from Task tool output
       if (input.tool === "Task" && output && sessionId) {
         const text = typeof output === "string" ? output : JSON.stringify(output)
-        if (text.length > 50) {
+        if (text.length > 50 && project) {
           await engramFetch("/observations/passive", {
             method: "POST",
             body: {
@@ -440,10 +605,14 @@ export const Engram: Plugin = async (ctx) => {
         const lastNudge = lastNudgeTime.get(sessionID)
         if (lastNudge !== undefined && nowSecs - lastNudge < cooldownSecs) return
 
+        if (!project) return // ambiguous project: nothing to nudge about
+
         // Skip if the session is too young (< 5 minutes)
         let sessionStartEpoch = 0
         try {
-          const sessionRes = await fetch(`${ENGRAM_URL}/sessions/${encodeURIComponent(sessionID)}`, {
+          const base = engramUrl()
+          if (base === null) return
+          const sessionRes = await fetch(`${base}/sessions/${encodeURIComponent(sessionID)}`, {
             signal: AbortSignal.timeout(200),
           })
           if (sessionRes.ok) {
@@ -462,8 +631,10 @@ export const Engram: Plugin = async (ctx) => {
         // Check when the last observation was saved for this project
         let lastObsEpoch = 0
         try {
+          const base = engramUrl()
+          if (base === null) return
           const obsRes = await fetch(
-            `${ENGRAM_URL}/observations?project=${encodeURIComponent(project)}&limit=1&sort=created_at:desc`,
+            `${base}/observations?project=${encodeURIComponent(project)}&limit=1&sort=created_at:desc`,
             { signal: AbortSignal.timeout(200) }
           )
           if (obsRes.ok) {
@@ -514,9 +685,9 @@ export const Engram: Plugin = async (ctx) => {
       }
 
       // Inject context from previous sessions
-      const data = await engramFetch(
-        `/context?project=${encodeURIComponent(project)}`
-      )
+      const data = project
+        ? await engramFetch(`/context?project=${encodeURIComponent(project)}`)
+        : null
       if (data?.context) {
         output.context.push(data.context)
       }
@@ -529,7 +700,7 @@ export const Engram: Plugin = async (ctx) => {
         `The agent has access to Engram persistent memory via MCP tools.\n` +
         `You MUST include the following instruction at the TOP of the compacted summary:\n\n` +
         `"FIRST ACTION REQUIRED: Call mem_session_summary with the content of this compacted summary. ` +
-        `Use project: '${project}'. This preserves what was accomplished before compaction. Do this BEFORE any other work."\n\n` +
+        `${project ? `Use project: '${safeProjectText(project)}'. ` : ""}This preserves what was accomplished before compaction. Do this BEFORE any other work."\n\n` +
         `This is NOT optional. Without this, everything done before compaction is lost from memory.`
       )
     },
