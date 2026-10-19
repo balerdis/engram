@@ -207,6 +207,12 @@ func TestCmdPurgeJSONErrors(t *testing.T) {
 		{[]string{"--json", "--since", "nonsense"}, false, "invalid date"},
 		{[]string{"--json", "--project", "--yes"}, false, "looks like a flag"},
 		{[]string{"--json", "--bogus"}, false, "unknown purge argument"},
+		{[]string{"--json", "--project", "lab", "--yes=false"}, false, "takes no value"},
+		{[]string{"--json", "--project", "lab", "--yes=0"}, false, "takes no value"},
+		{[]string{"--json", "--json=false", "--project", "lab"}, false, "takes no value"},
+		{[]string{"--json", "--project", "lab", "--include-pinned=false"}, false, "takes no value"},
+		{[]string{"--json", "--project", "lab", "--vacuum=no"}, false, "takes no value"},
+		{[]string{"--json", "--project", "lab", "--sync-leftovers=false"}, false, "takes no value"},
 		{[]string{"--json"}, false, "at least one selector"},
 	}
 	for _, c := range cases {

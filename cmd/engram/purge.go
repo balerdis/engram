@@ -125,6 +125,14 @@ func cmdPurge(cfg store.Config) {
 			return args[i]
 		}
 		switch name {
+		case "--yes", "--include-pinned", "--json", "--sync-leftovers", "--vacuum":
+			// Boolean flags take no value: "--yes=false" must not run as "--yes".
+			if hasVal {
+				purgeFail(jsonOut, fmt.Errorf("%s takes no value, got %q", name, arg), false, true)
+				return
+			}
+		}
+		switch name {
 		case "--project":
 			sel.Project = value()
 		case "--session":
