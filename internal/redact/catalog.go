@@ -52,6 +52,8 @@ type catalogT struct {
 	urlPattern   *regexp.Regexp
 	urlName      string
 	known        []knownFormat
+	jsonPair     *regexp.Regexp
+	quoted       *regexp.Regexp
 	namedPrivate *regexp.Regexp
 	barePrivate  *regexp.Regexp
 	bareName     string
@@ -130,6 +132,8 @@ func loadCatalog(data []byte) (*catalogT, error) {
 			Keys     []string `json:"keys"`
 			MinLen   int      `json:"min_value_length"`
 			Unquoted string   `json:"unquoted_value_pattern"`
+			DQBody   string   `json:"quoted_value_double_body"`
+			SQBody   string   `json:"quoted_value_single_body"`
 			Fillers  []string `json:"filler_skip_values"`
 			FillPats []string `json:"filler_skip_patterns"`
 			Skip     []struct {
@@ -146,6 +150,10 @@ func loadCatalog(data []byte) (*catalogT, error) {
 			Pattern string `json:"pattern"`
 		} `json:"known_formats"`
 		Explicit struct {
+			Nesting struct {
+				Open  string `json:"open"`
+				Close string `json:"close"`
+			} `json:"nesting"`
 			Named struct {
 				Pattern string `json:"pattern"`
 			} `json:"named"`
@@ -163,6 +171,12 @@ func loadCatalog(data []byte) (*catalogT, error) {
 	}
 	if !strings.HasPrefix(raw.URL.Pattern, urlLookbehind) {
 		return nil, fmt.Errorf("url_credentials.pattern lost its lookbehind; the previous-character check must be updated")
+	}
+	if raw.KeyContext.DQBody == "" || raw.KeyContext.SQBody == "" {
+		return nil, fmt.Errorf("catalog lacks quoted_value_double_body/quoted_value_single_body")
+	}
+	if raw.Explicit.Nesting.Open != "<private>" || raw.Explicit.Nesting.Close != "</private>" {
+		return nil, fmt.Errorf("explicit.nesting changed; the <private> scanner must be updated")
 	}
 	c := &catalogT{
 		minLen:    raw.MinLen,
@@ -218,15 +232,40 @@ func loadCatalog(data []byte) (*catalogT, error) {
 	for _, k := range raw.Known {
 		c.known = append(c.known, knownFormat{k.Name, pyRE(k.Pattern, false)})
 	}
-	c.namedPrivate = pyRE(raw.Explicit.Named.Pattern, false)
-	c.barePrivate = pyRE(raw.Explicit.Bare.Pattern, false)
+	// The two catalog patterns are applied ANCHORED to a whole flat span.
+	c.namedPrivate = pyRE(`^(?:`+raw.Explicit.Named.Pattern+`)$`, false)
+	c.barePrivate = pyRE(`^(?:`+raw.Explicit.Bare.Pattern+`)$`, false)
+	// Quoted values: quote + body{min,} + quote, where a body unit is a
+	// character that is not the quote or a backslash, or a backslash and the
+	// character it escapes (so an escaped quote never closes the value early).
+	min := "{" + itoa(c.keyMinLen) + ",}"
+	c.jsonPair = pyRE(`"([A-Za-z_$][A-Za-z0-9_$-]*)"\s*:\s*"(`+raw.KeyContext.DQBody+min+`)"`, false)
+	c.quoted = pyRE(`([A-Za-z_$][A-Za-z0-9_$-]*)\s*[:=]\s*(?:"(`+raw.KeyContext.DQBody+min+`)"|'(`+raw.KeyContext.SQBody+min+`)')`, false)
 	return c, nil
 }
 
+// components splits an identifier into lowercase words on `_`, `-` and
+// camelCase boundaries (a lowercase letter or digit followed by an uppercase
+// one, or an uppercase one followed by an uppercase and a lowercase one):
+// `dbPassword`, `DB_PASSWORD` and `db-password` are all [db, password].
 func components(raw string) []string {
 	var out []string
-	for _, p := range strings.FieldsFunc(raw, func(r rune) bool { return r == '_' || r == '-' }) {
-		out = append(out, strings.ToLower(p))
+	for _, part := range strings.FieldsFunc(raw, func(r rune) bool { return r == '_' || r == '-' }) {
+		start := 0
+		for i := 1; i < len(part); i++ {
+			prev, cur := part[i-1], part[i]
+			boundary := (isLowerOrDigit(prev) && isUpper(cur)) ||
+				(isUpper(prev) && isUpper(cur) && i+1 < len(part) && isLower(part[i+1]))
+			if boundary {
+				out = append(out, strings.ToLower(part[start:i]))
+				start = i
+			}
+		}
+		out = append(out, strings.ToLower(part[start:]))
 	}
 	return out
 }
+
+func isUpper(c byte) bool        { return c >= 'A' && c <= 'Z' }
+func isLower(c byte) bool        { return c >= 'a' && c <= 'z' }
+func isLowerOrDigit(c byte) bool { return isLower(c) || c >= '0' && c <= '9' }

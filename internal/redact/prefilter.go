@@ -252,22 +252,18 @@ func (g *keyGate) ok(v *view) bool {
 var gates = buildGates()
 
 type passGates struct {
-	known        []*gate
-	headers      []*gate
-	url          *gate
-	namedPrivate *gate
-	barePrivate  *gate
-	privClose    *gate
-	keys         *keyGate
+	known    []*gate
+	headers  []*gate
+	url      *gate
+	privOpen *gate
+	keys     *keyGate
 }
 
 func buildGates() *passGates {
 	g := &passGates{
-		url:          literalGate(cat.urlPattern),
-		namedPrivate: literalGate(cat.namedPrivate),
-		barePrivate:  literalGate(cat.barePrivate),
-		privClose:    literalGate(rePrivClose),
-		keys:         newKeyGate(cat.keys),
+		url:      literalGate(cat.urlPattern),
+		privOpen: literalGate(rePrivTag),
+		keys:     newKeyGate(cat.keys),
 	}
 	for _, k := range cat.known {
 		g.known = append(g.known, literalGate(k.pattern))

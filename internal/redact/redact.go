@@ -252,19 +252,7 @@ func scan(re *regexp.Regexp, s string, lbClass func(rune) bool, fn func(loc []in
 
 // --- detection --------------------------------------------------------------
 
-var (
-	reJSONPair  = regexp.MustCompile(`"([A-Za-z_$][A-Za-z0-9_$-]*)"[` + pySpace + `]*:[` + pySpace + `]*"([^"]{4,})"`)
-	reQuoted    = pyRE(`([A-Za-z_$][A-Za-z0-9_$-]*)\s*[:=]\s*(?:"([^"]{4,})"|'([^']{4,})')`, false)
-	reKeySep    = pyRE(`([A-Za-z_$][A-Za-z0-9_$-]*)\s*[:=]\s*`, false)
-	reSuffix    *regexp.Regexp
-	rePrivOpen  = regexp.MustCompile(`(?i)<private>`)
-	rePrivClose = regexp.MustCompile(`(?i)</private>`)
-)
-
-func init() {
-	reJSONPair = regexp.MustCompile(strings.ReplaceAll(reJSONPair.String(), "{4,}", "{"+itoa(cat.keyMinLen)+",}"))
-	reQuoted = regexp.MustCompile(strings.ReplaceAll(reQuoted.String(), "{4,}", "{"+itoa(cat.keyMinLen)+",}"))
-}
+var reKeySep = pyRE(`([A-Za-z_$][A-Za-z0-9_$-]*)\s*[:=]\s*`, false)
 
 func headerRegexps() []*regexp.Regexp {
 	out := make([]*regexp.Regexp, len(cat.headers))
@@ -313,32 +301,9 @@ func detectAndReplace(text string, token func(string) string) string {
 		return s[ms:vs] + token(reg.register(s[vs:ve], base)) + s[ve:me]
 	}
 
-	// 1. <private>NAME=value</private>: the whole tag is replaced.
-	out = onClosedPart(out, &v, func(part string) string {
-		if !gates.namedPrivate.ok((&view{}).of(part)) {
-			return part
-		}
-		return scan(cat.namedPrivate, part, nil, func(m []int) (string, bool) {
-			value := part[m[4]:m[5]]
-			if value == "" {
-				return "", false
-			}
-			return token(reg.register(value, part[m[2]:m[3]])), true
-		})
-	})
-	// 2. <private>value</private>
-	out = onClosedPart(out, &v, func(part string) string {
-		if !gates.barePrivate.ok((&view{}).of(part)) {
-			return part
-		}
-		return scan(cat.barePrivate, part, nil, func(m []int) (string, bool) {
-			value := part[m[2]:m[3]]
-			if value == "" {
-				return "", false
-			}
-			return token(reg.register(value, cat.bareName)), true
-		})
-	})
+	// 1. + 2. <private>NAME=value</private> and <private>value</private>
+	// (flat spans, see private.go): the whole span is replaced.
+	out = replacePrivateSpans(out, reg, token)
 
 	// 3. Known formats.
 	for i, f := range cat.known {
@@ -401,7 +366,7 @@ func detectAndReplace(text string, token func(string) string) string {
 	// 6. JSON "key": "value".
 	{
 		cur := out
-		out = scan(reJSONPair, cur, nil, func(m []int) (string, bool) {
+		out = scan(cat.jsonPair, cur, nil, func(m []int) (string, bool) {
 			key, value := cur[m[2]:m[3]], cur[m[4]:m[5]]
 			if !matchesCatalogKey(key) || isPlaceholder(value) {
 				return "", false
@@ -413,7 +378,7 @@ func detectAndReplace(text string, token func(string) string) string {
 	// 7. key = "value" / key: 'value'.
 	{
 		cur := out
-		out = scan(reQuoted, cur, inIdent, func(m []int) (string, bool) {
+		out = scan(cat.quoted, cur, inIdent, func(m []int) (string, bool) {
 			key := cur[m[2]:m[3]]
 			vs, ve := m[4], m[5]
 			if vs < 0 {
@@ -493,49 +458,4 @@ func unquotedPairs(s string, reg *registry, token func(string) string) string {
 	}
 	b.WriteString(s[cursor:])
 	return b.String()
-}
-
-// onClosedPart runs an explicit-tag pass on the text up to its last close tag.
-func onClosedPart(text string, v *view, apply func(string) string) string {
-	if !gates.privClose.ok(v.of(text)) {
-		return text
-	}
-	last := -1
-	for _, m := range rePrivClose.FindAllStringIndex(text, -1) {
-		last = m[1]
-	}
-	if last < 0 {
-		return text
-	}
-	return apply(text[:last]) + text[last:]
-}
-
-// stripPrivate turns <private>…</private> into [REDACTED] in linear time
-// (an unclosed tag stays).
-func stripPrivate(text string) string {
-	if !gates.privClose.ok((&view{}).of(text)) {
-		return text
-	}
-	var out strings.Builder
-	pos := 0
-	for {
-		open := rePrivOpen.FindStringIndex(text[pos:])
-		if open == nil {
-			break
-		}
-		open[0] += pos
-		open[1] += pos
-		end := rePrivClose.FindStringIndex(text[open[1]:])
-		if end == nil {
-			break
-		}
-		out.WriteString(text[pos:open[0]])
-		out.WriteString("[REDACTED]")
-		pos = open[1] + end[1]
-	}
-	if pos == 0 {
-		return text
-	}
-	out.WriteString(text[pos:])
-	return out.String()
 }

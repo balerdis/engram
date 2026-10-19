@@ -33,8 +33,11 @@
       "passwd",
       "pwd",
       "private_key",
+      "secret_key",
+      "secret_access_key",
       "signature"
     ],
+    "keys_note": "A key is matched by its WORDS, not its spelling: the text captured from a message is split on `_`, `-` and camelCase boundaries (a lowercase letter or digit followed by an uppercase one, or an uppercase one followed by an uppercase and a lowercase one), so `dbPassword`, `DB_PASSWORD` and `db-password` are all [db, password]. It names a sensitive key when its WORDS equal a catalog key's words or END with them (`JWT_SECRET_KEY` and `AWS_SECRET_ACCESS_KEY` end with `secret_key` and `secret_access_key`; `clientSecret` ends with `secret`). `secret_key` and `secret_access_key` are listed as keys of their own because `key`/`access_key` alone are not sensitive words.",
     "min_value_length": 4,
     "forms": [
       "\"{key}\"\\s*:\\s*\"({quoted_value})\"",
@@ -43,6 +46,9 @@
       "\\b{key}\\s*[:=]\\s*({unquoted_value})"
     ],
     "unquoted_value_pattern": "[^\\s\"'{}\\[\\],;:&?]{4,}",
+    "quoted_value_double_body": "(?:[^\"\\\\]|\\\\[\\s\\S])",
+    "quoted_value_single_body": "(?:[^'\\\\]|\\\\[\\s\\S])",
+    "quoted_value_note": "One unit of a quoted value: any character that is not the quote or a backslash, or a backslash and the character it escapes. A quoted value is `quote + body{min,} + quote`, so an escaped quote (`\\\"`) never closes the value early and leaves its tail in clear. The two alternatives start with different characters, so there is nothing to backtrack into.",
     "filler_skip_values": [
       "null",
       "none",
@@ -69,6 +75,11 @@
         "note": "a value shaped like `getToken()` is a call, not a credential -- pasted code must survive."
       },
       {
+        "name": "call_prefix",
+        "pattern": "^[A-Za-z_$][A-Za-z0-9_$.]*\\(",
+        "note": "`unknownText.includes(` -- an unquoted value stops at the first quote or space, so a method call with arguments reaches the scan cut after its open parenthesis and `function_call` (which wants the closing one) cannot see it. A dotted name followed by `(` is a call, not a credential."
+      },
+      {
         "name": "dotted_path",
         "pattern": "^[A-Za-z_$][A-Za-z0-9_$]*(?:\\.[A-Za-z_$][A-Za-z0-9_$]*)+$",
         "note": "`process.env.X`, `this.token`, `config.db.password` -- a reference, not a value."
@@ -79,9 +90,14 @@
         "note": "`$VAR`, `${VAR}`, `%(name)s` -- an interpolation placeholder, not a literal value."
       },
       {
+        "name": "sensitive_word_value",
+        "pattern": "^(?:password|passwords|passphrase|credentials?|accesstoken|refreshtoken|authtoken|clientsecret|secretkey|privatekey)$",
+        "note": "`this.password = password`, `token: accessToken` once lowercased -- a value that is just the name of a sensitive thing, in lowercase, is a reference to a variable. It is a whole-value match, so `mysecretpassword` is still detected."
+      },
+      {
         "name": "bare_identifier_no_digit",
-        "pattern": "^[A-Za-z_$][A-Za-z_$]*$",
-        "note": "an identifier with no digit at all (`accessToken`, `password`) reads as another variable name, not a literal secret. Deliberate accepted false negative: `DB_PASSWORD=secretpass` is NOT detected this way -- only `<private>` catches it. A value with at least one digit (`s3cr3tP4ss`) is not identifier-shaped under this pattern (digits are excluded from its character class) and is still detected."
+        "pattern": "^(?:[A-Za-z_$]{1,9}|[A-Z][a-z]+|[A-Z]+|[A-Za-z_$]*[_$][A-Za-z_$]*|[A-Za-z_$]*[a-z][A-Z][A-Za-z_$]*)$",
+        "note": "a value made only of letters reads as another variable name, a type or a word, not a literal secret, when it is short (1 to 9 letters), a Capitalized word (`Whitespace`, `Signature`: a class or type name), all capitals, has an underscore or `$` in it (snake_case, CONSTANT_NAME), or has a lowercase letter followed by a capital (camelCase). A lowercase word of 10 letters or more (`DB_PASSWORD=secretpass`, `password: correcthorse`) IS detected: a password without digits is still a password. The 10-letter floor is measured, not guessed: at 8 letters a scan of the Python standard library flagged assignments like `token = nextchar` and `pwd = expected`, which are code. Accepted false negatives: a password of 9 letters or fewer with no digit, one that is Capitalized, camelCase or all capitals, or one with an underscore; quotes or `<private>` catch them. A value with a digit is never identifier-shaped under this pattern and is always detected."
       }
     ]
   },
@@ -109,8 +125,28 @@
   },
   "known_formats": [
     {
+      "name": "sk_ant_key",
+      "pattern": "sk-ant-[A-Za-z0-9_-]{20,}"
+    },
+    {
+      "name": "sk_proj_key",
+      "pattern": "sk-proj-[A-Za-z0-9_-]{20,}"
+    },
+    {
       "name": "openai_key",
       "pattern": "sk-[A-Za-z0-9]{20,}"
+    },
+    {
+      "name": "gitlab_token",
+      "pattern": "glpat-[A-Za-z0-9_-]{20,}"
+    },
+    {
+      "name": "google_api_key",
+      "pattern": "AIza[0-9A-Za-z_-]{35}"
+    },
+    {
+      "name": "npm_token",
+      "pattern": "npm_[A-Za-z0-9]{36,}"
     },
     {
       "name": "github_token",
@@ -130,11 +166,22 @@
     },
     {
       "name": "private_key_block",
-      "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY-----[\\s\\S]+?-----END [A-Z ]*PRIVATE KEY-----",
+      "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY(?: BLOCK)?-----[\\s\\S]+?-----END [A-Z ]*PRIVATE KEY(?: BLOCK)?-----",
       "whole_block": true
+    },
+    {
+      "name": "private_key_unterminated",
+      "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY(?: BLOCK)?-----(?:\\r?\\n(?:Proc-Type|DEK-Info|Version|Comment|Charset|Hash|MessageID):[^\\r\\n]*)*(?:\\r?\\n[ \\t]*)?(?:\\r?\\n[ \\t]*[A-Za-z0-9+/=]{16,})+",
+      "whole_block": true,
+      "note": "a key block whose END line never arrived (a truncated paste, a cut log line): the BEGIN line, then any RFC 1421/OpenPGP armor header lines, one optional blank line, and the base64 lines of 16 characters or more that follow, up to the first line that is none of those (the newline before that line stays). At least one key line is required: a lone BEGIN line holds nothing to hide. It runs after `private_key_block`, so a complete block never reaches it. The last line of a key is often shorter than 16 characters and stays visible; it holds no usable part of the key."
     }
   ],
   "explicit": {
+    "nesting": {
+      "open": "<private>",
+      "close": "</private>",
+      "note": "Before the two patterns below run, every span is rewritten as one flat span in canonical lowercase (a close tag closes the innermost open one; overlapping or nested spans merge): a nested open/close pair inside it is dropped, an open tag with no close takes the rest of its line (the rest of its paragraph when nothing else follows the tag on the line) and is closed there, a tag between backticks is a mention and not a tag, and a close tag with nothing open is left alone. The patterns themselves stay flat. The same rewrite runs before the `<private>...</private>` -> `[REDACTED]` fallback."
+    },
     "named": {
       "pattern": "<private>([A-Za-z0-9_]+)=([\\s\\S]*?)</private>",
       "note": "captures NAME and value; NAME is used verbatim (normalized)"

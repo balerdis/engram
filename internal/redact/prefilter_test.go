@@ -62,7 +62,7 @@ func TestPrefiltersKeepOutput(t *testing.T) {
 		"=", ":", " = ", ": ", "\"", "'", "\n", "  ", " ", "_", "-", "://", "user:", "pw12345678", "@h/", "sk-", "ghp_",
 		"AKIA", "xoxb-", "eyJ", ".", "-----BEGIN PRIVATE KEY-----", "-----END PRIVATE KEY-----", "abcdefghijklmnopqrstu",
 		"Authorization", "Bearer ", "Basic ", "x-api-key", "X-Auth-Token", "-token", "-signature-256", "<private>",
-		"</PRIVATE>", "<private>A=", "[REDACTED:TOKEN]", "[REDACTED]", "1234", "null", "${X}", "<x>", "foo(", ")", "é", "K", "ſ"}
+		"</PRIVATE>", "<private>A=", "[REDACTED:TOKEN]", "[REDACTED]", "dbPassword", "myAPIKey", "secret_key", "AWS_SECRET_ACCESS_KEY", "sk-ant-", "sk-proj-", "glpat-", "AIza", "npm_", "\\\"", "\\'", "`<private>`", "-----BEGIN PGP PRIVATE KEY BLOCK-----", "MIIEvQIBADANBgkqhkiG9w0BAQEFAAS", "\r\n", "\n\n", "1234", "null", "${X}", "<x>", "foo(", ")", "é", "K", "ſ"}
 	rng := rand.New(rand.NewSource(1))
 	for i := 0; i < 3000; i++ {
 		var b strings.Builder
@@ -82,7 +82,7 @@ func TestPrefiltersKeepOutput(t *testing.T) {
 // pass that can have one (a re-vendored catalog that loses them is slower, not
 // wrong, but the budget in the docs would no longer hold).
 func TestGatesAreDerived(t *testing.T) {
-	if gates.keys == nil || gates.url == nil || gates.namedPrivate == nil || gates.barePrivate == nil || gates.privClose == nil {
+	if gates.keys == nil || gates.url == nil || gates.privOpen == nil {
 		t.Fatalf("missing gate: %+v", gates)
 	}
 	for i, g := range gates.known {

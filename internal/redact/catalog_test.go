@@ -3,7 +3,7 @@ package redact
 import "testing"
 
 // pinnedCatalogSHA256 changes only with a conscious re-vendor (make sync-catalog).
-const pinnedCatalogSHA256 = "be66e239c3a1d0394f9c5db5c1bad61c292b446a3867dba505439c2114790e31"
+const pinnedCatalogSHA256 = "22da1264bf9c01727e8e9168e21ea4092746c221b9f6b7e289cdc0be6a376bd0"
 
 func TestCatalogIsPinned(t *testing.T) {
 	if got := CatalogSHA256(); got != pinnedCatalogSHA256 {
@@ -12,7 +12,7 @@ func TestCatalogIsPinned(t *testing.T) {
 }
 
 func TestCatalogLoads(t *testing.T) {
-	if cat.minLen != 8 || cat.maxDetect != 262144 || len(cat.headers) != 3 || len(cat.known) != 6 {
+	if cat.minLen != 8 || cat.maxDetect != 262144 || len(cat.headers) != 3 || len(cat.known) != 12 {
 		t.Fatalf("unexpected catalog: %+v", cat)
 	}
 }
