@@ -5755,6 +5755,9 @@ func TestEndSessionEmptySummaryKeepsStoredSummary(t *testing.T) {
 	if err := s.EndSession("s-keep", ""); err != nil {
 		t.Fatalf("end with empty summary: %v", err)
 	}
+	if err := s.EndSession("s-keep", " \n\t "); err != nil {
+		t.Fatalf("end with whitespace-only summary: %v", err)
+	}
 	sess, err := s.GetSession("s-keep")
 	if err != nil {
 		t.Fatalf("get session: %v", err)

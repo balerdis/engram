@@ -1062,10 +1062,13 @@ func (s *Store) StartSession(id, project, directory string) error {
 	})
 }
 
-// EndSession marks a session ended. An empty summary keeps any stored summary;
+// EndSession marks a session ended. An empty (or whitespace-only) summary keeps any stored summary;
 // a non-empty one replaces it.
 func (s *Store) EndSession(id string, summary string) error {
 	summary = sanitizeStored(summary, s.cfg.MaxObservationLength)
+	if strings.TrimSpace(summary) == "" {
+		summary = ""
+	}
 	return s.withTx(func(tx *sql.Tx) error {
 		res, err := s.execHook(tx,
 			`UPDATE sessions SET ended_at = datetime('now'), summary = COALESCE(?, summary) WHERE id = ?`,
