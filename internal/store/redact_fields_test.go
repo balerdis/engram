@@ -118,3 +118,50 @@ func TestRedactedProjectIdentityIsStable(t *testing.T) {
 		t.Fatal("ProjectExists by the canonical name failed")
 	}
 }
+
+// The server is the one place <private> is interpreted: the nested example
+// that the old client-side lazy regex left as "c</private>" must not leak "c".
+func TestStoredPrivateNestedAndUnclosedNeverLeak(t *testing.T) {
+	s := newTestStore(t)
+	if err := s.CreateSession("s1", "p", "/x"); err != nil {
+		t.Fatal(err)
+	}
+	id, err := s.AddObservation(AddObservationParams{
+		SessionID: "s1", Type: "note", Project: "p", Title: "t",
+		Content: "x <private>a<private>b</private>LEAKC</private> y\nz <private>UNCLOSEDLEAK\nnext line",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	obs, _ := s.GetObservation(id)
+	if strings.Contains(obs.Content, "LEAKC") || strings.Contains(obs.Content, "UNCLOSEDLEAK") || strings.Contains(obs.Content, "private>") {
+		t.Fatalf("private text leaked: %q", obs.Content)
+	}
+	if !strings.Contains(obs.Content, "next line") || !strings.HasPrefix(obs.Content, "x [REDACTED") {
+		t.Fatalf("unexpected content %q", obs.Content)
+	}
+	if got := sanitizeStored(obs.Content, 0); got != obs.Content {
+		t.Fatalf("not idempotent: %q", got)
+	}
+	// A prose mention between backticks is not a tag and survives.
+	if got := sanitizeStored("use the `<private>` tag and the `</private>` tag", 0); got != "use the `<private>` tag and the `</private>` tag" {
+		t.Fatalf("mention swallowed: %q", got)
+	}
+}
+
+// A private block that spans several lines of a sub-agent message is redacted
+// whole BEFORE the text is cut into learnings.
+func TestPassiveCaptureRedactsPrivateBlocksAcrossLearnings(t *testing.T) {
+	s := newTestStore(t)
+	if err := s.CreateSession("s1", "p", "/x"); err != nil {
+		t.Fatal(err)
+	}
+	text := "## Key Learnings:\n\n1. The first learning is long enough to be kept, <private>and this part is secret\n2. SECRETSECOND stays inside the private block that never closes\n</private>\n3. A third learning that is public and long enough to keep\n"
+	if _, err := s.PassiveCapture(PassiveCaptureParams{SessionID: "s1", Project: "p", Content: text, Source: "t"}); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := s.db.QueryRow(`SELECT count(*) FROM observations WHERE instr(title, 'SECRET') OR instr(content, 'SECRET')`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("a private block leaked through passive capture (n=%d, err=%v)", n, err)
+	}
+}

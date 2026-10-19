@@ -4292,18 +4292,12 @@ func normalizeExistingSyncID(existing, prefix string) string {
 	return newSyncID(prefix)
 }
 
-// privateTagRegex matches <private>...</private> tags and their contents.
-// Supports multiline and nested content. Case-insensitive.
-var privateTagRegex = regexp.MustCompile(`(?is)<private>.*?</private>`)
-
-// stripPrivateTags removes all <private>...</private> content from a string.
-// This ensures sensitive information (API keys, passwords, personal data)
-// is never persisted to the memory database.
+// stripPrivateTags removes all <private>...</private> content from a string,
+// with the redactor's span rules (nested and unclosed tags included; see
+// redact.StripPrivate). This ensures sensitive information (API keys,
+// passwords, personal data) is never persisted to the memory database.
 func stripPrivateTags(s string) string {
-	result := privateTagRegex.ReplaceAllString(s, "[REDACTED]")
-	// Clean up multiple consecutive [REDACTED] and excessive whitespace
-	result = strings.TrimSpace(result)
-	return result
+	return strings.TrimSpace(redact.StripPrivate(s))
 }
 
 const truncatedSuffix = "... [truncated]"
@@ -4464,6 +4458,10 @@ func (s *Store) PassiveCapture(p PassiveCaptureParams) (*PassiveCaptureResult, e
 
 	result := &PassiveCaptureResult{}
 
+	// Redact the WHOLE text before it is cut into learnings: a <private> span or
+	// a credential that crosses a learning boundary would otherwise be seen in
+	// pieces, and the 60-character title is cut from the redacted text.
+	p.Content = sanitizeStored(p.Content, 0)
 	learnings := ExtractLearnings(p.Content)
 	result.Extracted = len(learnings)
 
