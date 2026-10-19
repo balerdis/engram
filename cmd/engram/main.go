@@ -2041,7 +2041,6 @@ Commands:
                        scan     [--project P]  [--since RFC3339]  [--dry-run]  [--apply]  [--max-insert N]
                                 [--semantic]  [--concurrency N]  [--timeout-per-call SECONDS]
                                 [--max-semantic N]  [--yes]
-                       deferred [--status S]  [--limit N]  [--inspect SYNC_ID]  [--replay]
   doctor             Run read-only operational diagnostics [--json] [--project P] [--check CODE]
   context [project]  Show recent context from previous sessions
   stats              Show memory system statistics

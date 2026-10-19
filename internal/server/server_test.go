@@ -897,18 +897,6 @@ func seedConflictsSession(t *testing.T, st *store.Store, project string) (srcSyn
 	return srcObs.SyncID, tgtObs.SyncID
 }
 
-// seedDeferredHTTP inserts a raw deferred row via the raw *sql.DB.
-func seedDeferredHTTP(t *testing.T, rawDB *sql.DB, syncID, payload string, retryCount int, applyStatus string) {
-	t.Helper()
-	if _, err := rawDB.Exec(`
-		INSERT INTO sync_apply_deferred
-			(sync_id, entity, payload, retry_count, apply_status, first_seen_at)
-		VALUES (?, 'relation', ?, ?, ?, datetime('now'))
-	`, syncID, payload, retryCount, applyStatus); err != nil {
-		t.Fatalf("seedDeferredHTTP %q: %v", syncID, err)
-	}
-}
-
 // ─── GET /conflicts ───────────────────────────────────────────────────────────
 
 func TestHandleListConflicts_ProjectFilter(t *testing.T) {
@@ -1056,72 +1044,6 @@ func TestHandleConflictsStats_GlobalNoProject(t *testing.T) {
 	}
 }
 
-// ─── GET /conflicts/deferred ──────────────────────────────────────────────────
-
-func TestHandleConflictsDeferred_ListWithLimit(t *testing.T) {
-	st, rawDB := conflictsTestStore(t)
-	srv := New(st, 0)
-	h := srv.Handler()
-
-	validPayload := `{"relation_type":"conflicts","source_id":"obs-a","target_id":"obs-b"}`
-	seedDeferredHTTP(t, rawDB, "def-http-001", validPayload, 0, "deferred")
-	seedDeferredHTTP(t, rawDB, "def-http-002", validPayload, 0, "deferred")
-	seedDeferredHTTP(t, rawDB, "def-http-003", validPayload, 5, "dead")
-
-	req := httptest.NewRequest(http.MethodGet, "/conflicts/deferred?limit=2", nil)
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-
-	var resp map[string]any
-	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	rows, ok := resp["rows"].([]any)
-	if !ok {
-		t.Fatalf("expected rows array, got %T", resp["rows"])
-	}
-	if len(rows) != 2 {
-		t.Errorf("expected 2 rows (limit=2), got %d", len(rows))
-	}
-	if _, ok := resp["total"]; !ok {
-		t.Errorf("expected total field in deferred response")
-	}
-}
-
-func TestHandleConflictsDeferred_StatusFilter(t *testing.T) {
-	st, rawDB := conflictsTestStore(t)
-	srv := New(st, 0)
-	h := srv.Handler()
-
-	validPayload := `{"relation_type":"conflicts","source_id":"obs-c","target_id":"obs-d"}`
-	seedDeferredHTTP(t, rawDB, "def-http-dead-1", validPayload, 5, "dead")
-	seedDeferredHTTP(t, rawDB, "def-http-dead-2", validPayload, 5, "dead")
-	seedDeferredHTTP(t, rawDB, "def-http-pend-1", validPayload, 0, "deferred")
-
-	req := httptest.NewRequest(http.MethodGet, "/conflicts/deferred?status=dead", nil)
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-	var resp map[string]any
-	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	rows, ok := resp["rows"].([]any)
-	if !ok {
-		t.Fatalf("expected rows array, got %T", resp["rows"])
-	}
-	if len(rows) != 2 {
-		t.Errorf("expected 2 dead rows, got %d", len(rows))
-	}
-}
-
 // ─── POST /conflicts/scan ─────────────────────────────────────────────────────
 
 func TestHandleConflictsScan_DryRun(t *testing.T) {
@@ -1176,36 +1098,6 @@ func TestHandleConflictsScan_MissingProject400(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 when project is missing, got %d: %s", rec.Code, rec.Body.String())
-	}
-}
-
-// ─── POST /conflicts/deferred/replay ─────────────────────────────────────────
-
-func TestHandleReplayDeferred_EmptyQueue(t *testing.T) {
-	st, _ := conflictsTestStore(t)
-	srv := New(st, 0)
-	h := srv.Handler()
-
-	req := httptest.NewRequest(http.MethodPost, "/conflicts/deferred/replay", nil)
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200 for replay on empty queue, got %d: %s", rec.Code, rec.Body.String())
-	}
-
-	var resp map[string]any
-	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if resp["retried"] != float64(0) {
-		t.Errorf("expected retried=0, got %v", resp["retried"])
-	}
-	if resp["succeeded"] != float64(0) {
-		t.Errorf("expected succeeded=0, got %v", resp["succeeded"])
-	}
-	if resp["dead"] != float64(0) {
-		t.Errorf("expected dead=0, got %v", resp["dead"])
 	}
 }
 
@@ -1647,65 +1539,6 @@ func TestG2_ScanConflicts_MissingProject400(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 when project is missing, got %d: %s", rec.Code, rec.Body.String())
-	}
-}
-
-// TestG2_ReplayDeferred_ResponseShape verifies the replay endpoint always returns
-// the three count fields: retried, succeeded, dead — even on empty queue.
-func TestG2_ReplayDeferred_ResponseShape(t *testing.T) {
-	st, _ := conflictsTestStore(t)
-	srv := New(st, 0)
-	h := srv.Handler()
-
-	req := httptest.NewRequest(http.MethodPost, "/conflicts/deferred/replay", nil)
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-
-	var resp map[string]any
-	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	for _, field := range []string{"retried", "succeeded", "dead"} {
-		if _, ok := resp[field]; !ok {
-			t.Errorf("expected %q field in replay response; got: %v", field, resp)
-		}
-	}
-}
-
-// TestG2_ListDeferred_StatusFilter verifies the status filter returns only matching rows.
-func TestG2_ListDeferred_StatusFilter(t *testing.T) {
-	st, rawDB := conflictsTestStore(t)
-	srv := New(st, 0)
-	h := srv.Handler()
-
-	validPayload := `{"relation_type":"conflicts","source_id":"g2-src","target_id":"g2-tgt"}`
-	seedDeferredHTTP(t, rawDB, "g2-dead-a", validPayload, 5, "dead")
-	seedDeferredHTTP(t, rawDB, "g2-dead-b", validPayload, 5, "dead")
-	seedDeferredHTTP(t, rawDB, "g2-defer-a", validPayload, 0, "deferred")
-
-	// Filter by status=dead → expect exactly 2.
-	req := httptest.NewRequest(http.MethodGet, "/conflicts/deferred?status=dead", nil)
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-
-	var resp map[string]any
-	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	rows, ok := resp["rows"].([]any)
-	if !ok {
-		t.Fatalf("expected rows array, got %T", resp["rows"])
-	}
-	if len(rows) != 2 {
-		t.Errorf("expected 2 dead rows, got %d", len(rows))
 	}
 }
 

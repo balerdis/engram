@@ -219,11 +219,9 @@ func (s *Server) routes() {
 	// Conflicts — CRITICAL ORDER: literals before wildcard (Go 1.22 mux panics on overlap)
 	s.mux.HandleFunc("GET /conflicts", s.handleListConflicts)
 	s.mux.HandleFunc("GET /conflicts/stats", s.handleConflictsStats)
-	s.mux.HandleFunc("GET /conflicts/deferred", s.handleListDeferred)
 	s.mux.HandleFunc("POST /conflicts/scan", s.handleScanConflicts)
 	s.mux.HandleFunc("POST /conflicts/judge", s.handleJudgeConflict)
 	s.mux.HandleFunc("POST /conflicts/compare", s.handleCompareMemories)
-	s.mux.HandleFunc("POST /conflicts/deferred/replay", s.handleReplayDeferred)
 	s.mux.HandleFunc("GET /conflicts/{relation_id}", s.handleGetConflict)
 }
 
@@ -1023,41 +1021,6 @@ func (s *Server) handleConflictsStats(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleListDeferred serves GET /conflicts/deferred
-// Query params: status, limit (default 50, max 500), offset.
-func (s *Server) handleListDeferred(w http.ResponseWriter, r *http.Request) {
-	status := r.URL.Query().Get("status")
-	limit := clampConflictsLimit(queryInt(r, "limit", conflictsDefaultLimit), conflictsDefaultLimit)
-	offset := queryInt(r, "offset", 0)
-
-	opts := store.ListDeferredOptions{
-		Status: status,
-		Limit:  limit,
-		Offset: offset,
-	}
-
-	rows, err := s.store.ListDeferred(opts)
-	if err != nil {
-		jsonError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	// Phase 3: count total via a second unbounded ListDeferred call.
-	// Phase 4 hook: add CountDeferred(status) store method for O(1) count.
-	totalOpts := store.ListDeferredOptions{Status: status}
-	totalRows, err := s.store.ListDeferred(totalOpts)
-	if err != nil {
-		jsonError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	jsonResponse(w, http.StatusOK, map[string]any{
-		"total": len(totalRows),
-		"limit": limit,
-		"rows":  rows,
-	})
-}
-
 // handleScanConflicts serves POST /conflicts/scan
 // Body: {"project":"X","since":"...","apply":bool,"max_insert":int,
 //
@@ -1311,22 +1274,6 @@ func (s *Server) handleCompareMemories(w http.ResponseWriter, r *http.Request) {
 		s.notifyWrite()
 	}
 	jsonResponse(w, http.StatusOK, map[string]any{"sync_id": syncID})
-}
-
-// handleReplayDeferred serves POST /conflicts/deferred/replay
-func (s *Server) handleReplayDeferred(w http.ResponseWriter, r *http.Request) {
-	result, err := s.store.ReplayDeferred()
-	if err != nil {
-		jsonError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	jsonResponse(w, http.StatusOK, map[string]any{
-		"retried":   result.Retried,
-		"succeeded": result.Succeeded,
-		"failed":    result.Failed,
-		"dead":      result.Dead,
-	})
 }
 
 // handleGetConflict serves GET /conflicts/{relation_id}

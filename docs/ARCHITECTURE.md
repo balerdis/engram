@@ -265,7 +265,7 @@ engram import <file>      Import memories from JSON
 engram sync               Export new memories as compressed chunk to .engram/
 engram sync --all         Export ALL projects (ignore directory-based filter)
 engram conflicts <sub>    Inspect and manage memory conflict relations
-                            list, show, stats, scan, deferred
+                            list, show, stats, scan
 engram doctor             Run read-only operational diagnostics [--json] [--project P] [--check CODE]
 engram projects list      Show all projects with obs/session/prompt counts
 engram projects consolidate  Interactive merge of similar project names [--all] [--dry-run]

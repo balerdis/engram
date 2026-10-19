@@ -125,20 +125,6 @@ type RelationStats struct {
 	DeadCount        int            `json:"dead"`
 }
 
-// DeferredRow represents a row in sync_apply_deferred with the payload decoded.
-type DeferredRow struct {
-	SyncID          string         `json:"sync_id"`
-	Entity          string         `json:"entity"`
-	Payload         map[string]any `json:"payload,omitempty"`
-	PayloadRaw      string         `json:"payload_raw"`
-	PayloadValid    bool           `json:"payload_valid"`
-	ApplyStatus     string         `json:"apply_status"`
-	RetryCount      int            `json:"retry_count"`
-	LastError       *string        `json:"last_error,omitempty"`
-	LastAttemptedAt *string        `json:"last_attempted_at,omitempty"`
-	FirstSeenAt     string         `json:"first_seen_at"`
-}
-
 // ScanResult holds the output of a ScanProject call.
 type ScanResult struct {
 	Project           string `json:"project"`
@@ -211,16 +197,6 @@ type JudgeBySemanticParams struct {
 	Reasoning string
 	// Model is the LLM model identifier. Stored as marked_by_model.
 	Model string
-}
-
-// ListDeferredOptions controls ListDeferred queries.
-type ListDeferredOptions struct {
-	// Status filters by apply_status. Empty means no status filter.
-	Status string
-	// Limit caps the number of rows returned. 0 or negative means no limit.
-	Limit int
-	// Offset is the pagination offset.
-	Offset int
 }
 
 // Candidate represents a potential conflict candidate surfaced by FindCandidates.

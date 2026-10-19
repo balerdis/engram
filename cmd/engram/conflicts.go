@@ -28,8 +28,6 @@ func cmdConflicts(cfg store.Config) {
 		cmdConflictsStats(cfg)
 	case "scan":
 		cmdConflictsScan(cfg)
-	case "deferred":
-		cmdConflictsDeferred(cfg)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown conflicts subcommand: %s\n", os.Args[2])
 		printConflictsUsage()
@@ -39,7 +37,7 @@ func cmdConflicts(cfg store.Config) {
 
 func printConflictsUsage() {
 	fmt.Fprintln(os.Stderr, "usage: engram conflicts <subcommand> [options]")
-	fmt.Fprintln(os.Stderr, "subcommands: list, show, stats, scan, deferred")
+	fmt.Fprintln(os.Stderr, "subcommands: list, show, stats, scan")
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintln(os.Stderr, "  list       [--project P]  [--status S]  [--since RFC3339]  [--limit N]")
 	fmt.Fprintln(os.Stderr, "  show       <relation_id>")
@@ -47,7 +45,6 @@ func printConflictsUsage() {
 	fmt.Fprintln(os.Stderr, "  scan       [--project P]  [--since RFC3339]  [--dry-run]  [--apply]  [--max-insert N]")
 	fmt.Fprintln(os.Stderr, "             [--semantic]  [--concurrency N]  [--timeout-per-call SECONDS]")
 	fmt.Fprintln(os.Stderr, "             [--max-semantic N]  [--yes]")
-	fmt.Fprintln(os.Stderr, "  deferred   [--status S]  [--limit N]  [--inspect SYNC_ID]  [--replay]")
 }
 
 // resolveConflictsProject returns the explicit project if non-empty, otherwise falls
@@ -476,115 +473,3 @@ func cmdConflictsScan(cfg store.Config) {
 }
 
 // ─── deferred ─────────────────────────────────────────────────────────────────
-
-func cmdConflictsDeferred(cfg store.Config) {
-	args := os.Args[3:]
-
-	var statusFlag, inspectFlag string
-	replay := false
-	limit := 50
-
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--status":
-			if i+1 < len(args) {
-				statusFlag = args[i+1]
-				i++
-			}
-		case "--limit":
-			if i+1 < len(args) {
-				if n, err := strconv.Atoi(args[i+1]); err == nil {
-					limit = n
-				}
-				i++
-			}
-		case "--inspect":
-			if i+1 < len(args) {
-				inspectFlag = args[i+1]
-				i++
-			}
-		case "--replay":
-			replay = true
-		}
-	}
-
-	// Mutex: --inspect and --replay cannot be combined.
-	if inspectFlag != "" && replay {
-		fmt.Fprintln(os.Stderr, "error: --inspect and --replay are mutually exclusive")
-		exitFunc(1)
-		return
-	}
-
-	s, err := storeNew(cfg)
-	if err != nil {
-		fatal(err)
-		return
-	}
-	defer s.Close()
-
-	if replay {
-		result, err := s.ReplayDeferred()
-		if err != nil {
-			fatal(err)
-			return
-		}
-		fmt.Printf("Deferred Replay\n")
-		fmt.Printf("  retried:   %d\n", result.Retried)
-		fmt.Printf("  succeeded: %d\n", result.Succeeded)
-		fmt.Printf("  failed:    %d\n", result.Failed)
-		fmt.Printf("  dead:      %d\n", result.Dead)
-		return
-	}
-
-	if inspectFlag != "" {
-		row, err := s.GetDeferred(inspectFlag)
-		if err != nil {
-			// GetDeferred wraps sql.ErrNoRows with a "not found" message.
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			exitFunc(1)
-			return
-		}
-		fmt.Printf("Deferred Row\n")
-		fmt.Printf("  sync_id:          %s\n", row.SyncID)
-		fmt.Printf("  entity:           %s\n", row.Entity)
-		fmt.Printf("  apply_status:     %s\n", row.ApplyStatus)
-		fmt.Printf("  retry_count:      %d\n", row.RetryCount)
-		fmt.Printf("  payload_valid:    %v\n", row.PayloadValid)
-		if row.PayloadValid {
-			fmt.Printf("  payload:          %v\n", row.Payload)
-		} else {
-			fmt.Printf("  payload_raw:      %s\n", row.PayloadRaw)
-		}
-		if row.LastError != nil {
-			fmt.Printf("  last_error:       %s\n", *row.LastError)
-		}
-		fmt.Printf("  first_seen_at:    %s\n", row.FirstSeenAt)
-		return
-	}
-
-	// Default: list deferred rows.
-	opts := store.ListDeferredOptions{
-		Status: statusFlag,
-		Limit:  limit,
-	}
-	rows, err := s.ListDeferred(opts)
-	if err != nil {
-		fatal(err)
-		return
-	}
-
-	fmt.Printf("Deferred Queue\n")
-	fmt.Printf("  Showing: %d\n", len(rows))
-	if len(rows) == 0 {
-		fmt.Println("  Queue is empty.")
-		return
-	}
-	fmt.Println()
-	for _, row := range rows {
-		fmt.Printf("  sync_id:      %s\n", row.SyncID)
-		fmt.Printf("  apply_status: %s\n", row.ApplyStatus)
-		fmt.Printf("  retry_count:  %d\n", row.RetryCount)
-		fmt.Printf("  first_seen_at: %s\n", row.FirstSeenAt)
-		fmt.Println()
-	}
-}

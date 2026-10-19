@@ -46,7 +46,7 @@ For other docs:
 - **observations_fts** — FTS5 virtual table synced via triggers (`title`, `content`, `tool_name`, `type`, `project`)
 - **user_prompts** — `id` (INTEGER PK AUTOINCREMENT), `session_id` (FK), `content`, `project`, `created_at`
 - **prompts_fts** — FTS5 virtual table synced via triggers (`content`, `project`)
-- **Legacy sync tables** — `sync_mutations`, `sync_state`, `sync_enrolled_projects`, `cloud_upgrade_state` and `sync_apply_deferred` are still created so older binaries can open the same database. Nothing writes to `sync_mutations`, `sync_enrolled_projects` or `cloud_upgrade_state` any more; `sync_state` keeps only the `local` row that chunk import advances, and `sync_apply_deferred` only holds rows left by earlier versions (`engram conflicts deferred`).
+- **Legacy sync tables** — `sync_mutations`, `sync_state`, `sync_enrolled_projects`, `cloud_upgrade_state` and `sync_apply_deferred` are still created so older binaries can open the same database. Nothing writes to `sync_mutations`, `sync_enrolled_projects` or `cloud_upgrade_state` any more; `sync_state` keeps only the `local` row that chunk import advances, and `sync_apply_deferred` only holds rows left by earlier versions. No command reads or retries them any more.
 - **sync_chunks** — `target_key` (TEXT), `chunk_id` (TEXT), `imported_at`; composite PK (`target_key`, `chunk_id`) for target-scoped chunk tracking
 - **memory_relations** — stores conflict-surfacing verdicts from `mem_judge`; columns include `id` (INTEGER PK AUTOINCREMENT), `sync_id` (TEXT UNIQUE), `source_id`, `target_id`, `relation`, `judgment_status` (`pending` | `judged` | `orphaned` | `ignored`), `reason`, `evidence`, `confidence`, `marked_by_actor`, `marked_by_kind`, `marked_by_model`, `session_id`. The SQLite table does not store a `project` column; project is carried in relation sync payloads and derived from joined observations for project-scoped listing. Syncs across machines via local chunks (`engram sync`).
 - **sync_apply_deferred** — holds pulled mutations that could not be applied locally due to a missing FK dependency (e.g. relation references an observation not yet present); columns: `sync_id` (TEXT PK), `entity`, `payload`, `apply_status` (`deferred` | `applied` | `dead`), `retry_count`, `last_error`, `last_attempted_at`, `first_seen_at`. Rows with `apply_status='dead'` have exceeded the retry cap (5 attempts) and will not be retried automatically.
@@ -334,57 +334,6 @@ When any scan cap is reached, including `max_insert` for lexical apply scans or 
 }
 ```
 
-#### GET /conflicts/deferred
-
-List rows from `sync_apply_deferred`. Query params: `status` (string — `deferred` | `dead` | `applied`), `limit` (int, default 50, max 500), `offset` (int, default 0; accepted for pagination but not echoed in the response envelope).
-
-Response:
-
-```json
-{
-  "total": 3,
-  "limit": 50,
-  "rows": [
-    {
-      "sync_id": "rel-abc123",
-      "entity": "relation",
-      "payload": {
-        "sync_id": "rel-abc123",
-        "source_id": "obs-source123",
-        "target_id": "obs-target456",
-        "relation": "conflicts_with",
-        "judgment_status": "pending",
-        "project": "my-project",
-        "created_at": "2026-01-15 12:00:00",
-        "updated_at": "2026-01-15 12:00:00"
-      },
-      "payload_raw": "{\"sync_id\":\"rel-abc123\",\"source_id\":\"obs-source123\",\"target_id\":\"obs-target456\",\"relation\":\"conflicts_with\",\"judgment_status\":\"pending\",\"project\":\"my-project\",\"created_at\":\"2026-01-15 12:00:00\",\"updated_at\":\"2026-01-15 12:00:00\"}",
-      "payload_valid": true,
-      "apply_status": "deferred",
-      "retry_count": 2,
-      "last_error": "source FK not found",
-      "last_attempted_at": "2026-01-15 12:05:00",
-      "first_seen_at": "2026-01-15 12:00:00"
-    }
-  ]
-}
-```
-
-#### POST /conflicts/deferred/replay
-
-Call `ReplayDeferred()` synchronously. Returns counts of rows processed.
-
-Response:
-
-```json
-{
-  "retried": 4,
-  "succeeded": 3,
-  "failed": 0,
-  "dead": 1
-}
-```
-
 ### Environment Variables
 
 | Variable                        | Description                                                                                                                                                                                                                                               | Default              |
@@ -440,16 +389,6 @@ Walk observations for the project, run FindCandidates, and report or insert new 
 - `--timeout-per-call N`: per-LLM-call timeout in seconds (default 60).
 - `--max-semantic N`: hard cap on LLM calls per scan run (default 100).
 - `--yes`: skip the cost-estimate confirmation prompt before LLM calls.
-
-```
-engram conflicts deferred [--status <deferred|dead|applied>] [--limit <N>] [--inspect <sync_id>] [--replay]
-```
-
-Inspect or replay the `sync_apply_deferred` queue.
-
-- Default: list rows with sync_id, apply_status, retry_count, first_seen_at.
-- `--inspect <sync_id>`: print full decoded payload for one row; exits non-zero when not found.
-- `--replay`: call `ReplayDeferred()` and print retried/succeeded/failed/dead counts.
 
 ## MCP Project Resolution
 

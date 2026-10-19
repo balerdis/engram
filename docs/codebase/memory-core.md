@@ -36,7 +36,7 @@ The memory flow does not start in the database. It starts with the agent decidin
 | `user_prompts` / `prompts_fts` | User prompt as retrievable context. | `internal/store/store.go`, `internal/server/server.go` |
 | `memory_relations` | Relationships/judgments between memories for semantic conflict surfacing. | `internal/store/relations.go`, `internal/mcp/mcp_judge_test.go` |
 | `sync_chunks` | Chunks already imported or exported, per target. | `internal/store/store.go`, `internal/sync/sync.go` |
-| `sync_apply_deferred` | Relations deferred by earlier versions because dependencies were missing (read-only legacy; `engram conflicts deferred`). | `internal/store/sync_apply_test.go`, `internal/server/server.go` |
+| `sync_apply_deferred` | Relations deferred by earlier versions because dependencies were missing (legacy; nothing reads or writes it). | `internal/store/sync_apply_test.go`, `internal/server/server.go` |
 
 For schema details, use [DOCS.md — Database Schema](../../DOCS.md#database-schema).
 

@@ -252,7 +252,6 @@ The `engram conflicts <sub-command>` command provides read and scan access to th
 | `engram conflicts show <id>` | Show full detail for one relation row (source/target observation snippets) |
 | `engram conflicts stats` | Aggregate counts grouped by relation type and judgment status; includes deferred and dead queue sizes |
 | `engram conflicts scan` | Walk observations for a project, find conflict candidates, and (with `--apply`) insert new pending relation rows up to a `--max-insert` cap |
-| `engram conflicts deferred` | Inspect and replay rows in `sync_apply_deferred`; supports `--status`, `--inspect <sync_id>`, and `--replay` |
 
 When `--project` is omitted, the command falls back to the cwd-detected project (same resolution as all other `engram` commands).
 
@@ -272,8 +271,6 @@ All six `/conflicts/*` endpoints are served by `engram serve` on the local runti
 | `GET /conflicts/{relation_id}` | Single relation detail |
 | `GET /conflicts/stats` | Aggregate counts |
 | `POST /conflicts/scan` | Run scan (dry-run or apply) |
-| `GET /conflicts/deferred` | List deferred queue |
-| `POST /conflicts/deferred/replay` | Trigger ReplayDeferred cycle |
 
 ---
 
