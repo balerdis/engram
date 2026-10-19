@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Gentleman-Programming/engram/internal/portowner"
 )
@@ -55,11 +57,11 @@ func TestOwnerGuardPasses(t *testing.T) {
 		self, uid int
 		err       error
 	}{
-		"own":            {1000, 1000, nil},
-		"root":           {1000, 0, nil},
-		"resolver error": {1000, 1001, errors.New("no /proc")},
-		"unknown uid":    {1000, -1, nil},
-		"no self uid":    {-1, 1001, nil},
+		"own":              {1000, 1000, nil},
+		"root":             {1000, 0, nil},
+		"proc unavailable": {1000, -1, portowner.ErrUnavailable},
+		"unknown uid":      {1000, -1, nil},
+		"no self uid":      {-1, 1001, nil},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -68,6 +70,13 @@ func TestOwnerGuardPasses(t *testing.T) {
 			}
 		})
 	}
+	t.Run("no established row fails closed", func(t *testing.T) {
+		for _, err := range []error{portowner.ErrNoRow, errors.New("boom")} {
+			if rec := do(guarded(t, 1000, -1, err), "GET", "/context", ""); rec.Code != http.StatusForbidden {
+				t.Fatalf("%v: %d", err, rec.Code)
+			}
+		}
+	})
 	t.Run("switch", func(t *testing.T) {
 		t.Setenv(envAllowOtherUsers, "1")
 		if rec := do(guarded(t, 1000, 1001, nil), "GET", "/context", ""); rec.Code != http.StatusOK {
@@ -99,70 +108,141 @@ func TestHealthReportsUIDAndVersion(t *testing.T) {
 	}
 }
 
-// A real connection through the default serve path: the client's socket row is
-// found in a fake table (injected through the env seams, never the real /proc)
-// and keep-alive requests reuse the cached answer.
-func TestConnContextEndToEnd(t *testing.T) {
+// e2eServer starts a real listener whose ConnContext reads fake /proc tables.
+func e2eServer(t *testing.T) (*Server, *httptest.Server, string) {
+	t.Helper()
 	t.Setenv(envAllowOtherUsers, "")
 	srv := New(newServerTestStore(t), 0)
 	srv.selfUID = func() int { return 1000 }
 	hs := httptest.NewUnstartedServer(srv.Handler())
 	hs.Config.ConnContext = srv.connContext
 	hs.Start()
-	defer hs.Close()
-
-	server := netip.MustParseAddrPort(strings.TrimPrefix(hs.URL, "http://"))
+	t.Cleanup(hs.Close)
 	dir := t.TempDir()
 	tcp4 := filepath.Join(dir, "tcp")
 	t.Setenv(portowner.EnvTCP4, tcp4)
 	t.Setenv(portowner.EnvTCP6, filepath.Join(dir, "tcp6"))
+	return srv, hs, tcp4
+}
 
-	// The client port is only known once connected, so the resolver writes its row.
-	foreign := true
-	client := &http.Client{Transport: &http.Transport{}}
-	get := func(path string) int {
-		resp, err := client.Get(hs.URL + path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
-		return resp.StatusCode
+// freePort reserves a loopback port the client will dial from, so its row can be
+// written to the fake table before it connects.
+func freePort(t *testing.T) int {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
 	}
-	// Learn the client port with a /health call, then publish its row.
-	conn := make(chan netip.AddrPort, 1)
-	srv.uidOf = func(r *http.Request) (int, error) {
-		c, ok := r.Context().Value(ctxKey{}).(*connOwner)
-		if !ok {
-			return -1, errNoConn
-		}
-		select {
-		case conn <- c.client:
-		default:
-		}
-		uid := 1000
-		if foreign {
-			uid = 1001
-		}
-		body := "  sl\n" + fmt.Sprintf("   0: %s %s 01 0:0 0:0 0 %d 0 1\n", ep(c.client), ep(server), uid)
-		if err := os.WriteFile(tcp4, []byte(body), 0o600); err != nil {
-			return -1, err
-		}
-		return c.resolve()
+	defer l.Close()
+	return l.Addr().(*net.TCPAddr).Port
+}
+
+func writeRow(t *testing.T, tcp4 string, clientPort int, server netip.AddrPort, state string, uid int) {
+	t.Helper()
+	c := netip.AddrPortFrom(netip.MustParseAddr("127.0.0.1"), uint16(clientPort))
+	body := "  sl\n" + fmt.Sprintf("   0: %s %s %s 0:0 0:0 0 %d 0 1\n", ep(c), ep(server), state, uid)
+	if err := os.WriteFile(tcp4, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	if code := get("/context"); code != http.StatusForbidden {
-		t.Fatalf("foreign client: %d", code)
+}
+
+func fixedPortClient(port int) *http.Client {
+	d := &net.Dialer{LocalAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port}}
+	return &http.Client{Transport: &http.Transport{DialContext: d.DialContext}}
+}
+
+func status(t *testing.T, c *http.Client, url string) int {
+	t.Helper()
+	resp, err := c.Get(url)
+	if err != nil {
+		t.Fatal(err)
 	}
-	// Same keep-alive connection: the cached uid is reused even if the row vanishes.
-	_ = os.Remove(tcp4)
-	if code := get("/context"); code != http.StatusForbidden {
-		t.Fatalf("cached uid not reused: %d", code)
+	io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	return resp.StatusCode
+}
+
+func TestConnContextEndToEnd(t *testing.T) {
+	_, hs, tcp4 := e2eServer(t)
+	server := netip.MustParseAddrPort(strings.TrimPrefix(hs.URL, "http://"))
+
+	cases := []struct {
+		name  string
+		state string
+		uid   int
+		want  int
+	}{
+		{"own established", "01", 1000, 200},
+		{"root established", "01", 0, 200},
+		{"foreign established", "01", 1001, 403},
+		{"closed socket reported as root", "05", 0, 403},
+		{"time wait reported as root", "06", 0, 403},
 	}
-	if code := get("/health"); code != http.StatusOK {
-		t.Fatalf("health: %d", code)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			port := freePort(t)
+			writeRow(t, tcp4, port, server, c.state, c.uid)
+			cl := fixedPortClient(port)
+			defer cl.CloseIdleConnections()
+			if got := status(t, cl, hs.URL+"/context"); got != c.want {
+				t.Fatalf("got %d want %d", got, c.want)
+			}
+			// Keep-alive: same connection, cached answer even when the row vanishes.
+			os.Remove(tcp4)
+			os.WriteFile(tcp4, []byte("  sl\n"), 0o600)
+			if got := status(t, cl, hs.URL+"/context"); got != c.want {
+				t.Fatalf("keep-alive got %d want %d", got, c.want)
+			}
+			if got := status(t, cl, hs.URL+"/health"); got != 200 {
+				t.Fatalf("health %d", got)
+			}
+		})
 	}
-	if got := <-conn; !got.Addr().IsLoopback() {
-		t.Fatalf("client %v", got)
+
+	t.Run("readable table without a row is refused", func(t *testing.T) {
+		os.WriteFile(tcp4, []byte("  sl\n"), 0o600)
+		cl := &http.Client{Transport: &http.Transport{}}
+		defer cl.CloseIdleConnections()
+		if got := status(t, cl, hs.URL+"/context"); got != http.StatusForbidden {
+			t.Fatalf("got %d", got)
+		}
+	})
+	t.Run("missing /proc fails open", func(t *testing.T) {
+		os.Remove(tcp4)
+		cl := &http.Client{Transport: &http.Transport{}}
+		defer cl.CloseIdleConnections()
+		if got := status(t, cl, hs.URL+"/context"); got != http.StatusOK {
+			t.Fatalf("got %d", got)
+		}
+	})
+}
+
+// A raw client that sends a whole write and closes at once must not get it applied:
+// the owner is resolved at accept time and a closed socket row is never trusted.
+func TestSendAndCloseClientIsNotTrusted(t *testing.T) {
+	srv, hs, tcp4 := e2eServer(t)
+	server := netip.MustParseAddrPort(strings.TrimPrefix(hs.URL, "http://"))
+	for _, mode := range []string{"close", "rst"} {
+		t.Run(mode, func(t *testing.T) {
+			// The kernel would show the closed socket as uid 0 in FIN_WAIT2.
+			port := freePort(t)
+			writeRow(t, tcp4, port, server, "05", 0)
+			d := net.Dialer{LocalAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port}}
+			conn, err := d.Dial("tcp", server.String())
+			if err != nil {
+				t.Fatal(err)
+			}
+			body := `{"id":"sess-` + mode + `","project":"p","directory":"/x"}`
+			fmt.Fprintf(conn, "POST /sessions HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n%s", len(body), body)
+			if mode == "rst" {
+				conn.(*net.TCPConn).SetLinger(0)
+			}
+			conn.Close()
+			time.Sleep(300 * time.Millisecond)
+			if sess, _ := srv.store.GetSession("sess-" + mode); sess != nil {
+				t.Fatalf("write from an untrusted closed client was applied")
+			}
+		})
 	}
 }
 

@@ -17,6 +17,7 @@ package portowner
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"net/netip"
 	"os"
@@ -79,13 +80,24 @@ func PathsFromEnv(getenv func(string) string) Paths {
 // Available reports whether the IPv4 table exists, the condition for telling anything.
 func (p Paths) Available() bool {
 	st, err := os.Stat(p.TCP4)
-	return err == nil && st.Mode().IsRegular()
+	if err != nil || !st.Mode().IsRegular() {
+		return false
+	}
+	f, err := os.Open(p.TCP4)
+	if err != nil {
+		return false
+	}
+	f.Close()
+	return true
 }
 
-func readLines(path string) []string {
+// readLines returns the lines of a table. An unopenable file yields no lines and
+// no error (the table does not exist for us); a read error mid-file is returned
+// so callers can tell "empty" from "cut short".
+func readLines(path string) ([]string, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	defer f.Close()
 	var lines []string
@@ -94,14 +106,14 @@ func readLines(path string) []string {
 	for sc.Scan() {
 		lines = append(lines, sc.Text())
 	}
-	return lines
+	return lines, sc.Err()
 }
 
 // ListenUIDs returns the uids of the sockets LISTENing on port at one of loopbacks.
 // The first line is a header and is always skipped.
 func ListenUIDs(path string, port int, loopbacks []string) map[int]bool {
 	uids := map[int]bool{}
-	lines := readLines(path)
+	lines, _ := readLines(path)
 	if len(lines) == 0 {
 		return uids
 	}
@@ -269,12 +281,26 @@ func procEndpoint6(a netip.AddrPort) string {
 	return fmt.Sprintf("%s:%04X", procAddr(addr), a.Port())
 }
 
+// ErrUnavailable means /proc/net/tcp does not exist or cannot be opened (non-Linux,
+// restricted /proc): the owner cannot be told and callers fail open.
+var ErrUnavailable = errors.New("portowner: socket table unavailable")
+
+// ErrNoRow means the table is readable but holds no ESTABLISHED row for the client
+// (the client already closed, or the table could not be read completely): callers
+// that guard something must fail closed.
+var ErrNoRow = errors.New("portowner: no established socket row for the client")
+
+const stateEstablished = "01"
+
 // ConnUID finds the uid of the process that owns the client end of a loopback
-// connection: the row whose local address is the client's and whose remote
-// address is the server's. It errors whenever it cannot tell.
+// connection: the ESTABLISHED row whose local address is the client's and whose
+// remote address is the server's. Rows in any other state (FIN_WAIT, TIME_WAIT...)
+// are never trusted: closed sockets show uid 0 there. It returns ErrUnavailable
+// when /proc cannot be used and ErrNoRow (possibly wrapped) when it can but the
+// client has no ESTABLISHED row.
 func ConnUID(client, server netip.AddrPort, p Paths) (int, error) {
 	if !p.Available() {
-		return -1, fmt.Errorf("no %s", p.TCP4)
+		return -1, ErrUnavailable
 	}
 	type probe struct {
 		path, local, remote string
@@ -284,14 +310,18 @@ func ConnUID(client, server netip.AddrPort, p Paths) (int, error) {
 		probes = append(probes, probe{p.TCP4, procEndpoint(client), procEndpoint(server)})
 	}
 	probes = append(probes, probe{p.TCP6, procEndpoint6(client), procEndpoint6(server)})
+	var scanErr error
 	for _, pr := range probes {
-		lines := readLines(pr.path)
+		lines, err := readLines(pr.path)
+		if err != nil {
+			scanErr = err
+		}
 		if len(lines) == 0 {
 			continue
 		}
 		for _, line := range lines[1:] {
 			f := strings.Fields(line)
-			if len(f) < 8 || !strings.EqualFold(f[1], pr.local) || !strings.EqualFold(f[2], pr.remote) {
+			if len(f) < 8 || !strings.EqualFold(f[1], pr.local) || !strings.EqualFold(f[2], pr.remote) || f[3] != stateEstablished {
 				continue
 			}
 			if !uidText.MatchString(f[7]) {
@@ -304,5 +334,8 @@ func ConnUID(client, server netip.AddrPort, p Paths) (int, error) {
 			return uid, nil
 		}
 	}
-	return -1, fmt.Errorf("no socket row for %s -> %s", client, server)
+	if scanErr != nil {
+		return -1, fmt.Errorf("%w for %s -> %s (read error: %v)", ErrNoRow, client, server, scanErr)
+	}
+	return -1, fmt.Errorf("%w for %s -> %s", ErrNoRow, client, server)
 }

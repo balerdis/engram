@@ -2,6 +2,7 @@ package portowner
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/netip"
 	"os"
@@ -278,6 +279,24 @@ func TestConnUID(t *testing.T) {
 	}
 	if _, err := ConnUID(client, server, Paths{TCP4: filepath.Join(t.TempDir(), "x")}); err == nil {
 		t.Fatal("no /proc must error")
+	}
+	if _, err := ConnUID(netip.MustParseAddrPort("127.0.0.1:1"), server, p); !errors.Is(err, ErrNoRow) {
+		t.Fatalf("want ErrNoRow, got %v", err)
+	}
+	if _, err := ConnUID(client, server, Paths{TCP4: filepath.Join(t.TempDir(), "x")}); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("want ErrUnavailable, got %v", err)
+	}
+	// Rows of closed sockets (FIN_WAIT2, TIME_WAIT, CLOSE_WAIT) show uid 0 and are never trusted.
+	for _, st := range []string{"05", "06", "08", "04"} {
+		closed := write(t, "tcp-"+st, header+strings.Replace(line("0100007F:D431", "0100007F:1D0D", 0), " 01 ", " "+st+" ", 1))
+		if uid, err := ConnUID(client, server, Paths{TCP4: closed, TCP6: filepath.Join(t.TempDir(), "none")}); !errors.Is(err, ErrNoRow) {
+			t.Fatalf("state %s: %d %v", st, uid, err)
+		}
+	}
+	// uid 0 only from an ESTABLISHED row.
+	root := write(t, "tcp-root", header+line("0100007F:D431", "0100007F:1D0D", 0))
+	if uid, err := ConnUID(client, server, Paths{TCP4: root}); err != nil || uid != 0 {
+		t.Fatalf("root established: %d %v", uid, err)
 	}
 	c6 := netip.MustParseAddrPort("[::1]:54321")
 	s6 := netip.MustParseAddrPort("[::1]:7437")

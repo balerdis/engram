@@ -2,11 +2,11 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/netip"
 	"os"
-	"sync"
 
 	"github.com/Gentleman-Programming/engram/internal/portowner"
 )
@@ -14,40 +14,39 @@ import (
 // The HTTP port is shared by every OS user of the machine, and most routes have
 // no authentication. As defense in depth, a request whose client socket is
 // positively identified as owned by another OS user is refused (403) on every
-// route but /health. Anything undeterminable fails open.
+// route but /health. A loopback client that cannot be matched to an ESTABLISHED
+// socket row while /proc is readable also counts as foreign (fail closed);
+// only a missing/unreadable /proc, a non-loopback client or
+// ENGRAM_ALLOW_OTHER_USERS=1 fail open.
 
 // envAllowOtherUsers set to "1" disables the check.
 const envAllowOtherUsers = "ENGRAM_ALLOW_OTHER_USERS"
 
 type ctxKey struct{}
 
-// connOwner resolves, once per connection, the uid behind the client socket.
+// connOwner holds the uid behind the client socket, resolved once per connection.
 type connOwner struct {
 	client, server netip.AddrPort
-	paths          func() portowner.Paths
-
-	once sync.Once
-	uid  int
-	err  error
+	uid            int
+	err            error
 }
 
-func (c *connOwner) resolve() (int, error) {
-	c.once.Do(func() {
-		c.uid, c.err = portowner.ConnUID(c.client, c.server, c.paths())
-	})
-	return c.uid, c.err
-}
+func (c *connOwner) resolve() (int, error) { return c.uid, c.err }
 
-// connContext is the http.Server.ConnContext hook: it records the connection's
-// addresses so the guard can look the client up lazily (and cache the answer
-// for the lifetime of a keep-alive connection).
+// connContext is the http.Server.ConnContext hook. It runs right after Accept, while
+// the client's socket is still ESTABLISHED, and resolves the owner there: a client
+// that sends a request and closes at once would otherwise leave a FIN_WAIT/TIME_WAIT
+// row (uid 0) or none by the time the first request is read. The answer is cached
+// for the lifetime of a keep-alive connection.
 func (s *Server) connContext(ctx context.Context, c net.Conn) context.Context {
 	client, ok1 := addrPort(c.RemoteAddr())
 	server, ok2 := addrPort(c.LocalAddr())
 	if !ok1 || !ok2 || !client.Addr().IsLoopback() {
 		return ctx
 	}
-	return context.WithValue(ctx, ctxKey{}, &connOwner{client: client, server: server, paths: s.procPaths})
+	o := &connOwner{client: client, server: server}
+	o.uid, o.err = portowner.ConnUID(client, server, s.procPaths())
+	return context.WithValue(ctx, ctxKey{}, o)
 }
 
 func addrPort(a net.Addr) (netip.AddrPort, bool) {
@@ -90,7 +89,11 @@ func (s *Server) ownerGuard(next http.Handler) http.Handler {
 			return
 		}
 		uid, err := s.uidOf(r)
-		if err != nil || uid < 0 || uid == self || uid == 0 {
+		if errors.Is(err, portowner.ErrUnavailable) || errors.Is(err, errNoConn) || (err == nil && (uid == self || uid == 0)) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if err == nil && uid < 0 {
 			next.ServeHTTP(w, r)
 			return
 		}
