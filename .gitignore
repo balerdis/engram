@@ -1,6 +1,9 @@
 # Binary (only at root, not cmd/engram/ directory)
 /engram
 *.exe
+/cmd/engram/engram
+/cmd/engram/main
+/cmd/engram/gentle-creation
 
 # Database
 *.db
