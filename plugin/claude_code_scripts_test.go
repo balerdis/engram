@@ -41,14 +41,33 @@ esac
 // fakeEngramDisabled makes `engram port` answer that memory is disabled.
 const fakeEngramDisabled = `#!/bin/sh
 case "$1" in
-  port) echo "engram: memory disabled: port held by another user" >&2; exit 1 ;;
+  port) echo "engram: port 7437 on 127.0.0.1 is held by a process of another OS user (uid 1234) and so is the port derived from this user's uid: engram memory is disabled until ENGRAM_PORT is set to a free port" >&2; exit 1 ;;
   serve) echo "serve ENGRAM_PORT=$ENGRAM_PORT" >> "$FAKE_ENGRAM_LOG" ;;
   protocol-mode) echo full ;;
   *) echo "unknown command: $1" >&2; exit 1 ;;
 esac
 `
 
+// fakeEngramOldNoisy is a 1.21.x binary: it prints an update-check line on
+// stderr before rejecting `port` as an unknown command.
+const fakeEngramOldNoisy = `#!/bin/sh
+case "$1" in
+  serve) echo "serve ENGRAM_PORT=$ENGRAM_PORT" >> "$FAKE_ENGRAM_LOG" ;;
+  protocol-mode) echo full ;;
+  *) echo "Update available: 1.22.0 (current 1.21.0)" >&2; echo "unknown command: $1" >&2; exit 1 ;;
+esac
+`
+
+// fakeEngramGarbage answers `engram port` with exit 0 and a non-numeric stdout.
+const fakeEngramGarbage = `#!/bin/sh
+case "$1" in
+  port) echo "not-a-port" ;;
+  *) exit 1 ;;
+esac
+`
+
 type hookOpts struct {
+	plugin      string // plugin directory under plugin/; empty = claude-code
 	cwd         string
 	engram      string                 // fake engram script; empty = fakeEngramBody
 	tcp4        *string                // fake /proc/net/tcp contents; nil = file absent
@@ -150,7 +169,7 @@ func runHook(t *testing.T, script, stdin string, o hookOpts) hookResult {
 	env = append(env, "ENGRAM_PORT_PROC_TCP4="+tcp4)
 	env = append(env, o.env...)
 
-	path := filepath.Join(repoRoot(t), "plugin", "claude-code", "scripts", script)
+	path := filepath.Join(repoRoot(t), "plugin", pluginDir(o), "scripts", script)
 	cmd := exec.Command("bash", path)
 	cmd.Stdin = strings.NewReader(stdin)
 	cmd.Env = env
@@ -160,7 +179,7 @@ func runHook(t *testing.T, script, stdin string, o hookOpts) hookResult {
 		t.Fatalf("%s failed: %v\n%s", script, err, stdout.String())
 	}
 	res.stdout = stdout.String()
-	if script == "user-prompt-submit.sh" && stdout.Len() != 0 {
+	if script == "user-prompt-submit.sh" && pluginDir(o) == "claude-code" && stdout.Len() != 0 {
 		t.Fatalf("%s must print nothing, got %q", script, stdout.String())
 	}
 	// A backgrounded fake `serve` may land slightly after the script returns.
@@ -180,6 +199,13 @@ func runHook(t *testing.T, script, stdin string, o hookOpts) hookResult {
 	res.bodies = append([]string(nil), res.bodies...)
 	res.queries = append([]string(nil), res.queries...)
 	return res
+}
+
+func pluginDir(o hookOpts) string {
+	if o.plugin == "" {
+		return "claude-code"
+	}
+	return o.plugin
 }
 
 // runHookScript keeps the original simple shape for the basic tests.
