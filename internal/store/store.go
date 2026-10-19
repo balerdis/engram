@@ -2629,6 +2629,14 @@ func (s *Store) ApplyPulledChunkReport(targetKey, chunkID string, mutations []Sy
 	return skipped, nil
 }
 
+// ApplyPulledChunkStrict is ApplyPulledChunkReport without the skip: a relation
+// whose endpoint is missing fails the chunk with ErrRelationFKMissing (nothing is
+// applied, the chunk is not recorded) so that a caller importing several chunks can
+// retry it once the chunk carrying the endpoint has been imported.
+func (s *Store) ApplyPulledChunkStrict(targetKey, chunkID string, mutations []SyncMutation) error {
+	return s.applyPulledChunk(targetKey, chunkID, mutations, nil)
+}
+
 func (s *Store) applyPulledChunk(targetKey, chunkID string, mutations []SyncMutation, skipped *int) error {
 	targetKey = normalizeSyncTargetKey(targetKey)
 	chunkTargetKey := normalizeChunkTargetKey(targetKey)
@@ -2662,7 +2670,7 @@ func (s *Store) applyPulledChunk(targetKey, chunkID string, mutations []SyncMuta
 			mutation.TargetKey = targetKey
 			mutation.Source = SyncSourceRemote
 			if err := s.applyPulledMutationTx(tx, mutation); err != nil {
-				if errors.Is(err, ErrRelationFKMissing) {
+				if skipped != nil && errors.Is(err, ErrRelationFKMissing) {
 					*skipped++
 					continue
 				}

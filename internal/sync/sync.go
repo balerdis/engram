@@ -50,8 +50,13 @@ var (
 	storeExportRelations      = func(s *store.Store, project string) ([]store.SyncMutation, error) {
 		return s.ExportRelationMutations(project)
 	}
-	storeApplyPulledChunk = func(s *store.Store, targetKey, chunkID string, mutations []store.SyncMutation) (int, error) {
-		return s.ApplyPulledChunkReport(targetKey, chunkID, mutations)
+	// skipMissing true skips (and counts) relations with a missing endpoint; false
+	// fails the chunk with store.ErrRelationFKMissing so the importer can retry it.
+	storeApplyPulledChunk = func(s *store.Store, targetKey, chunkID string, mutations []store.SyncMutation, skipMissing bool) (int, error) {
+		if skipMissing {
+			return s.ApplyPulledChunkReport(targetKey, chunkID, mutations)
+		}
+		return 0, s.ApplyPulledChunkStrict(targetKey, chunkID, mutations)
 	}
 	storeRecordSynced = func(s *store.Store, targetKey, chunkID string) error {
 		return s.RecordSyncedChunkForTarget(targetKey, chunkID)
@@ -323,6 +328,11 @@ func (sy *Syncer) importEntriesDependencySafe(entries []ChunkEntry, knownChunks 
 	}
 
 	lastErrors := map[string]error{}
+	// A relation whose endpoint arrives in a later chunk of this run must not be
+	// lost: normal passes fail the chunk on a missing endpoint so it is retried.
+	// Only when a pass stalls are the remaining chunks imported skipping (and
+	// counting) the relations whose endpoint truly is not anywhere.
+	skipMissing := false
 	for pass := 1; len(pendingEntries) > 0; pass++ {
 		progress := false
 		nextPending := make([]ChunkEntry, 0, len(pendingEntries))
@@ -343,14 +353,14 @@ func (sy *Syncer) importEntriesDependencySafe(entries []ChunkEntry, knownChunks 
 				return nil, fmt.Errorf("parse chunk %s: %w", entry.ID, err)
 			}
 
-			relSkipped, err := sy.importMutationChunk(entry.ID, chunk)
+			relSkipped, err := sy.importMutationChunk(entry.ID, chunk, skipMissing)
 			if err != nil {
 				recoveredChunk, recovered, recoveryErr := sy.recoverLocalMissingSessionDependencies(chunk, availableSessionIDs)
 				if recoveryErr != nil {
 					return nil, recoveryErr
 				}
 				if recovered {
-					if n, retryErr := sy.importMutationChunk(entry.ID, recoveredChunk); retryErr == nil {
+					if n, retryErr := sy.importMutationChunk(entry.ID, recoveredChunk, skipMissing); retryErr == nil {
 						chunk = recoveredChunk
 						relSkipped = n
 						goto imported
@@ -380,6 +390,18 @@ func (sy *Syncer) importEntriesDependencySafe(entries []ChunkEntry, knownChunks 
 			if len(nextPending) == 0 {
 				return result, nil
 			}
+			if !skipMissing {
+				for _, e := range nextPending {
+					if errors.Is(lastErrors[e.ID], store.ErrRelationFKMissing) {
+						skipMissing = true
+						break
+					}
+				}
+				if skipMissing {
+					pendingEntries = nextPending
+					continue
+				}
+			}
 			stalled := nextPending[0]
 			return nil, fmt.Errorf("dependency-safe local import stalled after %d pass(es); chunk %s: %w", pass, stalled.ID, lastErrors[stalled.ID])
 		}
@@ -390,10 +412,10 @@ func (sy *Syncer) importEntriesDependencySafe(entries []ChunkEntry, knownChunks 
 	return result, nil
 }
 
-func (sy *Syncer) importMutationChunk(chunkID string, chunk ChunkData) (int, error) {
+func (sy *Syncer) importMutationChunk(chunkID string, chunk ChunkData, skipMissing bool) (int, error) {
 	mutations := buildImportMutations(chunk)
 	mutations = orderMutationsForApply(mutations)
-	return storeApplyPulledChunk(sy.store, store.LocalChunkTargetKey, chunkID, mutations)
+	return storeApplyPulledChunk(sy.store, store.LocalChunkTargetKey, chunkID, mutations, skipMissing)
 }
 
 func importDependencyError(chunk ChunkData, err error) error {

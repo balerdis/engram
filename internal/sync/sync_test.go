@@ -1219,7 +1219,7 @@ func TestImportBranches(t *testing.T) {
 			t.Fatalf("write gzip chunk: %v", err)
 		}
 
-		storeApplyPulledChunk = func(_ *store.Store, _, _ string, _ []store.SyncMutation) (int, error) {
+		storeApplyPulledChunk = func(_ *store.Store, _, _ string, _ []store.SyncMutation, _ bool) (int, error) {
 			return 0, errors.New("forced apply pulled chunk fail")
 		}
 
@@ -1352,7 +1352,7 @@ func TestLocalImportSkipsAlreadyImportedChunksIdempotently(t *testing.T) {
 		t.Fatalf("first import: %v", err)
 	}
 	applyCalls := 0
-	storeApplyPulledChunk = func(_ *store.Store, _, _ string, _ []store.SyncMutation) (int, error) {
+	storeApplyPulledChunk = func(_ *store.Store, _, _ string, _ []store.SyncMutation, _ bool) (int, error) {
 		applyCalls++
 		return 0, errors.New("already imported chunks should not be applied")
 	}
@@ -1991,5 +1991,85 @@ func TestLocalChunkImportSkipsDanglingRelationAndKeepsRestOfChunk(t *testing.T) 
 	}
 	if obs, _ := dst.RecentObservations("proj-a", "", 10); len(obs) != 2 {
 		t.Fatalf("re-import duplicated observations: %d", len(obs))
+	}
+}
+
+// A relation whose endpoints arrive in a LATER chunk of the same run (manifest order
+// not chronological) must be retried by the multi-pass importer, not skipped.
+func TestLocalChunkImportRetriesRelationWhoseEndpointsArriveInLaterChunk(t *testing.T) {
+	src := newTestStore(t)
+	sourceSyncID, targetSyncID := seedRelationForProject(t, src, "proj-a", "sess-late", "rel-late")
+
+	syncDir := filepath.Join(t.TempDir(), ".engram")
+	res, err := New(src, syncDir).Export("alice", "proj-a")
+	if err != nil {
+		t.Fatalf("export: %v", err)
+	}
+	chunkPath := filepath.Join(syncDir, "chunks", res.ChunkID+".jsonl.gz")
+	raw, err := os.ReadFile(chunkPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zr, err := gzip.NewReader(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, _ := io.ReadAll(zr)
+	var full ChunkData
+	if err := json.Unmarshal(plain, &full); err != nil {
+		t.Fatal(err)
+	}
+	var relMuts, otherMuts []store.SyncMutation
+	for _, m := range full.Mutations {
+		if m.Entity == store.SyncEntityRelation {
+			relMuts = append(relMuts, m)
+		} else {
+			otherMuts = append(otherMuts, m)
+		}
+	}
+	if len(relMuts) != 1 {
+		t.Fatalf("expected 1 relation mutation, got %d", len(relMuts))
+	}
+	relChunk := ChunkData{Mutations: relMuts}
+	obsChunk := full
+	obsChunk.Mutations = otherMuts
+
+	relPayload, _ := json.Marshal(relChunk)
+	obsPayload, _ := json.Marshal(obsChunk)
+	if err := os.Remove(chunkPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeGzip(filepath.Join(syncDir, "chunks", "aaaa0001.jsonl.gz"), relPayload); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeGzip(filepath.Join(syncDir, "chunks", "bbbb0002.jsonl.gz"), obsPayload); err != nil {
+		t.Fatal(err)
+	}
+	manifest := &Manifest{Version: 1, Chunks: []ChunkEntry{
+		{ID: "aaaa0001", CreatedBy: "alice", CreatedAt: "2026-01-01T00:00:00Z"},
+		{ID: "bbbb0002", CreatedBy: "alice", CreatedAt: "2026-01-02T00:00:00Z"},
+	}}
+	if err := New(src, syncDir).writeManifest(manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	dst := newTestStore(t)
+	result, err := New(dst, syncDir).Import()
+	if err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	if result.ChunksImported != 2 || result.RelationsSkipped != 0 {
+		t.Fatalf("unexpected import result: %+v", result)
+	}
+	rel, err := dst.GetRelation("rel-late")
+	if err != nil {
+		t.Fatalf("relation lost: %v", err)
+	}
+	if rel.SourceID != sourceSyncID || rel.TargetID != targetSyncID {
+		t.Fatalf("unexpected relation: %+v", rel)
+	}
+	again, err := New(dst, syncDir).Import()
+	if err != nil || again.ChunksImported != 0 || again.ChunksSkipped != 2 || again.RelationsSkipped != 0 {
+		t.Fatalf("re-import must be a no-op: %+v %v", again, err)
 	}
 }
