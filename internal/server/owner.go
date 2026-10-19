@@ -19,6 +19,15 @@ import (
 // only a missing/unreadable /proc, a non-loopback client or
 // ENGRAM_ALLOW_OTHER_USERS=1 fail open.
 
+// Known limit: a client that half-closes its side (shutdown(SHUT_WR) right after
+// it sends the request, e.g. `nc -N`) can reach us after its FIN already arrived:
+// the server-side row is then CLOSE_WAIT (08), not ESTABLISHED, so no row matches
+// and, failing closed, the request gets 403 even from the right user. Ordinary
+// HTTP clients (curl, browsers, the plugins) keep the write side open until they
+// have the response and are not affected. Work around it by keeping the connection
+// open until the response arrives (`nc -q 1`, curl) or, for a trusted machine, with
+// ENGRAM_ALLOW_OTHER_USERS=1. /health is exempt.
+
 // envAllowOtherUsers set to "1" disables the check.
 const envAllowOtherUsers = "ENGRAM_ALLOW_OTHER_USERS"
 

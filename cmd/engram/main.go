@@ -350,6 +350,11 @@ func cmdServe(cfg store.Config) {
 	}()
 
 	if err := startHTTP(srv); err != nil {
+		if isAddrInUse(err) {
+			if hint := busyPortHint(port); hint != "" {
+				err = fmt.Errorf("%w\n%s", err, hint)
+			}
+		}
 		fatal(err)
 	}
 }
