@@ -10,29 +10,37 @@ import (
 // backupNow is the clock of backup file names; tests pin it to force a collision.
 var backupNow = time.Now
 
-// ensureBackupDir creates <dataDir>/backups with its final 0700 mode in one
-// step (Mkdir: there is no window in which it exists with looser permissions),
-// and tightens an existing one that an older version or a manual mkdir left
-// group/other-accessible. Both go through os.Root, so neither can be steered
-// out of the data directory by a swapped path or symlink.
-func ensureBackupDir(dataDir string) error {
+// openBackupRoot opens the data directory as an os.Root and makes sure
+// <dataDir>/backups exists as a real directory (never a symlink) with mode
+// 0700: it is created with its final mode in one step (Mkdir: no window with
+// looser permissions), and an existing one that an older version or a manual
+// mkdir left group/other-accessible is tightened. A symlinked backups is
+// refused: the backup would go wherever it points. Everything, including the
+// backup file itself, then goes through the returned Root, which cannot be
+// steered out of the data directory by a swapped path or symlink.
+func openBackupRoot(dataDir string) (*os.Root, error) {
 	root, err := os.OpenRoot(dataDir)
 	if err != nil {
-		return fmt.Errorf("create backup dir: %w", err)
+		return nil, fmt.Errorf("create backup dir: %w", err)
 	}
-	defer root.Close()
 	err = root.Mkdir("backups", 0o700)
 	if err == nil {
-		return nil
+		return root, nil
 	}
 	if !os.IsExist(err) {
-		return fmt.Errorf("create backup dir: %w", err)
+		root.Close()
+		return nil, fmt.Errorf("create backup dir: %w", err)
 	}
-	if st, err := root.Lstat("backups"); err == nil && st.IsDir() && st.Mode().Perm()&0o077 != 0 {
+	st, err := root.Lstat("backups")
+	if err != nil || !st.IsDir() {
+		root.Close()
+		return nil, fmt.Errorf("create backup dir: %s/backups is a symlink or not a directory; refusing to write a backup through it", dataDir)
+	}
+	if st.Mode().Perm()&0o077 != 0 {
 		// Best effort: a foreign owner cannot chmod.
 		_ = root.Chmod("backups", 0o700)
 	}
-	return nil
+	return root, nil
 }
 
 // backupInto writes a verified-by-the-caller copy of the database to
@@ -43,10 +51,11 @@ func ensureBackupDir(dataDir string) error {
 // is tightened to 0700; the file is 0600: a backup holds memories in clear text and the data dir may live on a
 // multi-user machine. On failure the half-written file is removed.
 func (s *Store) backupInto(prefix string) (string, error) {
-	backupDir := filepath.Join(s.cfg.DataDir, "backups")
-	if err := ensureBackupDir(s.cfg.DataDir); err != nil {
+	root, err := openBackupRoot(s.cfg.DataDir)
+	if err != nil {
 		return "", err
 	}
+	defer root.Close()
 	stamp := backupNow().UTC().Format("20060102T150405Z")
 	var path string
 	for n := 1; ; n++ {
@@ -54,9 +63,11 @@ func (s *Store) backupInto(prefix string) (string, error) {
 		if n > 1 {
 			name = fmt.Sprintf("%s-%d", name, n)
 		}
-		path = filepath.Join(backupDir, name+".db")
-		// VACUUM INTO accepts an existing empty file, so pre-create it with 0600.
-		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		name += ".db"
+		path = filepath.Join(s.cfg.DataDir, "backups", name)
+		// VACUUM INTO accepts an existing empty file, so pre-create it with 0600
+		// (through the Root, never through a plain path).
+		f, err := root.OpenFile("backups/"+name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 		if err == nil {
 			f.Close()
 			break
@@ -66,7 +77,7 @@ func (s *Store) backupInto(prefix string) (string, error) {
 		}
 	}
 	if _, err := s.execHook(s.db, `VACUUM INTO ?`, path); err != nil {
-		_ = os.Remove(path)
+		_ = root.Remove("backups/" + filepath.Base(path))
 		return "", fmt.Errorf("backup sqlite database: %w", err)
 	}
 	return path, nil

@@ -80,16 +80,28 @@ func precreateDB(path string) {
 	}
 }
 
-// tightenDBFiles sets engram.db, engram.db-wal and engram.db-shm (the ones
-// that exist) to 0600.
+// tightenDBFiles clears the group and other bits of engram.db, engram.db-wal
+// and engram.db-shm (the ones that exist). It never adds owner bits: a 0400 file
+// stays 0400. A symlinked file is never chmodded (that would change its
+// target's mode): when the target is group- or other-accessible, one warning
+// says so.
 func tightenDBFiles(dbPath string) {
 	for _, p := range []string{dbPath, dbPath + "-wal", dbPath + "-shm"} {
 		st, err := os.Lstat(p)
-		if err != nil || !st.Mode().IsRegular() || st.Mode().Perm() == 0o600 {
+		if err != nil {
 			continue
 		}
-		if err := os.Chmod(p, 0o600); err != nil {
-			warnPerm("cannot restrict %s to 0600: %v", p, err)
+		if st.Mode()&os.ModeSymlink != 0 {
+			if ts, err := os.Stat(p); err == nil && ts.Mode().Perm()&0o077 != 0 {
+				warnPerm("%s is a symlink to a file that is group- or other-accessible (mode %o): engram does not change it, restrict it yourself", p, ts.Mode().Perm())
+			}
+			continue
+		}
+		if !st.Mode().IsRegular() || st.Mode().Perm()&0o077 == 0 {
+			continue
+		}
+		if err := os.Chmod(p, st.Mode().Perm()&^0o077); err != nil {
+			warnPerm("cannot restrict %s to owner-only: %v", p, err)
 		}
 	}
 }

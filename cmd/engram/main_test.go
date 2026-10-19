@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -467,6 +468,13 @@ func TestCmdExportAndImport(t *testing.T) {
 	}
 	if !strings.Contains(exportOut, "Exported to "+exportPath) {
 		t.Fatalf("unexpected export output: %q", exportOut)
+	}
+
+	// A full dump of the memories is owner-only.
+	if runtime.GOOS != "windows" {
+		if fi, err := os.Stat(exportPath); err != nil || fi.Mode().Perm() != 0o600 {
+			t.Fatalf("export mode = %v (%v), want 0600", fi, err)
+		}
 	}
 
 	withArgs(t, "engram", "import", exportPath)

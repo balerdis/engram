@@ -120,23 +120,88 @@ func TestChmodFailureWarnsOnceAndDoesNotFail(t *testing.T) {
 func TestBackupDirIsCreatedPrivateInOneStep(t *testing.T) {
 	skipNoPerms(t)
 	dir := t.TempDir()
-	if err := ensureBackupDir(dir); err != nil {
+	root, err := openBackupRoot(dir)
+	if err != nil {
 		t.Fatal(err)
 	}
+	root.Close()
 	if m := mode(t, filepath.Join(dir, "backups")); m != 0o700 {
 		t.Fatalf("backups dir %o, want 700", m)
 	}
-	// A symlink named backups is never followed by the tightening.
+}
+
+// A symlinked backups is refused: the backup must never go through it.
+func TestSymlinkedBackupsDirIsRefused(t *testing.T) {
+	skipNoPerms(t)
 	other := t.TempDir()
 	if err := os.Chmod(other, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	dir2 := t.TempDir()
-	if err := os.Symlink(other, filepath.Join(dir2, "backups")); err != nil {
+	s := newTestStore(t)
+	if err := os.Symlink(other, filepath.Join(s.cfg.DataDir, "backups")); err != nil {
 		t.Fatal(err)
 	}
-	_ = ensureBackupDir(dir2)
+	if _, err := s.BackupSQLite(); err == nil {
+		t.Fatal("a backup through a symlinked backups dir must be refused")
+	}
+	if entries, _ := os.ReadDir(other); len(entries) != 0 {
+		t.Fatalf("something was written through the symlink: %v", entries)
+	}
 	if m := mode(t, other); m != 0o755 {
 		t.Fatalf("symlink target was chmodded to %o", m)
+	}
+}
+
+func TestTightenDBFilesNeverAddsOwnerBits(t *testing.T) {
+	skipNoPerms(t)
+	dir := t.TempDir()
+	db := filepath.Join(dir, "engram.db")
+	for name, c := range map[string]struct{ from, want os.FileMode }{
+		"engram.db":     {0o400, 0o400},
+		"engram.db-wal": {0o644, 0o600},
+		"engram.db-shm": {0o640, 0o600},
+	} {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(p, c.from); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tightenDBFiles(db)
+	if m := mode(t, db); m != 0o400 {
+		t.Fatalf("0400 became %o", m)
+	}
+	if m := mode(t, db+"-wal"); m != 0o600 {
+		t.Fatalf("0644 became %o", m)
+	}
+	if m := mode(t, db+"-shm"); m != 0o600 {
+		t.Fatalf("0640 became %o", m)
+	}
+}
+
+func TestSymlinkedDBIsWarnedAboutNotChanged(t *testing.T) {
+	skipNoPerms(t)
+	var buf bytes.Buffer
+	old := permWarnOut
+	permWarnOut = &buf
+	permWarned.Store(false)
+	t.Cleanup(func() { permWarnOut = old; permWarned.Store(false) })
+
+	dir := t.TempDir()
+	target := filepath.Join(t.TempDir(), "real.db")
+	if err := os.WriteFile(target, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(dir, "engram.db")); err != nil {
+		t.Fatal(err)
+	}
+	tightenDBFiles(filepath.Join(dir, "engram.db"))
+	if m := mode(t, target); m != 0o644 {
+		t.Fatalf("the symlink target was changed to %o", m)
+	}
+	if !strings.Contains(buf.String(), "symlink") || !strings.Contains(buf.String(), "644") {
+		t.Fatalf("no warning about the symlinked database: %q", buf.String())
 	}
 }

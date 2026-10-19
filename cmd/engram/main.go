@@ -872,7 +872,7 @@ func cmdExport(cfg store.Config) {
 		fatal(err)
 	}
 
-	if err := os.WriteFile(outFile, out, 0644); err != nil {
+	if err := os.WriteFile(outFile, out, 0600); err != nil {
 		fatal(err)
 	}
 
