@@ -157,7 +157,7 @@ Full sync documentation → [DOCS.md](DOCS.md)
 | ------------------------------------------ | --------------------------------------------------------------- |
 | `engram setup [agent]`                     | Install agent integration                                       |
 | `engram serve [port]`                      | Start HTTP API (default: 7437)                                  |
-| `engram mcp [--tools=PROFILE] [--project NAME]` | Start MCP server (stdio transport)                         |
+| `engram mcp [--tools=PROFILE] [--project NAME]` | Start MCP server (stdio transport). Profiles: `agent`, `admin`, `reader` (read-only), `all` |
 | `engram tui`                               | Launch terminal UI                                              |
 | `engram search <query>`                    | Search memories                                                 |
 | `engram save <title> <msg>`                | Save a memory                                                   |

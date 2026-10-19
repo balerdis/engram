@@ -90,6 +90,10 @@ func ensureImplicitSessionWithCWD(s *store.Store, sessionID, project string) err
 // "admin" — tools for manual curation, TUI, and dashboards:
 //   mem_update, mem_delete, mem_stats, mem_timeline, mem_merge_projects
 //
+// "reader" — read-only tools, for agents that must never write memory
+//   (launched subagents, review agents):
+//   mem_search, mem_context, mem_get_observation, mem_current_project, mem_doctor
+//
 // "all" (default) — every tool registered.
 
 // ProfileAgent contains the tool names that AI agents need.
@@ -125,10 +129,21 @@ var ProfileAdmin = map[string]bool{
 	"mem_merge_projects": true, // destructive curation tool — not for agent use
 }
 
+// ProfileReader contains only read-only tools. Opt-in profile for agents that
+// must consult memory but never write it (select with --tools=reader).
+var ProfileReader = map[string]bool{
+	"mem_search":          true,
+	"mem_context":         true,
+	"mem_get_observation": true,
+	"mem_current_project": true,
+	"mem_doctor":          true,
+}
+
 // Profiles maps profile names to their tool sets.
 var Profiles = map[string]map[string]bool{
-	"agent": ProfileAgent,
-	"admin": ProfileAdmin,
+	"agent":  ProfileAgent,
+	"admin":  ProfileAdmin,
+	"reader": ProfileReader,
 }
 
 // ResolveTools takes a comma-separated string of profile names and/or
@@ -175,11 +190,17 @@ func NewServer(s *store.Store) *server.MCPServer {
 // and require ToolSearch to load.
 const serverInstructions = `Engram provides persistent memory that survives across sessions and compactions.
 
+WHO SAVES: only the agent talking with the person saves memories. If another agent launched you
+(you received a task brief, not a conversation with the user), do not call mem_save, mem_update,
+mem_session_summary, mem_save_prompt, mem_session_start/end or mem_judge unless your brief
+explicitly asks for it. You may use mem_search, mem_context and mem_get_observation. Put durable
+findings in your final reply; whoever launched you decides what to save.
+
 CORE TOOLS (always available — use without ToolSearch):
-  mem_save — save decisions, bugs, discoveries, conventions PROACTIVELY (do not wait to be asked)
+  mem_save — save decisions, bugs, discoveries, conventions PROACTIVELY (do not wait to be asked; only the agent talking with the person)
   mem_search — find past work, decisions, or context from previous sessions
   mem_context — get recent session history (call at session start or after compaction)
-  mem_session_summary — save end-of-session summary (MANDATORY before saying "done")
+  mem_session_summary — save end-of-session summary (MANDATORY before saying "done" for the agent talking with the person)
   mem_get_observation — get full untruncated content of a search result by ID
   mem_save_prompt — save user prompt for context
   mem_current_project — detect current project from cwd (recommended first call)
@@ -188,7 +209,7 @@ DEFERRED TOOLS (use ToolSearch when needed):
   mem_update, mem_review, mem_pin, mem_unpin, mem_suggest_topic_key, mem_session_start, mem_session_end,
   mem_stats, mem_delete, mem_timeline, mem_capture_passive, mem_merge_projects
 
-PROACTIVE SAVE RULE: Call mem_save immediately after ANY decision, bug fix, discovery, or convention — not just when asked.
+PROACTIVE SAVE RULE (only the agent talking with the person, not launched subagents): Call mem_save immediately after ANY decision, bug fix, discovery, or convention — not just when asked.
 
 ## CONFLICT SURFACING — when mem_save returns candidates
 
@@ -304,7 +325,7 @@ func registerTools(srv *server.MCPServer, s *store.Store, cfg MCPConfig, allowli
 				mcp.WithDestructiveHintAnnotation(false),
 				mcp.WithIdempotentHintAnnotation(false),
 				mcp.WithOpenWorldHintAnnotation(false),
-				mcp.WithDescription(`Save an important observation to persistent memory. Call this PROACTIVELY after completing significant work — don't wait to be asked.
+				mcp.WithDescription(`Save an important observation to persistent memory. Only the agent talking with the person calls this; a launched subagent saves only if its brief asks. Call this PROACTIVELY after completing significant work — don't wait to be asked.
 
 WHEN to save (call this after each of these):
 - Architectural decisions or tradeoffs
@@ -477,7 +498,7 @@ Examples:
 	if shouldRegister("mem_save_prompt", allowlist) {
 		srv.AddTool(
 			mcp.NewTool("mem_save_prompt",
-				mcp.WithDescription("Save a user prompt to persistent memory. Use this to record what the user asked — their intent, questions, and requests — so future sessions have context about the user's goals."),
+				mcp.WithDescription("Save a user prompt to persistent memory. Only the agent talking with the person uses this; launched subagents do not. Use this to record what the user asked — their intent, questions, and requests — so future sessions have context about the user's goals."),
 				mcp.WithTitleAnnotation("Save User Prompt"),
 				mcp.WithReadOnlyHintAnnotation(false),
 				mcp.WithDestructiveHintAnnotation(false),
@@ -634,7 +655,7 @@ Examples:
 				mcp.WithDestructiveHintAnnotation(false),
 				mcp.WithIdempotentHintAnnotation(false),
 				mcp.WithOpenWorldHintAnnotation(false),
-				mcp.WithDescription(`Save a comprehensive end-of-session summary. Call this when a session is ending or when significant work is complete. This creates a structured summary that future sessions will use to understand what happened.
+				mcp.WithDescription(`Save a comprehensive end-of-session summary. Only the agent talking with the person calls this; launched subagents do not unless their brief asks. Call this when a session is ending or when significant work is complete. This creates a structured summary that future sessions will use to understand what happened.
 
 FORMAT — use this exact structure in the content field:
 
@@ -692,7 +713,7 @@ GUIDELINES:
 	if shouldRegister("mem_session_start", allowlist) {
 		srv.AddTool(
 			mcp.NewTool("mem_session_start",
-				mcp.WithDescription("Register the start of a new coding session. Call this at the beginning of a session to track activity."),
+				mcp.WithDescription("Register the start of a new coding session. Only the agent talking with the person calls this; launched subagents do not. Call this at the beginning of a session to track activity."),
 				mcp.WithDeferLoading(true),
 				mcp.WithTitleAnnotation("Start Session"),
 				mcp.WithReadOnlyHintAnnotation(false),

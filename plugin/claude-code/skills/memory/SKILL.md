@@ -1,12 +1,15 @@
 ---
 name: engram-memory
-description: "ALWAYS ACTIVE — Persistent memory protocol. You MUST save decisions, conventions, bugs, and discoveries to engram proactively. Do NOT wait for the user to ask."
+description: "ALWAYS ACTIVE — Memory protocol for the agent talking with the person: save decisions, conventions, bugs, and discoveries to engram proactively. Launched subagents save only when their brief asks."
 ---
 
 # Engram Persistent Memory — Protocol
 
 You have access to Engram, a persistent memory system that survives across sessions and compactions.
-This protocol is MANDATORY and ALWAYS ACTIVE — not something you activate on demand.
+This is the memory protocol for the agent talking with the person: it is MANDATORY and ALWAYS ACTIVE for that agent.
+If another agent launched you (you received a task brief, not a conversation with the user), you save
+only when your brief explicitly asks for it. Use mem_search, mem_context and mem_get_observation freely,
+and put durable findings in your final reply; whoever launched you decides what to save.
 
 ## AVAILABLE TOOLS
 

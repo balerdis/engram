@@ -7376,3 +7376,54 @@ func TestHandleSearch_MatchModeInvalidError(t *testing.T) {
 		t.Fatalf("parameter-validation error must not contain query-advice suffix \"Try simpler keywords\", got: %s", text)
 	}
 }
+
+// ─── Who saves ───────────────────────────────────────────────────────────────
+
+func TestServerInstructionsScopeSavingToTheAgentTalkingWithThePerson(t *testing.T) {
+	for _, want := range []string{
+		"WHO SAVES: only the agent talking with the person saves memories.",
+		"do not call mem_save, mem_update,",
+		"only the agent talking with the person",
+	} {
+		if !strings.Contains(serverInstructions, want) {
+			t.Errorf("serverInstructions missing %q", want)
+		}
+	}
+}
+
+func TestSavingToolDescriptionsScopeToTheAgentTalkingWithThePerson(t *testing.T) {
+	srv := NewServerWithConfig(newMCPTestStore(t), MCPConfig{}, nil)
+	tools := srv.ListTools()
+	for _, name := range []string{"mem_save", "mem_session_summary", "mem_save_prompt", "mem_session_start"} {
+		tool := tools[name]
+		if tool == nil {
+			t.Fatalf("tool %s not registered", name)
+		}
+		if !strings.Contains(tool.Tool.Description, "Only the agent talking with the person") {
+			t.Errorf("%s description lacks the scoping sentence: %q", name, tool.Tool.Description)
+		}
+	}
+}
+
+func TestResolveToolsReaderProfile(t *testing.T) {
+	got := ResolveTools("reader")
+	want := []string{"mem_search", "mem_context", "mem_get_observation", "mem_current_project", "mem_doctor"}
+	if len(got) != len(want) {
+		t.Fatalf("reader profile = %v, want exactly %v", got, want)
+	}
+	for _, name := range want {
+		if !got[name] {
+			t.Errorf("reader profile missing %s", name)
+		}
+	}
+	for _, write := range []string{"mem_save", "mem_update", "mem_session_summary", "mem_save_prompt", "mem_session_start", "mem_session_end", "mem_judge", "mem_delete", "mem_capture_passive"} {
+		if got[write] {
+			t.Errorf("reader profile must not include %s", write)
+		}
+	}
+	// Registered server exposes only those tools.
+	srv := NewServerWithConfig(newMCPTestStore(t), MCPConfig{}, got)
+	if n := len(srv.ListTools()); n != len(want) {
+		t.Errorf("reader server registers %d tools, want %d", n, len(want))
+	}
+}
