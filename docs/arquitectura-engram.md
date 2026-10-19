@@ -123,13 +123,14 @@ Las ideas se acumulan acá y se toman por release.
 10. **Arreglos menores de `purge`:** valida las fechas antes de abrir la base, rechaza `since` posterior a `until` y valores que parecen flags, los backups se llaman `engram-purge-AAAAMMDDTHHMMSSZ.db` (y `engram-repair-…`, con `-2`, `-3` si el nombre existe) y son `0600` en una carpeta `0700`, también el de `repair`; avisa si lo borrado difiere del plan, da los errores en JSON con `--json` y termina con un recordatorio.
 11. **Se quita el destino `pi`:** `engram setup pi` ahora responde «unknown agent», se fue `plugin/pi` y el README ya no documenta `ENGRAM_URL`, que solo leía ese plugin.
 12. **Se sacaron del repo dos binarios de macOS de 17 MB** (`cmd/engram/main` y `cmd/engram/gentle-creation`), y los builds quedan ignorados.
-13. **El plugin de Claude Code y el de OpenCode del fork pasan a 0.3.0.** *(Párrafo del contrato de la ola 3: el coordinador lo ajusta al integrar.)*
-    - Resuelven el puerto con `engram port` (si no está, derivan el dueño leyendo `/proc`) y nunca mandan nada a un puerto que tiene otro usuario.
-    - Arrancan `serve` con un `ENGRAM_PORT` explícito.
-    - Toman el nombre del proyecto de `GET /project/current`.
+13. **Los plugins de Claude Code (0.3.0) y de OpenCode del fork resuelven el puerto y el proyecto contra el servidor.**
+    - Los hooks de Claude Code piden el puerto a `engram port`. Si responde que la memoria está desactivada, el hook termina en silencio, sin mandar ni arrancar nada. Con un binario viejo, que no conoce `port`, usan `ENGRAM_PORT` o 7437 y comprueban el dueño con un `awk` sobre `/proc/net/tcp`.
+    - El plugin de OpenCode aplica la misma regla en TypeScript antes de cada petición, sin guardar el resultado. El plugin no tiene manifiesto, así que sus autores van en la cabecera del archivo.
+    - Los dos arrancan `serve` con un `ENGRAM_PORT` explícito y nunca le hablan a un puerto que tiene otro usuario.
+    - Toman el nombre del proyecto de `GET /project/current`, con un respaldo que aplica las mismas reglas canónicas. Si el nombre es ambiguo no inventan uno: no registran sesión, contexto ni migración para ese evento.
     - Migran solo desde la raíz de git y respetan `ENGRAM_NO_PROJECT_MIGRATE=1`.
-    - Llevan el texto WHO SAVES.
-    - `plugin/codex` no cambia: lo cubre el rechazo 403 del servidor.
+    - Llevan el texto WHO SAVES en el protocolo que le pasan al modelo.
+    - `plugin/codex` no cambia: lo cubre el rechazo 403 del servidor (queda en Ideas).
 
 No cambia el esquema de la base: la 1.22.0 y la 1.21.x pueden abrir la misma base.
 
