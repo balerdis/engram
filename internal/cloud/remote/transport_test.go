@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Gentleman-Programming/engram/internal/cloud/chunkcodec"
 	engramsync "github.com/Gentleman-Programming/engram/internal/sync"
+	"github.com/Gentleman-Programming/engram/internal/sync/chunkcodec"
 )
 
 func TestReadManifestReturnsHTTPStatusErrorForAuthAndPolicyFailures(t *testing.T) {

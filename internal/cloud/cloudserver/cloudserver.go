@@ -11,13 +11,13 @@ import (
 	"time"
 
 	cloudauth "github.com/Gentleman-Programming/engram/internal/cloud/auth"
-	"github.com/Gentleman-Programming/engram/internal/cloud/chunkcodec"
 	"github.com/Gentleman-Programming/engram/internal/cloud/cloudstore"
 	"github.com/Gentleman-Programming/engram/internal/cloud/constants"
 	"github.com/Gentleman-Programming/engram/internal/cloud/dashboard"
 	engramproject "github.com/Gentleman-Programming/engram/internal/project"
 	"github.com/Gentleman-Programming/engram/internal/store"
 	engramsync "github.com/Gentleman-Programming/engram/internal/sync"
+	"github.com/Gentleman-Programming/engram/internal/sync/chunkcodec"
 )
 
 type Option func(*CloudServer)
