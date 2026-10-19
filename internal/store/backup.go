@@ -14,15 +14,19 @@ var backupNow = time.Now
 // <data dir>/backups/<prefix><YYYYMMDDTHHMMSSZ>.db using VACUUM INTO, which is
 // safe while other engram processes use the WAL database (copying the file is
 // not). A name already taken gets a -2, -3 ... suffix. The directory is
-// created 0700 only when missing (an existing one is left alone) and the file
-// is 0600: a backup holds memories in clear text and the data dir may live on a
+// created 0700 when missing and an existing one with group/other permissions
+// is tightened to 0700; the file is 0600: a backup holds memories in clear text and the data dir may live on a
 // multi-user machine. On failure the half-written file is removed.
 func (s *Store) backupInto(prefix string) (string, error) {
 	backupDir := filepath.Join(s.cfg.DataDir, "backups")
-	if _, err := os.Stat(backupDir); os.IsNotExist(err) {
+	if st, err := os.Lstat(backupDir); os.IsNotExist(err) {
 		if err := os.MkdirAll(backupDir, 0o700); err != nil {
 			return "", fmt.Errorf("create backup dir: %w", err)
 		}
+	} else if err == nil && st.IsDir() && st.Mode().Perm()&0o077 != 0 {
+		// engram's own directory, left group/other-accessible by an older version
+		// or a manual mkdir: tighten it (best effort, a foreign owner cannot chmod).
+		_ = os.Chmod(backupDir, 0o700)
 	}
 	stamp := backupNow().UTC().Format("20060102T150405Z")
 	var path string

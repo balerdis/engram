@@ -638,7 +638,7 @@ func TestPurgeBackupNameAndPermissions(t *testing.T) {
 	}
 }
 
-func TestPurgeBackupKeepsExistingDirMode(t *testing.T) {
+func TestPurgeBackupTightensExistingDirMode(t *testing.T) {
 	s := newTestStore(t)
 	purgeSeed(t, s)
 	dir := filepath.Join(s.cfg.DataDir, "backups")
@@ -651,8 +651,8 @@ func TestPurgeBackupKeepsExistingDirMode(t *testing.T) {
 	if _, err := s.Purge(PurgeSelector{Project: "lab"}, PurgeOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if fi, _ := os.Stat(dir); fi.Mode().Perm() != 0o755 {
-		t.Fatalf("existing dir mode changed to %v", fi.Mode().Perm())
+	if fi, _ := os.Stat(dir); fi.Mode().Perm() != 0o700 {
+		t.Fatalf("existing dir mode = %v, want 0700", fi.Mode().Perm())
 	}
 }
 

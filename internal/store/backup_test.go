@@ -35,7 +35,7 @@ func TestBackupSQLiteIsPrivate(t *testing.T) {
 	}
 }
 
-func TestBackupSQLiteLeavesExistingDirAlone(t *testing.T) {
+func TestBackupSQLiteTightensExistingDir(t *testing.T) {
 	s := newTestStore(t)
 	dir := filepath.Join(s.cfg.DataDir, "backups")
 	if err := os.Mkdir(dir, 0o755); err != nil {
@@ -45,8 +45,8 @@ func TestBackupSQLiteLeavesExistingDirAlone(t *testing.T) {
 		t.Fatalf("BackupSQLite: %v", err)
 	}
 	di, _ := os.Stat(dir)
-	if di.Mode().Perm() != 0o755 {
-		t.Fatalf("existing dir mode changed to %o", di.Mode().Perm())
+	if di.Mode().Perm() != 0o700 {
+		t.Fatalf("existing dir mode = %o, want 0700", di.Mode().Perm())
 	}
 }
 
