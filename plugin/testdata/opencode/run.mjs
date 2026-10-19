@@ -125,7 +125,7 @@ const out = { port, requests, system: system.join("\n"), serve: existsSync(serve
 // A "sessionless" prompt event exercises ensureSession.
 await hooks["chat.message"](
   { sessionID: "s1" },
-  { parts: [{ type: "text", text: "a prompt long enough to be captured" }], message: {} },
+  { parts: [{ type: "text", text: process.env.ENGRAM_TEST_PROMPT || "a prompt long enough to be captured" }], message: {} },
 )
 out.afterPrompt = requests.map((r) => r.path)
 const compacting = { context: [] }

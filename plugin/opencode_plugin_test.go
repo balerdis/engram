@@ -30,6 +30,11 @@ type ocResult struct {
 // able to strip TypeScript types (24+).
 func runOpenCode(t *testing.T, scenario string) ocResult {
 	t.Helper()
+	return runOpenCodeEnv(t, scenario)
+}
+
+func runOpenCodeEnv(t *testing.T, scenario string, env ...string) ocResult {
+	t.Helper()
 	node, err := exec.LookPath("node")
 	if err != nil {
 		t.Skip("node not available")
@@ -47,6 +52,7 @@ func runOpenCode(t *testing.T, scenario string) ocResult {
 	root := repoRoot(t)
 	cmd := exec.Command(node, filepath.Join(root, "plugin", "testdata", "opencode", "run.mjs"), scenario,
 		filepath.Join(root, "plugin", "opencode", "engram.ts"))
+	cmd.Env = append(os.Environ(), env...)
 	out, err := cmd.Output()
 	if err != nil {
 		var stderr string
@@ -156,4 +162,36 @@ func TestOpenCodePluginProjectNameIsVerbatimOrOmittedInCompactionText(t *testing
 			t.Fatalf("%q must omit the project clause: %s", name, r.Compact)
 		}
 	}
+}
+
+// The plugin no longer strips <private> itself: its lazy regex disagreed with
+// the server's scanner ("<private>a<private>b</private>c</private>" became
+// "[REDACTED]c</private>" and the server then kept the "c"). The text goes to
+// the server as written, and the server (see the store tests) redacts it whole.
+func TestOpenCodePluginSendsPromptsUnalteredForTheServerToRedact(t *testing.T) {
+	prompt := "note <private>a<private>b</private>c</private> end of the prompt"
+	r := runOpenCodeEnv(t, "own", "ENGRAM_TEST_PROMPT="+prompt)
+	var found bool
+	for _, q := range r.Reqs {
+		if q.Path == "/prompts" {
+			found = true
+			if !strings.Contains(q.Body, `"content":`+mustJSON(t, prompt)) {
+				t.Fatalf("the plugin altered the prompt: %s", q.Body)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("no /prompts request: %v", ocPaths(r))
+	}
+}
+
+func mustJSON(t *testing.T, s string) string {
+	t.Helper()
+	var b strings.Builder
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false) // JSON.stringify does not escape < and >
+	if err := enc.Encode(s); err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(b.String())
 }

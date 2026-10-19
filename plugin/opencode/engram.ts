@@ -323,15 +323,12 @@ function truncate(str: string, max: number): string {
   return str.length > max ? str.slice(0, max) + "..." : str
 }
 
-/**
- * Strip <private>...</private> tags before sending to engram.
- * Double safety: the Go binary also strips, but we strip here too
- * so sensitive data never even hits the wire.
- */
-function stripPrivateTags(str: string): string {
-  if (!str) return ""
-  return str.replace(/<private>[\s\S]*?<\/private>/gi, "[REDACTED]").trim()
-}
+// <private> is NOT stripped here. The server redacts every text it stores
+// (internal/redact: nested and unclosed tags follow the catalog's rules), and a
+// second, simpler implementation on the client disagreed with it: the lazy
+// regex turned "<private>a<private>b</private>c</private>" into "[REDACTED]c</private>",
+// and the server then kept the "c". The server is on loopback and only answers
+// its own user, and every route that stores text passes through its sanitizer.
 
 // ─── Plugin Export ───────────────────────────────────────────────────────────
 
@@ -532,7 +529,7 @@ export const Engram: Plugin = async (ctx) => {
           method: "POST",
           body: {
             session_id: sessionId,
-            content: stripPrivateTags(truncate(finalContent, 2000)),
+            content: truncate(finalContent, 2000),
             project,
           },
         })
@@ -563,7 +560,7 @@ export const Engram: Plugin = async (ctx) => {
             method: "POST",
             body: {
               session_id: sessionId,
-              content: stripPrivateTags(text),
+              content: text,
               project,
               source: "task-complete",
             },
