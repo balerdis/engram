@@ -50,43 +50,13 @@ func callResultText(t *testing.T, res *mcppkg.CallToolResult) string {
 func assertSessionSyncMutationDirectory(t *testing.T, s *store.Store, sessionID, wantDirectory string) {
 	t.Helper()
 
-	mutations, err := s.ListPendingSyncMutations(store.DefaultSyncTargetKey, 100)
+	sess, err := s.GetSession(sessionID)
 	if err != nil {
-		t.Fatalf("list pending sync mutations: %v", err)
+		t.Fatalf("get session %q: %v", sessionID, err)
 	}
-
-	for _, mutation := range mutations {
-		if mutation.Entity != store.SyncEntitySession || mutation.EntityKey != sessionID || mutation.Op != store.SyncOpUpsert {
-			continue
-		}
-		var payload map[string]any
-		if err := json.Unmarshal([]byte(mutation.Payload), &payload); err != nil {
-			t.Fatalf("decode session sync payload: %v", err)
-		}
-		if got := payload["directory"]; got != wantDirectory {
-			t.Fatalf("expected session sync payload directory %q, got %#v in payload %s", wantDirectory, got, mutation.Payload)
-		}
-		return
+	if sess.Directory != wantDirectory {
+		t.Fatalf("expected session %q directory %q, got %q", sessionID, wantDirectory, sess.Directory)
 	}
-
-	t.Fatalf("expected pending session upsert sync mutation for %q; got %#v", sessionID, mutations)
-}
-
-func countPromptUpsertSyncMutations(t *testing.T, s *store.Store) int {
-	t.Helper()
-
-	mutations, err := s.ListPendingSyncMutations(store.DefaultSyncTargetKey, 100)
-	if err != nil {
-		t.Fatalf("list pending sync mutations: %v", err)
-	}
-
-	count := 0
-	for _, mutation := range mutations {
-		if mutation.Entity == store.SyncEntityPrompt && mutation.Op == store.SyncOpUpsert {
-			count++
-		}
-	}
-	return count
 }
 
 func TestNewServerRegistersTools(t *testing.T) {
@@ -221,9 +191,6 @@ func TestHandleSaveSuggestsTopicKeyWhenMissing(t *testing.T) {
 
 func TestHandleSaveAcceptsObservationAliasForContent(t *testing.T) {
 	s := newMCPTestStore(t)
-	if err := s.EnrollProject("engram"); err != nil {
-		t.Fatalf("enroll project: %v", err)
-	}
 	h := handleSave(s, MCPConfig{}, NewSessionActivity(10*time.Minute))
 
 	res, err := h(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
@@ -246,25 +213,6 @@ func TestHandleSaveAcceptsObservationAliasForContent(t *testing.T) {
 	if len(obs) != 1 || obs[0].Content != "Body sent by older MCP clients" {
 		t.Fatalf("expected observation alias to persist content, got %#v", obs)
 	}
-
-	mutations, err := s.ListPendingSyncMutations(store.DefaultSyncTargetKey, 100)
-	if err != nil {
-		t.Fatalf("list pending sync mutations: %v", err)
-	}
-	for _, mutation := range mutations {
-		if mutation.Entity != store.SyncEntityObservation || mutation.Op != store.SyncOpUpsert {
-			continue
-		}
-		var payload map[string]any
-		if err := json.Unmarshal([]byte(mutation.Payload), &payload); err != nil {
-			t.Fatalf("decode observation sync payload: %v", err)
-		}
-		if payload["content"] != "Body sent by older MCP clients" {
-			t.Fatalf("expected sync payload content to be preserved, got %s", mutation.Payload)
-		}
-		return
-	}
-	t.Fatalf("expected pending observation upsert sync mutation, got %#v", mutations)
 }
 
 func TestHandleSaveRejectsMissingContent(t *testing.T) {
@@ -297,9 +245,6 @@ func TestHandleSaveRejectsMissingContent(t *testing.T) {
 
 func TestHandleSaveAutoCapturesCurrentPromptByDefault(t *testing.T) {
 	s := newMCPTestStore(t)
-	if err := s.EnrollProject("engram"); err != nil {
-		t.Fatalf("enroll project: %v", err)
-	}
 	activity := NewSessionActivity(10 * time.Minute)
 	sessionID := defaultSessionID("engram")
 	activity.RecordPrompt(sessionID, "engram", "please persist the auth decision")
@@ -343,9 +288,6 @@ func TestHandleSaveAutoCapturesCurrentPromptByDefault(t *testing.T) {
 	}
 	if len(prompts) != 1 {
 		t.Fatalf("expected prompt dedupe to keep one row, got %d: %#v", len(prompts), prompts)
-	}
-	if got := countPromptUpsertSyncMutations(t, s); got != 1 {
-		t.Fatalf("expected prompt dedupe to keep one prompt sync mutation, got %d", got)
 	}
 }
 
@@ -2524,9 +2466,6 @@ func TestHandleSaveCreatesProjectScopedSession(t *testing.T) {
 		t.Fatalf("git remote add: %v\n%s", err, out)
 	}
 	t.Chdir(dir)
-	if err := s.EnrollProject("scoped-session-project"); err != nil {
-		t.Fatalf("enroll project: %v", err)
-	}
 
 	req := mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
 		"title":   "Decision",
@@ -2565,9 +2504,6 @@ func TestHandleSavePromptCreatesProjectScopedSession(t *testing.T) {
 		t.Fatalf("git remote add: %v\n%s", err, out)
 	}
 	t.Chdir(dir)
-	if err := s.EnrollProject("prompt-project"); err != nil {
-		t.Fatalf("enroll project: %v", err)
-	}
 
 	req := mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
 		"content": "How do I set up auth?",
@@ -2600,9 +2536,6 @@ func TestHandleSessionSummaryCreatesProjectScopedSession(t *testing.T) {
 	t.Chdir(dir)
 
 	s := newMCPTestStore(t)
-	if err := s.EnrollProject("summary-session-project"); err != nil {
-		t.Fatalf("enroll project: %v", err)
-	}
 	h := handleSessionSummary(s, MCPConfig{}, NewSessionActivity(10*time.Minute))
 
 	req := mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
@@ -3313,9 +3246,6 @@ func TestSessionStartWithoutDirectoryUsesCurrentWorkingDirectory(t *testing.T) {
 		t.Fatalf("git remote add: %v\n%s", err, out)
 	}
 	t.Chdir(dir)
-	if err := s.EnrollProject("session-start-cwd-project"); err != nil {
-		t.Fatalf("enroll project: %v", err)
-	}
 
 	start := handleSessionStart(s, MCPConfig{}, NewSessionActivity(10*time.Minute))
 	res, err := start(context.Background(), mcppkg.CallToolRequest{
@@ -3356,9 +3286,6 @@ func TestSessionStartWithWhitespaceDirectoryUsesCurrentWorkingDirectory(t *testi
 		t.Fatalf("git remote add: %v\n%s", err, out)
 	}
 	t.Chdir(dir)
-	if err := s.EnrollProject("session-start-whitespace-project"); err != nil {
-		t.Fatalf("enroll project: %v", err)
-	}
 
 	start := handleSessionStart(s, MCPConfig{}, NewSessionActivity(10*time.Minute))
 	res, err := start(context.Background(), mcppkg.CallToolRequest{
@@ -3400,9 +3327,6 @@ func TestSessionStartWithExplicitDirectoryPreservesDirectory(t *testing.T) {
 		t.Fatalf("git remote add: %v\n%s", err, out)
 	}
 	t.Chdir(dir)
-	if err := s.EnrollProject("session-start-explicit-project"); err != nil {
-		t.Fatalf("enroll project: %v", err)
-	}
 	explicitDir := filepath.Join(t.TempDir(), "explicit-worktree")
 
 	start := handleSessionStart(s, MCPConfig{}, NewSessionActivity(10*time.Minute))
@@ -5652,7 +5576,7 @@ func TestMemSessionSummary_ExplicitProjectOverride(t *testing.T) {
 	t.Chdir(dir)
 
 	s := newMCPTestStore(t)
-	if err := s.EnrollProject("explicit-summary-project"); err != nil {
+	if err := s.CreateSession("known-explicit-summary-project", "explicit-summary-project", dir); err != nil {
 		t.Fatal(err)
 	}
 	h := handleSessionSummary(s, MCPConfig{}, NewSessionActivity(10*time.Minute))

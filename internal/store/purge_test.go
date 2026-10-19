@@ -281,19 +281,23 @@ func TestPurgeRefusesPinnedUnlessIncluded(t *testing.T) {
 	}
 }
 
-func TestPurgeRefusesEnrolledProject(t *testing.T) {
+// A project row left in sync_enrolled_projects by a pre-removal engram-cloud
+// install no longer blocks a purge, and the row goes away with the project.
+func TestPurgeIgnoresLegacyCloudEnrollment(t *testing.T) {
 	s := newTestStore(t)
 	purgeSeed(t, s)
-	if err := s.EnrollProject("lab"); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO sync_enrolled_projects (project) VALUES ('lab')`); err != nil {
 		t.Fatal(err)
 	}
-	for _, sel := range []PurgeSelector{{Project: "lab"}, {SessionID: "s-lab"}, {Since: "2000-01-01"}} {
-		if _, err := s.Purge(sel, PurgeOptions{IncludePinned: true}); !errors.Is(err, ErrPurgeRefused) || !strings.Contains(err.Error(), "enrolled") {
-			t.Fatalf("selector %+v: expected enrolled refusal, got %v", sel, err)
-		}
+	res, err := s.Purge(PurgeSelector{Project: "lab"}, PurgeOptions{IncludePinned: true})
+	if err != nil {
+		t.Fatalf("purge of a project with a legacy enrollment row must work, got %v", err)
 	}
-	if purgeCount(t, s, "SELECT COUNT(*) FROM observations WHERE project='lab'") != 3 {
-		t.Fatal("nothing may be deleted")
+	if res.Deleted.SyncEnrolled != 1 {
+		t.Fatalf("expected the enrollment row to be deleted, got %+v", res.Deleted)
+	}
+	if purgeCount(t, s, "SELECT COUNT(*) FROM observations WHERE project='lab'") != 0 {
+		t.Fatal("lab observations remain")
 	}
 }
 

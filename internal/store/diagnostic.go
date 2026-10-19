@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,17 +17,6 @@ type DiagnosticSessionEvidence struct {
 	Project   string `json:"project"`
 	Directory string `json:"directory"`
 	Name      string `json:"name"`
-}
-
-// SyncMutationPayloadValidation describes deterministic required-field issues
-// in a pending sync mutation payload.
-type SyncMutationPayloadValidation struct {
-	Entity        string   `json:"entity"`
-	Op            string   `json:"op"`
-	EntityKey     string   `json:"entity_key,omitempty"`
-	MissingFields []string `json:"missing_fields,omitempty"`
-	ReasonCode    string   `json:"reason_code,omitempty"`
-	Message       string   `json:"message,omitempty"`
 }
 
 // SQLiteLockSnapshot captures conservative SQLite lock/contention indicators.
@@ -87,138 +75,6 @@ func (s *Store) ListDiagnosticSessions(project string) ([]DiagnosticSessionEvide
 		sessions = append(sessions, ev)
 	}
 	return sessions, rows.Err()
-}
-
-// ListPendingProjectMutations returns pending cloud mutations for one project,
-// or all projects when project is empty, without enrollment filtering. Doctor
-// needs to diagnose blocked metadata even when a project is not enrolled.
-func (s *Store) ListPendingProjectMutations(project string) ([]SyncMutation, error) {
-	project, _ = NormalizeProject(project)
-	project = strings.TrimSpace(project)
-	return s.listPendingProjectMutationsTxLike(s.db, project)
-}
-
-type rowQuerier interface {
-	Query(query string, args ...any) (*sql.Rows, error)
-}
-
-func (s *Store) listPendingProjectMutationsTxLike(q rowQuerier, project string) ([]SyncMutation, error) {
-	query := `
-		SELECT seq, target_key, entity, entity_key, op, payload, source, project, occurred_at, acked_at
-		FROM sync_mutations
-		WHERE target_key = ? AND acked_at IS NULL`
-	args := []any{DefaultSyncTargetKey}
-	if project != "" {
-		query += ` AND project = ?`
-		args = append(args, project)
-	}
-	query += ` ORDER BY seq ASC`
-	rows, err := q.Query(query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	mutations := make([]SyncMutation, 0)
-	for rows.Next() {
-		var m SyncMutation
-		if err := rows.Scan(&m.Seq, &m.TargetKey, &m.Entity, &m.EntityKey, &m.Op, &m.Payload, &m.Source, &m.Project, &m.OccurredAt, &m.AckedAt); err != nil {
-			return nil, err
-		}
-		mutations = append(mutations, m)
-	}
-	return mutations, rows.Err()
-}
-
-// ValidateSyncMutationPayload performs pure required-field validation for sync
-// payloads. It is intentionally conservative: malformed/empty/unsupported
-// payloads are reported as manual blocks, while complete payloads return an
-// empty validation.
-func ValidateSyncMutationPayload(entity, op, payload, entityKey string) SyncMutationPayloadValidation {
-	entity = strings.TrimSpace(entity)
-	op = strings.TrimSpace(op)
-	entityKey = strings.TrimSpace(entityKey)
-	result := SyncMutationPayloadValidation{Entity: entity, Op: op, EntityKey: entityKey}
-	trimmed := strings.TrimSpace(payload)
-	if trimmed == "" {
-		result.ReasonCode = UpgradeReasonBlockedLegacyMutationManual
-		result.Message = "sync mutation payload is empty"
-		return result
-	}
-
-	var body map[string]any
-	if err := decodeSyncPayload([]byte(trimmed), &body); err != nil {
-		result.ReasonCode = UpgradeReasonBlockedLegacyMutationManual
-		result.Message = fmt.Sprintf("decode sync mutation payload: %v", err)
-		return result
-	}
-	field := func(name string) string {
-		v, ok := body[name]
-		if !ok || v == nil {
-			return ""
-		}
-		if s, ok := v.(string); ok {
-			return strings.TrimSpace(s)
-		}
-		encoded, _ := json.Marshal(v)
-		return strings.TrimSpace(string(encoded))
-	}
-	missing := make([]string, 0)
-	require := func(name string) {
-		if field(name) == "" {
-			missing = append(missing, name)
-		}
-	}
-
-	switch entity {
-	case SyncEntitySession:
-		if field("id") == "" && entityKey == "" {
-			missing = append(missing, "id")
-		}
-		if op == SyncOpUpsert {
-			require("directory")
-		}
-	case SyncEntityObservation:
-		if field("sync_id") == "" && entityKey == "" {
-			missing = append(missing, "sync_id")
-		}
-		if op == SyncOpUpsert {
-			require("session_id")
-			require("type")
-			require("title")
-			require("content")
-			require("scope")
-		}
-	case SyncEntityPrompt:
-		if field("sync_id") == "" && entityKey == "" {
-			missing = append(missing, "sync_id")
-		}
-		if op == SyncOpUpsert {
-			require("session_id")
-			require("content")
-		}
-	case SyncEntityRelation:
-		if op == SyncOpUpsert {
-			require("sync_id")
-			require("source_id")
-			require("target_id")
-			require("relation")
-			require("judgment_status")
-			require("marked_by_actor")
-			require("marked_by_kind")
-			require("project")
-		}
-	default:
-		result.ReasonCode = UpgradeReasonBlockedLegacyMutationManual
-		result.Message = fmt.Sprintf("unsupported sync mutation %q/%q", entity, op)
-		return result
-	}
-
-	if len(missing) > 0 {
-		result.MissingFields = missing
-		result.ReasonCode = "sync_mutation_payload_missing_required_fields"
-		result.Message = fmt.Sprintf("%s payload missing required fields: %s", entity, strings.Join(missing, ", "))
-	}
-	return result
 }
 
 // ReadSQLiteLockSnapshot returns SQLite lock-related PRAGMA values without

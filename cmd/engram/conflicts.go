@@ -12,7 +12,7 @@ import (
 )
 
 // cmdConflicts is the top-level dispatcher for `engram conflicts <subcommand>`.
-// Mirrors the cloud.go pattern: switch on os.Args[2] → delegate to sub-command function.
+// Switches on os.Args[2] and delegates to the sub-command function.
 func cmdConflicts(cfg store.Config) {
 	if len(os.Args) < 3 {
 		printConflictsUsage()

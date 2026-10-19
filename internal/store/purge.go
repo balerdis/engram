@@ -12,7 +12,7 @@ import (
 )
 
 // ErrPurgeRefused is wrapped by every refusal returned from PurgePlan/Purge
-// (pinned observations, cloud-enrolled projects, empty selector). Nothing has
+// (pinned observations, empty selector). Nothing has
 // been deleted when it is returned.
 var ErrPurgeRefused = errors.New("purge refused")
 
@@ -311,7 +311,7 @@ func (s *Store) purgeBuild(tx *sql.Tx, sel PurgeSelector, opts PurgeOptions) (*P
 		return nil, nil, fmt.Errorf("purge: select relations: %w", err)
 	}
 
-	// Matched projects, for display and the enrolment refusal.
+	// Matched projects, for display.
 	projSet := map[string]bool{}
 	projRows, err := tx.Query(`SELECT DISTINCT ` + obsEff + ` FROM observations o WHERE o.id IN (SELECT id FROM purge_obs)
 		UNION SELECT DISTINCT ` + prEff + ` FROM user_prompts p WHERE p.id IN (SELECT id FROM purge_prompts)
@@ -343,28 +343,6 @@ func (s *Store) purgeBuild(tx *sql.Tx, sel PurgeSelector, opts PurgeOptions) (*P
 	if plan.Counts.Pinned > 0 && !opts.IncludePinned {
 		return nil, nil, fmt.Errorf("%w: the selection includes %d pinned observation(s); pass --include-pinned to delete them", ErrPurgeRefused, plan.Counts.Pinned)
 	}
-	check := append([]string{}, plan.Projects...)
-	check = append(check, w.variants...)
-	if len(check) > 0 {
-		var enrolled []string
-		rows, err := tx.Query(`SELECT project FROM sync_enrolled_projects WHERE project IN (`+purgePlaceholders(len(check))+`)`, purgeArgs(check)...)
-		if err != nil {
-			return nil, nil, fmt.Errorf("purge: check enrolment: %w", err)
-		}
-		for rows.Next() {
-			var p string
-			if err := rows.Scan(&p); err != nil {
-				rows.Close()
-				return nil, nil, err
-			}
-			enrolled = append(enrolled, p)
-		}
-		rows.Close()
-		if len(enrolled) > 0 {
-			return nil, nil, fmt.Errorf("%w: project %q is enrolled in cloud sync; purge never touches enrolled projects", ErrPurgeRefused, enrolled[0])
-		}
-	}
-
 	// Delete steps in FK-safe order.
 	steps := []purgeStep{
 		{"memory_relations", relCond, nil, func(c *PurgeCounts, n int) { c.Relations = n }},

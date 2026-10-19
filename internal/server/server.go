@@ -198,8 +198,6 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /project/current", s.handleCurrentProject)
 	s.mux.HandleFunc("POST /projects/migrate", requireAuth(s.handleMigrateProject))
 
-	// Sync status (degraded-state visibility for autosync)
-
 	// Conflicts — CRITICAL ORDER: literals before wildcard (Go 1.22 mux panics on overlap)
 	s.mux.HandleFunc("GET /conflicts", s.handleListConflicts)
 	s.mux.HandleFunc("GET /conflicts/stats", s.handleConflictsStats)
@@ -644,8 +642,6 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.store.DeleteSession(id); err != nil {
 		switch {
-		case errors.Is(err, store.ErrSessionDeleteBlocked):
-			jsonError(w, http.StatusConflict, err.Error())
 		case errors.Is(err, store.ErrSessionHasObservations):
 			jsonError(w, http.StatusConflict, err.Error())
 		case errors.Is(err, store.ErrSessionNotFound):
@@ -656,7 +652,6 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// local-only delete path: do not notify autosync.
 	jsonResponse(w, http.StatusOK, map[string]string{"id": id, "status": "deleted"})
 }
 

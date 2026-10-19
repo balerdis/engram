@@ -63,28 +63,6 @@ func TestCmdPurgeNoSelectorExits(t *testing.T) {
 	}
 }
 
-func TestCmdPurgeEnrolledRefusal(t *testing.T) {
-	cfg := testConfig(t)
-	seedPurgeCLI(t, cfg)
-	s, err := store.New(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.EnrollProject("lab"); err != nil {
-		t.Fatal(err)
-	}
-	s.Close()
-	exited := 0
-	old := exitFunc
-	exitFunc = func(code int) { exited = code }
-	t.Cleanup(func() { exitFunc = old })
-	withArgs(t, "engram", "purge", "--project", "lab", "--yes")
-	_, stderr := captureOutput(t, func() { cmdPurge(cfg) })
-	if exited != 1 || !strings.Contains(stderr, "enrolled") || !strings.Contains(stderr, "nothing was deleted") {
-		t.Fatalf("exit=%d stderr=%q", exited, stderr)
-	}
-}
-
 func TestCmdPurgeUnreadableDateWarningHumanAndJSON(t *testing.T) {
 	cfg := testConfig(t)
 	seedPurgeCLI(t, cfg)

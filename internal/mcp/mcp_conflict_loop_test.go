@@ -421,21 +421,10 @@ func TestConflictLoop_Orphaning(t *testing.T) {
 	}
 }
 
-// ─── G.4 — Sync enrollment-gate regression test ─────────────────────────────
+// ─── G.4 — sync_mutations stays empty ───────────────────────────────────────
 //
-// Verifies that an UNENROLLED project never enqueues relation sync mutations.
-// The enqueue paths in JudgeRelation and JudgeBySemantic are guarded by an
-// enrollment check — this test is the regression guard for that gate.
-//
-// Note: relation cloud sync IS intentional for enrolled projects (#313/#379/
-// #383 enabled it; #496 extends it with backfill). This test uses an unenrolled
-// store (newMCPTestStore does not call EnrollProject), so the relation count
-// must remain zero — not because relations are local-only, but because the
-// enrollment gate must hold.
-//
-// The assertion is entity-level: no row in sync_mutations should have
-// entity = 'relation' after conflict operations on an unenrolled project.
-// Sessions and observations still produce their own sync mutations as expected.
+// The conflict operations must not write to sync_mutations: nothing writes to
+// that legacy table any more.
 func TestConflictLoop_SyncRegression(t *testing.T) {
 	s := newMCPTestStore(t)
 	saveH := handleSave(s, MCPConfig{}, NewSessionActivity(10*time.Minute))
@@ -497,7 +486,6 @@ func TestConflictLoop_SyncRegression(t *testing.T) {
 
 	// ── Step 4: Verify observation sync payloads exclude decay fields. ────────
 	// REQ-009: new observation columns must NOT appear in the sync wire format.
-	verifyObsSyncPayloadsExcludeDecayFields(t, s)
 }
 
 // ─── G.5 — Backwards compatibility ──────────────────────────────────────────
@@ -625,49 +613,15 @@ func parseEnvelope(t *testing.T, label string, res *mcppkg.CallToolResult) map[s
 	return m
 }
 
-// assertNoRelationSyncMutations verifies that NO sync_mutations rows reference
-// relation entities on an UNENROLLED store. The enrollment gate in
-// JudgeRelation / JudgeBySemantic must prevent any relation row from being
-// written when the project is not enrolled. Sessions ('session') and
-// observations ('observation') are expected entities; a relation-entity row
-// in an unenrolled context means the enrollment guard was bypassed.
-//
-// Note: relation sync mutations ARE valid for enrolled projects (#313/#379/
-// #383/#496). This helper is intentionally scoped to the unenrolled test in G.4.
+// assertNoRelationSyncMutations verifies that sync_mutations stays empty:
+// nothing writes to it any more, so the conflict loop must leave it untouched.
 func assertNoRelationSyncMutations(t *testing.T, s *store.Store) {
 	t.Helper()
-	count, err := s.CountRelationSyncMutations()
+	count, err := s.CountSyncMutations()
 	if err != nil {
-		t.Fatalf("G.4 CountRelationSyncMutations: %v", err)
+		t.Fatalf("G.4 CountSyncMutations: %v", err)
 	}
 	if count > 0 {
-		t.Errorf("G.4 enrollment-gate violated: found %d sync_mutations row(s) with relation entity on unenrolled project — enrollment gate must prevent relation sync mutations", count)
-	}
-}
-
-// verifyObsSyncPayloadsExcludeDecayFields checks that no sync_mutations payload
-// for observations contains review_after, expires_at, or embedding* fields.
-// REQ-009: new observation columns must NOT appear in the sync wire format.
-func verifyObsSyncPayloadsExcludeDecayFields(t *testing.T, s *store.Store) {
-	t.Helper()
-	payloads, err := s.ListObservationSyncPayloads()
-	if err != nil {
-		t.Fatalf("G.4 ListObservationSyncPayloads: %v", err)
-	}
-	forbiddenKeys := []string{"review_after", "expires_at", "embedding", "embedding_model", "embedding_created_at"}
-	for i, payload := range payloads {
-		raw, err := json.Marshal(payload)
-		if err != nil {
-			t.Fatalf("G.4 marshal payload %d: %v", i, err)
-		}
-		var m map[string]any
-		if err := json.Unmarshal(raw, &m); err != nil {
-			t.Fatalf("G.4 unmarshal payload %d: %v", i, err)
-		}
-		for _, key := range forbiddenKeys {
-			if _, found := m[key]; found {
-				t.Errorf("G.4 sync payload must not contain %q (REQ-009), but found it in payload %d: %s", key, i, raw)
-			}
-		}
+		t.Errorf("G.4: found %d sync_mutations row(s), want 0 (nothing writes to that table any more)", count)
 	}
 }

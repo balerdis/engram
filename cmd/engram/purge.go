@@ -34,7 +34,7 @@ verified (integrity check and row counts) before anything is deleted.
 Relations touching a purged observation are removed even if the other end is
 kept: the plan reports how many of them point at observations that survive.
 Rows whose date cannot be read are never selected by --since/--until; the
-plan warns about how many were skipped. Projects enrolled in cloud sync are always refused. sync_chunks is
+plan warns about how many were skipped. sync_chunks is
 never touched. When only --project is given, the project's sync state rows
 are removed too.
 `)

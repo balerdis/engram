@@ -741,13 +741,9 @@ func TestHandleDeleteSession_HasObservations(t *testing.T) {
 	}
 }
 
-// TestHandleDeleteSession_PropagatesWhenProjectIsCloudEnrolled verifies the
-// behavior introduced by 71fa9fe: deleting a session whose project is enrolled
-// for cloud sync now succeeds locally AND enqueues a delete mutation so the
-// cloud replicas remove the session too. Previously this returned 409 to
-// prevent local/cloud divergence, but propagating the delete is the
-// correct semantic now that the sync transport supports session/delete ops.
-func TestHandleDeleteSession_PropagatesWhenProjectIsCloudEnrolled(t *testing.T) {
+// TestHandleDeleteSession_EmptySession verifies that deleting a session with no
+// observations succeeds.
+func TestHandleDeleteSession_EmptySession(t *testing.T) {
 	st := newServerTestStore(t)
 	srv := New(st, 0)
 	h := srv.Handler()
@@ -755,16 +751,13 @@ func TestHandleDeleteSession_PropagatesWhenProjectIsCloudEnrolled(t *testing.T) 
 	if err := st.CreateSession("sess-enrolled", "proj", "/tmp"); err != nil {
 		t.Fatalf("create session: %v", err)
 	}
-	if err := st.EnrollProject("proj"); err != nil {
-		t.Fatalf("enroll project: %v", err)
-	}
 
 	req := httptest.NewRequest(http.MethodDelete, "/sessions/sess-enrolled", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200 when cloud-enrolled session delete propagates, got %d body=%s", rec.Code, rec.Body.String())
+		t.Fatalf("expected 200 deleting an empty session, got %d body=%s", rec.Code, rec.Body.String())
 	}
 	if !strings.Contains(rec.Body.String(), "deleted") {
 		t.Fatalf("expected deleted status in body, got %q", rec.Body.String())

@@ -420,119 +420,6 @@ func TestCountDeferredAndDead(t *testing.T) {
 	}
 }
 
-// TestApplyPulledMutation_DeferredOnFKMiss: ApplyPulledMutation for relation FK miss
-// writes to sync_apply_deferred and returns nil (cursor can advance).
-func TestApplyPulledMutation_DeferredOnFKMiss(t *testing.T) {
-	s, syncA, _ := setupSyncApplyStore(t)
-
-	missingTarget := "obs-missing-apply-" + newSyncID("x")
-	relSyncID := newSyncID("rel-deferred-apply")
-
-	m := buildRelationMutation(t, syncRelationPayload{
-		SyncID:         relSyncID,
-		SourceID:       syncA,
-		TargetID:       missingTarget,
-		Relation:       RelationRelated,
-		JudgmentStatus: JudgmentStatusJudged,
-		Project:        "proj-apply",
-		CreatedAt:      "2026-04-26T10:00:00Z",
-		UpdatedAt:      "2026-04-26T10:00:00Z",
-	})
-	m.Seq = 42
-	m.TargetKey = DefaultSyncTargetKey
-
-	// Ensure sync_state exists so ApplyPulledMutation can advance the cursor.
-	if err := s.ensureSyncState(DefaultSyncTargetKey); err != nil {
-		t.Fatalf("ensureSyncState: %v", err)
-	}
-
-	// ApplyPulledMutation must return nil (deferred internally).
-	if err := s.ApplyPulledMutation(DefaultSyncTargetKey, m); err != nil {
-		t.Fatalf("ApplyPulledMutation: expected nil for FK miss (deferred), got %v", err)
-	}
-
-	// Deferred row must exist.
-	d := countDeferredRows(t, s, relSyncID)
-	if d != 1 {
-		t.Errorf("expected 1 deferred row; got %d", d)
-	}
-
-	// memory_relations must NOT have the row.
-	r := countRelationRows(t, s, relSyncID)
-	if r != 0 {
-		t.Errorf("expected 0 rows in memory_relations for deferred; got %d", r)
-	}
-}
-
-// F.1 — TestApplyPulledRelation_MalformedPayload_StraightToDead: a relation
-// mutation with a malformed (or incomplete) payload must go directly to
-// apply_status='dead' without retries. Decode errors are not retryable.
-//
-// Case (a): payload is not valid JSON.
-// Case (b): payload is valid JSON but missing required source_id / target_id.
-func TestApplyPulledRelation_MalformedPayload_StraightToDead(t *testing.T) {
-	cases := []struct {
-		name    string
-		payload string
-	}{
-		{
-			name:    "invalid JSON",
-			payload: "not valid json",
-		},
-		{
-			name:    "missing source_id and target_id",
-			payload: `{"relation_type":"conflicts"}`,
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			s := newTestStore(t)
-			if err := s.ensureSyncState(DefaultSyncTargetKey); err != nil {
-				t.Fatalf("ensureSyncState: %v", err)
-			}
-
-			relSyncID := newSyncID("rel-malformed")
-			m := SyncMutation{
-				Entity:    SyncEntityRelation,
-				EntityKey: relSyncID,
-				Op:        SyncOpUpsert,
-				Payload:   tc.payload,
-				Source:    SyncSourceRemote,
-				Seq:       1,
-				TargetKey: DefaultSyncTargetKey,
-			}
-
-			// ApplyPulledMutation must return nil — malformed payloads are
-			// ACK-ed (cursor advances) but written as dead to sync_apply_deferred.
-			if err := s.ApplyPulledMutation(DefaultSyncTargetKey, m); err != nil {
-				t.Fatalf("ApplyPulledMutation: expected nil for dead payload, got %v", err)
-			}
-
-			// The row must be in sync_apply_deferred with apply_status='dead'.
-			var applyStatus string
-			var retryCount int
-			if err := s.db.QueryRow(
-				`SELECT apply_status, retry_count FROM sync_apply_deferred WHERE sync_id = ?`, relSyncID,
-			).Scan(&applyStatus, &retryCount); err != nil {
-				t.Fatalf("scan deferred row: %v", err)
-			}
-			if applyStatus != "dead" {
-				t.Errorf("apply_status: want %q, got %q", "dead", applyStatus)
-			}
-			if retryCount != 0 {
-				t.Errorf("retry_count: want 0, got %d", retryCount)
-			}
-
-			// memory_relations must NOT have a row.
-			r := countRelationRows(t, s, relSyncID)
-			if r != 0 {
-				t.Errorf("expected 0 rows in memory_relations for dead payload; got %d", r)
-			}
-		})
-	}
-}
-
 // C.3d — ApplyPulledRelation_MultiActorSamePair: two mutations, same
 // (source, target) pair but different sync_id → two distinct rows (REQ-009).
 func TestApplyPulledRelation_MultiActorSamePair(t *testing.T) {
@@ -577,4 +464,10 @@ func TestApplyPulledRelation_MultiActorSamePair(t *testing.T) {
 	if n2 != 1 {
 		t.Errorf("actor-2 sync_id: expected 1 row, got %d", n2)
 	}
+}
+
+// applyPulled applies one mutation through the same code path that local chunk
+// import uses, without recording a chunk.
+func applyPulled(s *Store, m SyncMutation) error {
+	return s.withTx(func(tx *sql.Tx) error { return s.applyPulledMutationTx(tx, m) })
 }

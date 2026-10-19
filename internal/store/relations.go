@@ -26,13 +26,13 @@ var ErrSemanticPromptBuilderRequired = errors.New("semantic scan requires a non-
 // Valid relation type values. Type compatibility is NOT enforced in Phase 1;
 // the agent does that judgment.
 const (
-	RelationPending      = "pending"
-	RelationRelated      = "related"
-	RelationCompatible   = "compatible"
-	RelationScoped       = "scoped"
+	RelationPending       = "pending"
+	RelationRelated       = "related"
+	RelationCompatible    = "compatible"
+	RelationScoped        = "scoped"
 	RelationConflictsWith = "conflicts_with"
-	RelationSupersedes   = "supersedes"
-	RelationNotConflict  = "not_conflict"
+	RelationSupersedes    = "supersedes"
+	RelationNotConflict   = "not_conflict"
 )
 
 // Valid judgment_status values.
@@ -118,11 +118,11 @@ type RelationListItem struct {
 
 // RelationStats holds aggregate counts of relations for a project.
 type RelationStats struct {
-	Project         string         `json:"project"`
-	ByRelation      map[string]int `json:"by_relation"`
+	Project          string         `json:"project"`
+	ByRelation       map[string]int `json:"by_relation"`
 	ByJudgmentStatus map[string]int `json:"by_judgment_status"`
-	DeferredCount   int            `json:"deferred"`
-	DeadCount       int            `json:"dead"`
+	DeferredCount    int            `json:"deferred"`
+	DeadCount        int            `json:"dead"`
 }
 
 // DeferredRow represents a row in sync_apply_deferred with the payload decoded.
@@ -141,13 +141,13 @@ type DeferredRow struct {
 
 // ScanResult holds the output of a ScanProject call.
 type ScanResult struct {
-	Project            string `json:"project"`
-	Inspected          int    `json:"inspected"`
-	CandidatesFound    int    `json:"candidates_found"`
-	AlreadyRelated     int    `json:"already_related"`
-	RelationsInserted  int    `json:"inserted"`
-	Capped             bool   `json:"capped"`
-	DryRun             bool   `json:"dry_run"`
+	Project           string `json:"project"`
+	Inspected         int    `json:"inspected"`
+	CandidatesFound   int    `json:"candidates_found"`
+	AlreadyRelated    int    `json:"already_related"`
+	RelationsInserted int    `json:"inserted"`
+	Capped            bool   `json:"capped"`
+	DryRun            bool   `json:"dry_run"`
 
 	// Semantic counters — populated only when ScanOptions.Semantic is true.
 	// Zero-value is safe for existing JSON consumers.
@@ -244,31 +244,31 @@ type Candidate struct {
 
 // Relation represents a row in memory_relations.
 type Relation struct {
-	ID                    int64    `json:"id"`
-	SyncID                string   `json:"sync_id"`
-	SourceID              string   `json:"source_id"`
-	TargetID              string   `json:"target_id"`
-	Relation              string   `json:"relation"`
-	Reason                *string  `json:"reason,omitempty"`
-	Evidence              *string  `json:"evidence,omitempty"`
-	Confidence            *float64 `json:"confidence,omitempty"`
-	JudgmentStatus        string   `json:"judgment_status"`
-	MarkedByActor         *string  `json:"marked_by_actor,omitempty"`
-	MarkedByKind          *string  `json:"marked_by_kind,omitempty"`
-	MarkedByModel         *string  `json:"marked_by_model,omitempty"`
-	SessionID             *string  `json:"session_id,omitempty"`
-	CreatedAt             string   `json:"created_at"`
-	UpdatedAt             string   `json:"updated_at"`
+	ID             int64    `json:"id"`
+	SyncID         string   `json:"sync_id"`
+	SourceID       string   `json:"source_id"`
+	TargetID       string   `json:"target_id"`
+	Relation       string   `json:"relation"`
+	Reason         *string  `json:"reason,omitempty"`
+	Evidence       *string  `json:"evidence,omitempty"`
+	Confidence     *float64 `json:"confidence,omitempty"`
+	JudgmentStatus string   `json:"judgment_status"`
+	MarkedByActor  *string  `json:"marked_by_actor,omitempty"`
+	MarkedByKind   *string  `json:"marked_by_kind,omitempty"`
+	MarkedByModel  *string  `json:"marked_by_model,omitempty"`
+	SessionID      *string  `json:"session_id,omitempty"`
+	CreatedAt      string   `json:"created_at"`
+	UpdatedAt      string   `json:"updated_at"`
 
 	// Annotation fields — populated by GetRelationsForObservations via LEFT JOIN.
 	// Excluded from JSON output (used only for in-process annotation building).
 	// REQ-005, REQ-012 | Design §7, §8.
-	SourceIntID     int64  `json:"-"` // integer primary key of source observation
-	SourceTitle     string `json:"-"` // title of source observation; empty if missing/deleted
-	SourceMissing   bool   `json:"-"` // true if source is soft-deleted or not found
-	TargetIntID     int64  `json:"-"` // integer primary key of target observation
-	TargetTitle     string `json:"-"` // title of target observation; empty if missing/deleted
-	TargetMissing   bool   `json:"-"` // true if target is soft-deleted or not found
+	SourceIntID   int64  `json:"-"` // integer primary key of source observation
+	SourceTitle   string `json:"-"` // title of source observation; empty if missing/deleted
+	SourceMissing bool   `json:"-"` // true if source is soft-deleted or not found
+	TargetIntID   int64  `json:"-"` // integer primary key of target observation
+	TargetTitle   string `json:"-"` // title of target observation; empty if missing/deleted
+	TargetMissing bool   `json:"-"` // true if target is soft-deleted or not found
 }
 
 // ObservationRelations groups relations for a single observation, split by role.
@@ -282,7 +282,7 @@ type ObservationRelations struct {
 // SaveRelationParams holds the inputs for SaveRelation.
 type SaveRelationParams struct {
 	// SyncID is the unique identifier for this relation row (format: rel-<16hex>).
-	SyncID   string
+	SyncID string
 	// SourceID is the TEXT sync_id of the source observation.
 	SourceID string
 	// TargetID is the TEXT sync_id of the target observation.
@@ -292,23 +292,23 @@ type SaveRelationParams struct {
 // JudgeRelationParams holds the inputs for JudgeRelation.
 type JudgeRelationParams struct {
 	// JudgmentID is the sync_id of the relation row to update (required).
-	JudgmentID    string
+	JudgmentID string
 	// Relation is the verdict verb (required); must be one of validRelationVerbs.
-	Relation      string
+	Relation string
 	// Reason is an optional free-text explanation.
-	Reason        *string
+	Reason *string
 	// Evidence is optional free-form JSON or text evidence.
-	Evidence      *string
+	Evidence *string
 	// Confidence is optional 0..1 confidence score.
-	Confidence    *float64
+	Confidence *float64
 	// MarkedByActor is the actor identifier (e.g. "agent:claude-sonnet-4-6" or "user").
 	MarkedByActor string
 	// MarkedByKind is the actor kind ("agent", "human", "system").
-	MarkedByKind  string
+	MarkedByKind string
 	// MarkedByModel is the model ID (may be empty for human actors).
 	MarkedByModel string
 	// SessionID is the session in which the judgment was made (optional).
-	SessionID     string
+	SessionID string
 }
 
 // ─── FindCandidates ───────────────────────────────────────────────────────────
@@ -556,8 +556,6 @@ func (s *Store) GetRelationByIntID(id int64) (*RelationListItem, error) {
 // Re-judge policy: OVERWRITE the existing row (design decision). The updated row
 // is returned on success.
 //
-// Phase 2: wraps the UPDATE in a transaction to atomically enqueue a sync
-// mutation when the source observation's project is enrolled for cloud sync.
 // Returns ErrCrossProjectRelation if source and target belong to different projects.
 //
 // Returns an error if the judgment_id is unknown or the relation verb is invalid.
@@ -590,25 +588,6 @@ func (s *Store) JudgeRelation(p JudgeRelationParams) (*Relation, error) {
 
 	if err := s.withTx(func(tx *sql.Tx) error {
 		// ── Cross-project guard (Phase 2, REQ-003) ─────────────────────────
-		// Derive source and target project for enrollment checks and the guard.
-		// Use the same session-fallback form as JudgeBySemantic so that enrolled
-		// projects whose observations have a blank project column (but whose session
-		// carries the project) are resolved correctly. Missing observation → empty
-		// string (REQ-011 edge) because the LEFT JOIN returns no row.
-		var srcProject, tgtProject string
-		_ = tx.QueryRow(
-			`SELECT coalesce(nullif(o.project,''), s.project, '')
-			   FROM observations o
-			   LEFT JOIN sessions s ON s.id = o.session_id
-			  WHERE o.sync_id = ?`, sourceID,
-		).Scan(&srcProject)
-		_ = tx.QueryRow(
-			`SELECT coalesce(nullif(o.project,''), s.project, '')
-			   FROM observations o
-			   LEFT JOIN sessions s ON s.id = o.session_id
-			  WHERE o.sync_id = ?`, targetID,
-		).Scan(&tgtProject)
-
 		// Delegate to shared helper; reject cross-project pairs.
 		if err := validateCrossProjectGuard(tx, sourceID, targetID); err != nil {
 			return err
@@ -642,58 +621,7 @@ func (s *Store) JudgeRelation(p JudgeRelationParams) (*Relation, error) {
 			return fmt.Errorf("JudgeRelation: update: %w", err)
 		}
 
-		// ── Enqueue sync mutation when project is enrolled (REQ-001) ───────
-		// Derive project from source observation; empty string if source missing.
-		// (REQ-011: loud failure is the server's job; we enqueue project='' and log.)
-		//
-		// Enrollment check: prefer srcProject; fall back to tgtProject when source
-		// is missing locally (race condition). This ensures enqueue happens with
-		// project='' when source is absent but target's project IS enrolled.
-		enrollCheckProject := srcProject
-		if enrollCheckProject == "" {
-			enrollCheckProject = tgtProject
-		}
-		var enrolled int
-		if err := tx.QueryRow(
-			`SELECT 1 FROM sync_enrolled_projects WHERE project = ? LIMIT 1`, enrollCheckProject,
-		).Scan(&enrolled); err != nil && err != sql.ErrNoRows {
-			return fmt.Errorf("JudgeRelation: check enrollment: %w", err)
-		}
-		if enrolled == 0 {
-			return nil // not enrolled — no mutation enqueued
-		}
-
-		// REQ-011: log at WARNING level when source observation is missing locally
-		// (project='' race condition). The server will reject with 400; this log
-		// is the local breadcrumb so the gap is not silently swallowed.
-		if srcProject == "" {
-			log.Printf("[store] WARNING: JudgeRelation enqueueing relation %s with project='' (source observation missing locally); server will reject", p.JudgmentID)
-		}
-
-		// Read the full updated row to build the payload.
-		rel, err := s.getRelationTx(tx, p.JudgmentID)
-		if err != nil {
-			return fmt.Errorf("JudgeRelation: read updated relation: %w", err)
-		}
-
-		payload := syncRelationPayload{
-			SyncID:         rel.SyncID,
-			SourceID:       rel.SourceID,
-			TargetID:       rel.TargetID,
-			Relation:       rel.Relation,
-			Reason:         rel.Reason,
-			Evidence:       rel.Evidence,
-			Confidence:     rel.Confidence,
-			JudgmentStatus: rel.JudgmentStatus,
-			MarkedByActor:  rel.MarkedByActor,
-			MarkedByKind:   rel.MarkedByKind,
-			MarkedByModel:  rel.MarkedByModel,
-			SessionID:      rel.SessionID,
-			Project:        srcProject,
-			CreatedAt:      rel.CreatedAt,
-			UpdatedAt:      rel.UpdatedAt,
-		}
-		return s.enqueueSyncMutationTx(tx, SyncEntityRelation, rel.SyncID, SyncOpUpsert, payload)
+		return nil
 	}); err != nil {
 		return nil, err
 	}
@@ -831,70 +759,7 @@ func (s *Store) JudgeBySemantic(p JudgeBySemanticParams) (string, error) {
 
 		resultSyncID = existingSyncID
 
-		// ── Enqueue sync mutation when project is enrolled ─────────────────────
-		// Derive source project using the same session-fallback as the backfill
-		// SELECT: coalesce(nullif(obs.project,''), session.project, '').
-		// This prevents an empty Project in the enqueued payload when the
-		// observation's own project column is blank but the session carries it.
-		var srcProject, tgtProject string
-		_ = tx.QueryRow(
-			`SELECT coalesce(nullif(o.project,''), s.project, '')
-			   FROM observations o
-			   LEFT JOIN sessions s ON s.id = o.session_id
-			  WHERE o.sync_id = ?`, p.SourceID,
-		).Scan(&srcProject)
-		_ = tx.QueryRow(
-			`SELECT coalesce(nullif(o.project,''), s.project, '')
-			   FROM observations o
-			   LEFT JOIN sessions s ON s.id = o.session_id
-			  WHERE o.sync_id = ?`, p.TargetID,
-		).Scan(&tgtProject)
-
-		enrollCheckProject := srcProject
-		if enrollCheckProject == "" {
-			enrollCheckProject = tgtProject
-		}
-
-		var enrolled int
-		if err := tx.QueryRow(
-			`SELECT 1 FROM sync_enrolled_projects WHERE project = ? LIMIT 1`, enrollCheckProject,
-		).Scan(&enrolled); err != nil && err != sql.ErrNoRows {
-			return fmt.Errorf("JudgeBySemantic: check enrollment: %w", err)
-		}
-		if enrolled == 0 {
-			return nil // not enrolled — backfill will cover it on enrollment
-		}
-
-		// REQ-011: log at WARNING level when source observation is missing locally
-		// (project='' race condition). The server will reject with 400; this log
-		// is the local breadcrumb so the gap is not silently swallowed.
-		if srcProject == "" {
-			log.Printf("[store] WARNING: JudgeBySemantic enqueueing relation %s with project='' (source observation missing locally); server will reject", existingSyncID)
-		}
-
-		// Build payload from the freshly-written row.
-		rel, err := s.getRelationTx(tx, existingSyncID)
-		if err != nil {
-			return fmt.Errorf("JudgeBySemantic: read relation for enqueue: %w", err)
-		}
-		payload := syncRelationPayload{
-			SyncID:         rel.SyncID,
-			SourceID:       rel.SourceID,
-			TargetID:       rel.TargetID,
-			Relation:       rel.Relation,
-			Reason:         rel.Reason,
-			Evidence:       rel.Evidence,
-			Confidence:     rel.Confidence,
-			JudgmentStatus: rel.JudgmentStatus,
-			MarkedByActor:  rel.MarkedByActor,
-			MarkedByKind:   rel.MarkedByKind,
-			MarkedByModel:  rel.MarkedByModel,
-			SessionID:      rel.SessionID,
-			Project:        srcProject,
-			CreatedAt:      rel.CreatedAt,
-			UpdatedAt:      rel.UpdatedAt,
-		}
-		return s.enqueueSyncMutationTx(tx, SyncEntityRelation, rel.SyncID, SyncOpUpsert, payload)
+		return nil
 	}); err != nil {
 		return "", err
 	}

@@ -12,13 +12,11 @@ import (
 const (
 	CheckSessionProjectDirectoryMismatch  = "session_project_directory_mismatch"
 	CheckManualSessionNameProjectMismatch = "manual_session_name_project_mismatch"
-	CheckSyncMutationRequiredFields       = "sync_mutation_required_fields"
 	CheckSQLiteLockContention             = "sqlite_lock_contention"
 )
 
 type SessionProjectDirectoryMismatchCheck struct{}
 type ManualSessionNameProjectMismatchCheck struct{}
-type SyncMutationRequiredFieldsCheck struct{}
 type SQLiteLockContentionCheck struct{}
 
 func (SessionProjectDirectoryMismatchCheck) Code() string {
@@ -27,8 +25,7 @@ func (SessionProjectDirectoryMismatchCheck) Code() string {
 func (ManualSessionNameProjectMismatchCheck) Code() string {
 	return CheckManualSessionNameProjectMismatch
 }
-func (SyncMutationRequiredFieldsCheck) Code() string { return CheckSyncMutationRequiredFields }
-func (SQLiteLockContentionCheck) Code() string       { return CheckSQLiteLockContention }
+func (SQLiteLockContentionCheck) Code() string { return CheckSQLiteLockContention }
 
 func (c SessionProjectDirectoryMismatchCheck) Run(ctx context.Context, scope Scope) (CheckResult, error) {
 	_ = ctx
@@ -132,36 +129,6 @@ func knownSessionProjects(scope Scope) (map[string]bool, error) {
 	return known, nil
 }
 
-func (c SyncMutationRequiredFieldsCheck) Run(ctx context.Context, scope Scope) (CheckResult, error) {
-	_ = ctx
-	mutations, err := scope.Store.ListPendingProjectMutations(scope.Project)
-	if err != nil {
-		return CheckResult{}, err
-	}
-	findings := make([]Finding, 0)
-	for _, mutation := range mutations {
-		validation := store.ValidateSyncMutationPayload(mutation.Entity, mutation.Op, mutation.Payload, mutation.EntityKey)
-		if validation.ReasonCode == "" {
-			continue
-		}
-		nextStep := "Run `engram cloud upgrade doctor` and inspect the mutation payload before any manual repair."
-		if strings.TrimSpace(scope.Project) != "" {
-			nextStep = "Run `engram cloud upgrade doctor --project " + scope.Project + "` and inspect the mutation payload before any manual repair."
-		}
-		findings = append(findings, Finding{
-			CheckID:              c.Code(),
-			Severity:             SeverityBlocking,
-			ReasonCode:           validation.ReasonCode,
-			Message:              validation.Message,
-			Why:                  "A pending sync mutation with missing required fields can block safe cloud replication and must fail loudly instead of being silently dropped.",
-			Evidence:             mustJSON(map[string]any{"seq": mutation.Seq, "target_key": mutation.TargetKey, "project": mutation.Project, "entity": mutation.Entity, "op": mutation.Op, "entity_key": mutation.EntityKey, "missing_fields": validation.MissingFields}),
-			SafeNextStep:         nextStep,
-			RequiresConfirmation: true,
-		})
-	}
-	return resultFromFindings(c.Code(), map[string]any{"pending_mutations_evaluated": len(mutations)}, findings), nil
-}
-
 func (c SQLiteLockContentionCheck) Run(ctx context.Context, scope Scope) (CheckResult, error) {
 	readSnapshot := scope.Store.ReadSQLiteLockSnapshot
 	if scope.ReadSQLiteLockSnapshot != nil {
@@ -179,7 +146,7 @@ func (c SQLiteLockContentionCheck) Run(ctx context.Context, scope Scope) (CheckR
 			Severity:             SeverityWarning,
 			ReasonCode:           "sqlite_lock_contention_detected",
 			Message:              "SQLite lock probe reported contention indicators.",
-			Why:                  "Lock contention can cause writes or sync enrollment to fail; doctor only reports the condition and does not repair it.",
+			Why:                  "Lock contention can cause writes to fail; doctor only reports the condition and does not repair it.",
 			Evidence:             mustJSON(snapshot),
 			SafeNextStep:         "Stop other Engram processes, wait for active operations to finish, then rerun `engram doctor --check sqlite_lock_contention`.",
 			RequiresConfirmation: false,
