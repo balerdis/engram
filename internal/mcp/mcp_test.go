@@ -7427,3 +7427,50 @@ func TestResolveToolsReaderProfile(t *testing.T) {
 		t.Errorf("reader server registers %d tools, want %d", n, len(want))
 	}
 }
+
+func TestSessionStartReopensEndedSessionButImplicitDoesNot(t *testing.T) {
+	s := newMCPTestStore(t)
+
+	dir := t.TempDir()
+	t.Chdir(dir)
+	start := handleSessionStart(s, MCPConfig{}, NewSessionActivity(10*time.Minute))
+	call := func() {
+		t.Helper()
+		res, err := start(context.Background(), mcppkg.CallToolRequest{
+			Params: mcppkg.CallToolParams{Arguments: map[string]any{
+				"id":        "s-mcp-reopen",
+				"directory": dir,
+			}},
+		})
+		if err != nil || res.IsError {
+			t.Fatalf("session start: err=%v isError=%v text=%s", err, res.IsError, callResultText(t, res))
+		}
+	}
+
+	call()
+	sess, err := s.GetSession("s-mcp-reopen")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	project := sess.Project
+	if err := s.EndSession("s-mcp-reopen", ""); err != nil {
+		t.Fatalf("end: %v", err)
+	}
+
+	// Implicit path keeps it closed.
+	if err := ensureImplicitSessionWithCWD(s, "s-mcp-reopen", project); err != nil {
+		t.Fatalf("implicit: %v", err)
+	}
+	if sess, _ := s.GetSession("s-mcp-reopen"); sess.EndedAt == nil {
+		t.Fatal("implicit session creation must not reopen a closed session")
+	}
+
+	// Explicit start reopens it.
+	call()
+	if sess, _ := s.GetSession("s-mcp-reopen"); sess.EndedAt != nil {
+		t.Fatal("mem_session_start must reopen an ended session")
+	}
+	if id, ok, _ := s.MostRecentActiveSession(project); !ok || id != "s-mcp-reopen" {
+		t.Fatalf("expected reopened session active, got %q ok=%v", id, ok)
+	}
+}

@@ -1943,3 +1943,39 @@ func TestMigrateProjectCaseOnlySkipped(t *testing.T) {
 		t.Fatalf("expected status=skipped for case-only difference, got %v (full response: %#v)", resp["status"], resp)
 	}
 }
+
+func TestHandleCreateSessionReopensEndedSession(t *testing.T) {
+	st := newServerTestStore(t)
+	h := New(st, 0).Handler()
+
+	post := func(method, path, body string) int {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+
+	if c := post(http.MethodPost, "/sessions", `{"id":"s-reopen","project":"proj"}`); c != http.StatusCreated {
+		t.Fatalf("create: %d", c)
+	}
+	if c := post(http.MethodPost, "/sessions/s-reopen/end", `{"summary":"x"}`); c != http.StatusOK {
+		t.Fatalf("end: %d", c)
+	}
+	if sess, _ := st.GetSession("s-reopen"); sess == nil || sess.EndedAt == nil {
+		t.Fatal("expected session ended")
+	}
+	if c := post(http.MethodPost, "/sessions", `{"id":"s-reopen","project":"proj"}`); c != http.StatusCreated {
+		t.Fatalf("restart: %d", c)
+	}
+	sess, err := st.GetSession("s-reopen")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if sess.EndedAt != nil {
+		t.Fatalf("expected reopened session, ended_at=%v", *sess.EndedAt)
+	}
+	if sess.Summary == nil || *sess.Summary != "x" {
+		t.Fatalf("summary must be preserved, got %v", sess.Summary)
+	}
+}

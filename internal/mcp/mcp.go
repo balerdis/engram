@@ -1973,7 +1973,7 @@ func handleSessionStart(s *store.Store, cfg MCPConfig, activity *SessionActivity
 			}
 		}
 
-		if err := s.CreateSession(id, project, resolvedDirectory); err != nil {
+		if err := s.StartSession(id, project, resolvedDirectory); err != nil {
 			return mcp.NewToolResultError("Failed to start session: " + err.Error()), nil
 		}
 

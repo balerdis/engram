@@ -5916,3 +5916,68 @@ func TestEndSessionEmptySummaryKeepsStoredSummary(t *testing.T) {
 		t.Fatalf("summary = %v, want replaced %q", sess.Summary, "second summary")
 	}
 }
+
+func TestStartSessionReopensEndedSessionAndKeepsSummary(t *testing.T) {
+	s := newTestStore(t)
+
+	if err := s.CreateSession("s-resume", "engram", "/work/engram"); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if err := s.EndSession("s-resume", "resumen guardado"); err != nil {
+		t.Fatalf("end: %v", err)
+	}
+	if _, ok, _ := s.MostRecentActiveSession("engram"); ok {
+		t.Fatal("ended session must not be active")
+	}
+
+	if err := s.StartSession("s-resume", "engram", "/work/engram"); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	sess, err := s.GetSession("s-resume")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if sess.EndedAt != nil {
+		t.Fatalf("expected ended_at NULL after StartSession, got %v", *sess.EndedAt)
+	}
+	if sess.Summary == nil || *sess.Summary != "resumen guardado" {
+		t.Fatalf("summary must be preserved, got %v", sess.Summary)
+	}
+	id, ok, err := s.MostRecentActiveSession("engram")
+	if err != nil || !ok || id != "s-resume" {
+		t.Fatalf("expected s-resume active, got id=%q ok=%v err=%v", id, ok, err)
+	}
+
+	// Ending again without summary keeps the stored summary.
+	if err := s.EndSession("s-resume", ""); err != nil {
+		t.Fatalf("end again: %v", err)
+	}
+	sess, _ = s.GetSession("s-resume")
+	if sess.EndedAt == nil || sess.Summary == nil || *sess.Summary != "resumen guardado" {
+		t.Fatalf("expected ended with summary kept, got %+v", sess)
+	}
+}
+
+func TestCreateSessionKeepsEndedSessionClosed(t *testing.T) {
+	s := newTestStore(t)
+
+	if err := s.CreateSession("s-closed", "engram", "/work/engram"); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if err := s.EndSession("s-closed", ""); err != nil {
+		t.Fatalf("end: %v", err)
+	}
+	if err := s.CreateSession("s-closed", "engram", "/work/engram"); err != nil {
+		t.Fatalf("implicit create: %v", err)
+	}
+	sess, err := s.GetSession("s-closed")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if sess.EndedAt == nil {
+		t.Fatal("CreateSession must keep a closed session closed")
+	}
+	if _, ok, _ := s.MostRecentActiveSession("engram"); ok {
+		t.Fatal("closed session must not be active")
+	}
+}

@@ -1042,6 +1042,24 @@ func (s *Store) CreateSession(id, project, directory string) error {
 	})
 }
 
+// StartSession is the explicit-start variant of CreateSession: it upserts the
+// session and, when the session was already ended, reopens it (ended_at = NULL)
+// so a resumed session is found again by MostRecentActiveSession. The stored
+// summary is kept. Only explicit starts (HTTP POST /sessions, mem_session_start)
+// may use it; implicit paths must keep CreateSession so a closed session stays closed.
+func (s *Store) StartSession(id, project, directory string) error {
+	project, _ = NormalizeProject(project)
+
+	return s.withTx(func(tx *sql.Tx) error {
+		if err := s.createSessionTx(tx, id, project, directory); err != nil {
+			return err
+		}
+		_, err := s.execHook(tx,
+			`UPDATE sessions SET ended_at = NULL WHERE id = ? AND ended_at IS NOT NULL`, id)
+		return err
+	})
+}
+
 // EndSession marks a session ended. An empty summary keeps any stored summary;
 // a non-empty one replaces it.
 func (s *Store) EndSession(id string, summary string) error {
