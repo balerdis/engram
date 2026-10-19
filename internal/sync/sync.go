@@ -50,8 +50,8 @@ var (
 	storeExportRelations      = func(s *store.Store, project string) ([]store.SyncMutation, error) {
 		return s.ExportRelationMutations(project)
 	}
-	storeApplyPulledChunk = func(s *store.Store, targetKey, chunkID string, mutations []store.SyncMutation) error {
-		return s.ApplyPulledChunk(targetKey, chunkID, mutations)
+	storeApplyPulledChunk = func(s *store.Store, targetKey, chunkID string, mutations []store.SyncMutation) (int, error) {
+		return s.ApplyPulledChunkReport(targetKey, chunkID, mutations)
 	}
 	storeRecordSynced = func(s *store.Store, targetKey, chunkID string) error {
 		return s.RecordSyncedChunkForTarget(targetKey, chunkID)
@@ -107,6 +107,9 @@ type ImportResult struct {
 	SessionsImported     int `json:"sessions_imported"`
 	ObservationsImported int `json:"observations_imported"`
 	PromptsImported      int `json:"prompts_imported"`
+	// RelationsSkipped counts relations left out because one of their endpoint
+	// observations does not exist locally; the rest of the chunk is imported.
+	RelationsSkipped int `json:"relations_skipped"`
 }
 
 // ─── Syncer ──────────────────────────────────────────────────────────────────
@@ -340,14 +343,16 @@ func (sy *Syncer) importEntriesDependencySafe(entries []ChunkEntry, knownChunks 
 				return nil, fmt.Errorf("parse chunk %s: %w", entry.ID, err)
 			}
 
-			if err := sy.importMutationChunk(entry.ID, chunk); err != nil {
+			relSkipped, err := sy.importMutationChunk(entry.ID, chunk)
+			if err != nil {
 				recoveredChunk, recovered, recoveryErr := sy.recoverLocalMissingSessionDependencies(chunk, availableSessionIDs)
 				if recoveryErr != nil {
 					return nil, recoveryErr
 				}
 				if recovered {
-					if retryErr := sy.importMutationChunk(entry.ID, recoveredChunk); retryErr == nil {
+					if n, retryErr := sy.importMutationChunk(entry.ID, recoveredChunk); retryErr == nil {
 						chunk = recoveredChunk
+						relSkipped = n
 						goto imported
 					} else {
 						err = retryErr
@@ -367,6 +372,7 @@ func (sy *Syncer) importEntriesDependencySafe(entries []ChunkEntry, knownChunks 
 			result.SessionsImported += importResult.SessionsImported
 			result.ObservationsImported += importResult.ObservationsImported
 			result.PromptsImported += importResult.PromptsImported
+			result.RelationsSkipped += relSkipped
 			progress = true
 		}
 
@@ -384,7 +390,7 @@ func (sy *Syncer) importEntriesDependencySafe(entries []ChunkEntry, knownChunks 
 	return result, nil
 }
 
-func (sy *Syncer) importMutationChunk(chunkID string, chunk ChunkData) error {
+func (sy *Syncer) importMutationChunk(chunkID string, chunk ChunkData) (int, error) {
 	mutations := buildImportMutations(chunk)
 	mutations = orderMutationsForApply(mutations)
 	return storeApplyPulledChunk(sy.store, store.LocalChunkTargetKey, chunkID, mutations)

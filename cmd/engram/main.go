@@ -981,6 +981,9 @@ func cmdSync(cfg store.Config) {
 		if result.ChunksSkipped > 0 {
 			fmt.Printf("  Skipped:      %d (already imported)\n", result.ChunksSkipped)
 		}
+		if result.RelationsSkipped > 0 {
+			fmt.Printf("  Relations skipped: %d (an endpoint observation is missing locally)\n", result.RelationsSkipped)
+		}
 		return
 	}
 

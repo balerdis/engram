@@ -1,11 +1,14 @@
 package sync
 
 import (
+	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1216,8 +1219,8 @@ func TestImportBranches(t *testing.T) {
 			t.Fatalf("write gzip chunk: %v", err)
 		}
 
-		storeApplyPulledChunk = func(_ *store.Store, _, _ string, _ []store.SyncMutation) error {
-			return errors.New("forced apply pulled chunk fail")
+		storeApplyPulledChunk = func(_ *store.Store, _, _ string, _ []store.SyncMutation) (int, error) {
+			return 0, errors.New("forced apply pulled chunk fail")
 		}
 
 		sy := New(s, syncDir)
@@ -1349,9 +1352,9 @@ func TestLocalImportSkipsAlreadyImportedChunksIdempotently(t *testing.T) {
 		t.Fatalf("first import: %v", err)
 	}
 	applyCalls := 0
-	storeApplyPulledChunk = func(_ *store.Store, _, _ string, _ []store.SyncMutation) error {
+	storeApplyPulledChunk = func(_ *store.Store, _, _ string, _ []store.SyncMutation) (int, error) {
 		applyCalls++
-		return errors.New("already imported chunks should not be applied")
+		return 0, errors.New("already imported chunks should not be applied")
 	}
 	res, err := New(s, syncDir).Import()
 	if err != nil {
@@ -1912,4 +1915,81 @@ func TestGetUsernameAndManifestSummary(t *testing.T) {
 			t.Fatalf("summary contributors not sorted or counted: %q", summary)
 		}
 	})
+}
+
+func TestLocalChunkImportSkipsDanglingRelationAndKeepsRestOfChunk(t *testing.T) {
+	src := newTestStore(t)
+	seedRelationForProject(t, src, "proj-a", "sess-dangling", "rel-dangling")
+
+	// Take the exported chunk and point its relation at an observation that
+	// does not exist anywhere (cross-project or deleted endpoint).
+	syncDir := filepath.Join(t.TempDir(), ".engram")
+	res, err := New(src, syncDir).Export("alice", "proj-a")
+	if err != nil {
+		t.Fatalf("export: %v", err)
+	}
+	chunkPath := filepath.Join(syncDir, "chunks", res.ChunkID+".jsonl.gz")
+	raw, err := os.ReadFile(chunkPath)
+	if err != nil {
+		t.Fatalf("read chunk: %v", err)
+	}
+	zr, err := gzip.NewReader(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatalf("gunzip: %v", err)
+	}
+	plain, err := io.ReadAll(zr)
+	if err != nil {
+		t.Fatalf("read gunzip: %v", err)
+	}
+	var chunk ChunkData
+	if err := json.Unmarshal(plain, &chunk); err != nil {
+		t.Fatalf("parse chunk: %v", err)
+	}
+	patched := 0
+	for i, m := range chunk.Mutations {
+		if m.Entity != store.SyncEntityRelation {
+			continue
+		}
+		var p map[string]any
+		if err := json.Unmarshal([]byte(m.Payload), &p); err != nil {
+			t.Fatalf("payload: %v", err)
+		}
+		p["target_id"] = "obs-does-not-exist"
+		b, _ := json.Marshal(p)
+		chunk.Mutations[i].Payload = string(b)
+		patched++
+	}
+	if patched != 1 {
+		t.Fatalf("expected 1 relation mutation in chunk, got %d", patched)
+	}
+	payload, _ := json.Marshal(chunk)
+	if err := writeGzip(chunkPath, payload); err != nil {
+		t.Fatalf("rewrite chunk: %v", err)
+	}
+
+	dst := newTestStore(t)
+	result, err := New(dst, syncDir).Import()
+	if err != nil {
+		t.Fatalf("import must not fail on a dangling relation: %v", err)
+	}
+	if result.ChunksImported != 1 || result.ObservationsImported != 2 || result.RelationsSkipped != 1 {
+		t.Fatalf("unexpected import result: %+v", result)
+	}
+	if obs, err := dst.RecentObservations("proj-a", "", 10); err != nil || len(obs) != 2 {
+		t.Fatalf("observations must be imported, got %d err=%v", len(obs), err)
+	}
+	if _, err := dst.GetRelation("rel-dangling"); err == nil {
+		t.Fatal("dangling relation must be skipped, not stored")
+	}
+
+	again, err := New(dst, syncDir).Import()
+	if err != nil {
+		t.Fatalf("re-import: %v", err)
+	}
+	if again.ChunksImported != 0 || again.ChunksSkipped != 1 || again.RelationsSkipped != 0 {
+		t.Fatalf("re-import must be a no-op: %+v", again)
+	}
+	if obs, _ := dst.RecentObservations("proj-a", "", 10); len(obs) != 2 {
+		t.Fatalf("re-import duplicated observations: %d", len(obs))
+	}
 }

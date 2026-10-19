@@ -308,3 +308,30 @@ func TestApplyPulledRelation_MultiActorSamePair(t *testing.T) {
 func applyPulled(s *Store, m SyncMutation) error {
 	return s.withTx(func(tx *sql.Tx) error { return s.applyPulledMutationTx(tx, m) })
 }
+
+func TestApplyPulledChunkSkipsRelationWithMissingEndpoint(t *testing.T) {
+	s := newTestStore(t)
+	mk := func(entity, key string, payload any) SyncMutation {
+		raw, _ := json.Marshal(payload)
+		return SyncMutation{Entity: entity, EntityKey: key, Op: SyncOpUpsert, Payload: string(raw), Source: SyncSourceRemote}
+	}
+	proj := "p"
+	muts := []SyncMutation{
+		mk(SyncEntitySession, "s1", syncSessionPayload{ID: "s1", Project: "p", Directory: "/x"}),
+		mk(SyncEntityObservation, "obs-skip1", syncObservationPayload{SyncID: "obs-skip1", SessionID: "s1", Type: "note", Title: "t", Content: "c", Project: &proj, Scope: "project"}),
+		mk(SyncEntityRelation, "rel-skip1", syncRelationPayload{SyncID: "rel-skip1", SourceID: "obs-skip1", TargetID: "obs-gone", Relation: RelationRelated, JudgmentStatus: JudgmentStatusPending}),
+	}
+	skipped, err := s.ApplyPulledChunkReport("local", "chunk-skip", muts)
+	if err != nil {
+		t.Fatalf("chunk must not fail: %v", err)
+	}
+	if skipped != 1 {
+		t.Fatalf("skipped = %d, want 1", skipped)
+	}
+	if o, err := s.GetObservationBySyncID("obs-skip1"); err != nil || o == nil {
+		t.Fatalf("observation must be imported: %v", err)
+	}
+	if again, err := s.ApplyPulledChunkReport("local", "chunk-skip", muts); err != nil || again != 0 {
+		t.Fatalf("re-apply must be a no-op, got skipped=%d err=%v", again, err)
+	}
+}

@@ -2611,6 +2611,25 @@ func (s *Store) RecordSyncedChunkForTarget(targetKey, chunkID string) error {
 // and records the chunk as synced in the same transaction. This guarantees
 // retry safety: a failed chunk import leaves no partial semantic mutations.
 func (s *Store) ApplyPulledChunk(targetKey, chunkID string, mutations []SyncMutation) error {
+	_, err := s.ApplyPulledChunkReport(targetKey, chunkID, mutations)
+	return err
+}
+
+// ApplyPulledChunkReport behaves like ApplyPulledChunk and also reports how
+// many relations were skipped because one of their endpoint observations does
+// not exist locally (cross-project relation, deleted observation). Such a
+// relation never fails the chunk: the rest of the mutations are applied. A
+// chunk that was already imported is a no-op and reports 0 skipped.
+func (s *Store) ApplyPulledChunkReport(targetKey, chunkID string, mutations []SyncMutation) (int, error) {
+	skipped := 0
+	err := s.applyPulledChunk(targetKey, chunkID, mutations, &skipped)
+	if err != nil {
+		return 0, err
+	}
+	return skipped, nil
+}
+
+func (s *Store) applyPulledChunk(targetKey, chunkID string, mutations []SyncMutation, skipped *int) error {
 	targetKey = normalizeSyncTargetKey(targetKey)
 	chunkTargetKey := normalizeChunkTargetKey(targetKey)
 	chunkID = strings.TrimSpace(chunkID)
@@ -2643,6 +2662,10 @@ func (s *Store) ApplyPulledChunk(targetKey, chunkID string, mutations []SyncMuta
 			mutation.TargetKey = targetKey
 			mutation.Source = SyncSourceRemote
 			if err := s.applyPulledMutationTx(tx, mutation); err != nil {
+				if errors.Is(err, ErrRelationFKMissing) {
+					*skipped++
+					continue
+				}
 				return fmt.Errorf("apply chunk mutation %d: %w", i, err)
 			}
 		}
@@ -3332,8 +3355,8 @@ func (s *Store) applyPulledMutationTx(tx *sql.Tx, mutation SyncMutation) error {
 //  1. JSON-decode the payload into syncRelationPayload. Decode errors return
 //     ErrApplyDead (non-retryable).
 //  2. Verify both source and target observations exist locally by sync_id.
-//     If either is missing, return ErrRelationFKMissing. The caller must write
-//     the raw mutation to sync_apply_deferred and ACK the seq.
+//     If either is missing, return ErrRelationFKMissing. ApplyPulledChunk
+//     skips and counts such a relation; nothing is deferred.
 //  3. INSERT INTO memory_relations with ON CONFLICT(sync_id) DO UPDATE
 //     (last-write-wins, preserving the original created_at).
 //  4. On successful apply, DELETE any pre-existing deferred row for this sync_id
