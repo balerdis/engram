@@ -303,6 +303,7 @@ func detectAndReplace(text string, token func(string) string) string {
 	}
 	reg := &registry{valueToName: map[string]string{}, used: map[string]bool{}}
 	out := text
+	var v view // folded forms of out, for the prefilters
 
 	// replaceAt swaps s[vs:ve] inside the match s[ms:me] for its token. The
 	// reference replaces the FIRST occurrence of the value in the match, which
@@ -313,7 +314,10 @@ func detectAndReplace(text string, token func(string) string) string {
 	}
 
 	// 1. <private>NAME=value</private>: the whole tag is replaced.
-	out = onClosedPart(out, func(part string) string {
+	out = onClosedPart(out, &v, func(part string) string {
+		if !gates.namedPrivate.ok((&view{}).of(part)) {
+			return part
+		}
 		return scan(cat.namedPrivate, part, nil, func(m []int) (string, bool) {
 			value := part[m[4]:m[5]]
 			if value == "" {
@@ -323,7 +327,10 @@ func detectAndReplace(text string, token func(string) string) string {
 		})
 	})
 	// 2. <private>value</private>
-	out = onClosedPart(out, func(part string) string {
+	out = onClosedPart(out, &v, func(part string) string {
+		if !gates.barePrivate.ok((&view{}).of(part)) {
+			return part
+		}
 		return scan(cat.barePrivate, part, nil, func(m []int) (string, bool) {
 			value := part[m[2]:m[3]]
 			if value == "" {
@@ -334,7 +341,10 @@ func detectAndReplace(text string, token func(string) string) string {
 	})
 
 	// 3. Known formats.
-	for _, f := range cat.known {
+	for i, f := range cat.known {
+		if !gates.known[i].ok(v.of(out)) {
+			continue
+		}
 		cur := out
 		out = scan(f.pattern, cur, nil, func(m []int) (string, bool) {
 			whole := cur[m[0]:m[1]]
@@ -347,6 +357,9 @@ func detectAndReplace(text string, token func(string) string) string {
 
 	// 4. Headers.
 	for i, h := range cat.headers {
+		if !gates.headers[i].ok(v.of(out)) {
+			continue
+		}
 		re := hdrRes[i]
 		cur := out
 		if len(h.names) > 0 {
@@ -369,7 +382,7 @@ func detectAndReplace(text string, token func(string) string) string {
 	}
 
 	// 5. URL credentials.
-	{
+	if gates.url.ok(v.of(out)) {
 		cur := out
 		out = scan(cat.urlPattern, cur, inURLScheme, func(m []int) (string, bool) {
 			password := cur[m[2]:m[3]]
@@ -378,6 +391,11 @@ func detectAndReplace(text string, token func(string) string) string {
 			}
 			return replaceAt(cur, m[0], m[1], m[2], m[3], cat.urlName), true
 		})
+	}
+
+	// Passes 6-8 only replace values of catalog keys.
+	if !gates.keys.ok(v.of(out)) {
+		return out
 	}
 
 	// 6. JSON "key": "value".
@@ -478,7 +496,10 @@ func unquotedPairs(s string, reg *registry, token func(string) string) string {
 }
 
 // onClosedPart runs an explicit-tag pass on the text up to its last close tag.
-func onClosedPart(text string, apply func(string) string) string {
+func onClosedPart(text string, v *view, apply func(string) string) string {
+	if !gates.privClose.ok(v.of(text)) {
+		return text
+	}
 	last := -1
 	for _, m := range rePrivClose.FindAllStringIndex(text, -1) {
 		last = m[1]
@@ -492,6 +513,9 @@ func onClosedPart(text string, apply func(string) string) string {
 // stripPrivate turns <private>…</private> into [REDACTED] in linear time
 // (an unclosed tag stays).
 func stripPrivate(text string) string {
+	if !gates.privClose.ok((&view{}).of(text)) {
+		return text
+	}
 	var out strings.Builder
 	pos := 0
 	for {
