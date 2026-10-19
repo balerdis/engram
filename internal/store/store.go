@@ -2486,6 +2486,7 @@ func (s *Store) Import(data *ExportData) (*ImportResult, error) {
 
 	// Import sessions (skip duplicates)
 	for _, sess := range data.Sessions {
+		sess.Project, _ = NormalizeProject(sess.Project)
 		sess.Summary = sanitizeStoredPtr(sess.Summary, s.cfg.MaxObservationLength)
 		res, err := s.execHook(tx,
 			`INSERT OR IGNORE INTO sessions (id, project, directory, started_at, ended_at, summary)
@@ -2502,6 +2503,10 @@ func (s *Store) Import(data *ExportData) (*ImportResult, error) {
 	// Import observations (use new IDs — AUTOINCREMENT, skip duplicate sync IDs)
 	for _, obs := range data.Observations {
 		syncID := normalizeExistingSyncID(obs.SyncID, "obs")
+		if obs.Project != nil {
+			c, _ := NormalizeProject(*obs.Project)
+			obs.Project = &c
+		}
 		obs.Title = sanitizeStored(obs.Title, 0)
 		obs.Content = sanitizeStored(obs.Content, s.cfg.MaxObservationLength)
 		obs.ToolName = sanitizeStoredPtr(obs.ToolName, 0)
@@ -2538,6 +2543,7 @@ func (s *Store) Import(data *ExportData) (*ImportResult, error) {
 
 	// Import prompts
 	for _, p := range data.Prompts {
+		p.Project, _ = NormalizeProject(p.Project)
 		p.Content = s.preparePromptContent(p.Content)
 		_, err := s.execHook(tx,
 			`INSERT INTO user_prompts (sync_id, session_id, content, project, created_at)
@@ -3517,6 +3523,7 @@ func (s *Store) applySessionPayloadTx(tx *sql.Tx, payload syncSessionPayload) er
 	if isSessionDeletePayload(payload) {
 		return s.applySessionDeleteTx(tx, payload)
 	}
+	payload.Project, _ = NormalizeProject(payload.Project)
 	payload.Summary = sanitizeStoredPtr(payload.Summary, s.cfg.MaxObservationLength)
 	_, err := s.execHook(tx,
 		`INSERT INTO sessions (id, project, directory, started_at, ended_at, summary)
@@ -3559,6 +3566,10 @@ func (s *Store) applyObservationUpsertTx(tx *sql.Tx, payload syncObservationPayl
 	payload.Content = sanitizeStored(payload.Content, s.cfg.MaxObservationLength)
 	payload.ToolName = sanitizeStoredPtr(payload.ToolName, 0)
 	payload.TopicKey = sanitizeStoredPtr(payload.TopicKey, 0)
+	if payload.Project != nil {
+		c, _ := NormalizeProject(*payload.Project)
+		payload.Project = &c
+	}
 	revisionCount := maxInt(payload.RevisionCount, 1)
 	duplicateCount := maxInt(payload.DuplicateCount, 1)
 	createdAt := strings.TrimSpace(payload.CreatedAt)
@@ -3661,6 +3672,10 @@ func (s *Store) applyObservationDeleteTx(tx *sql.Tx, payload syncObservationPayl
 }
 
 func (s *Store) applyPromptUpsertTx(tx *sql.Tx, payload syncPromptPayload) error {
+	if payload.Project != nil {
+		c, _ := NormalizeProject(*payload.Project)
+		payload.Project = &c
+	}
 	payload.Content = s.preparePromptContent(payload.Content)
 	var tombstoneDeletedAt string
 	err := tx.QueryRow(`SELECT deleted_at FROM prompt_tombstones WHERE sync_id = ?`, payload.SyncID).Scan(&tombstoneDeletedAt)

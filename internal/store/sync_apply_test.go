@@ -335,3 +335,68 @@ func TestApplyPulledChunkSkipsRelationWithMissingEndpoint(t *testing.T) {
 		t.Fatalf("re-apply must be a no-op, got skipped=%d err=%v", again, err)
 	}
 }
+
+func projectsIn(t *testing.T, s *Store, table string) []string {
+	t.Helper()
+	rows, err := s.db.Query("SELECT DISTINCT COALESCE(project,'') FROM " + table + " ORDER BY 1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+func TestImportCanonicalizesProjectNames(t *testing.T) {
+	s := newTestStore(t)
+	proj, foo := "Foo", "My--Repo"
+	data := &ExportData{
+		Sessions:     []Session{{ID: "s1", Project: "My--Repo", Directory: "/x", StartedAt: "2026-01-01 00:00:00"}},
+		Observations: []Observation{{SyncID: "obs-imp1", SessionID: "s1", Type: "note", Title: "alpha", Content: "zebrafish content", Project: &proj, Scope: "project", CreatedAt: "2026-01-01 00:00:00", UpdatedAt: "2026-01-01 00:00:00"}},
+		Prompts:      []Prompt{{SyncID: "prompt-imp1", SessionID: "s1", Content: "hello", Project: foo, CreatedAt: "2026-01-01 00:00:00"}},
+	}
+	if _, err := s.Import(data); err != nil {
+		t.Fatal(err)
+	}
+	for table, want := range map[string]string{"sessions": "my-repo", "observations": "foo", "user_prompts": "my-repo"} {
+		if got := projectsIn(t, s, table); len(got) != 1 || got[0] != want {
+			t.Fatalf("%s projects = %v, want [%s]", table, got, want)
+		}
+	}
+	res, err := s.Search("zebrafish", SearchOptions{Project: "foo"})
+	if err != nil || len(res) != 1 {
+		t.Fatalf("search by canonical project: %d %v", len(res), err)
+	}
+}
+
+func TestApplyPulledChunkCanonicalizesProjectNames(t *testing.T) {
+	s := newTestStore(t)
+	mk := func(entity, key string, payload any) SyncMutation {
+		raw, _ := json.Marshal(payload)
+		return SyncMutation{Entity: entity, EntityKey: key, Op: SyncOpUpsert, Payload: string(raw), Source: SyncSourceRemote}
+	}
+	proj, pp := "Foo", "My--Repo"
+	muts := []SyncMutation{
+		mk(SyncEntitySession, "s1", syncSessionPayload{ID: "s1", Project: "My--Repo", Directory: "/x"}),
+		mk(SyncEntityObservation, "obs-c1", syncObservationPayload{SyncID: "obs-c1", SessionID: "s1", Type: "note", Title: "t", Content: "narwhal content", Project: &proj, Scope: "project"}),
+		mk(SyncEntityPrompt, "prompt-c1", syncPromptPayload{SyncID: "prompt-c1", SessionID: "s1", Content: "hi", Project: &pp}),
+	}
+	if _, err := s.ApplyPulledChunkReport("local", "chunk-canon", muts); err != nil {
+		t.Fatal(err)
+	}
+	for table, want := range map[string]string{"sessions": "my-repo", "observations": "foo", "user_prompts": "my-repo"} {
+		if got := projectsIn(t, s, table); len(got) != 1 || got[0] != want {
+			t.Fatalf("%s projects = %v, want [%s]", table, got, want)
+		}
+	}
+	if res, err := s.Search("narwhal", SearchOptions{Project: "Foo"}); err != nil || len(res) != 1 {
+		t.Fatalf("search: %d %v", len(res), err)
+	}
+}
