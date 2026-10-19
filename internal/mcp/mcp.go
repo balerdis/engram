@@ -2502,7 +2502,7 @@ func resolveSaveWriteProject(s *store.Store, projectChoice string, explicitProje
 			return projectpkg.DetectionResult{}, err
 		}
 		if exists {
-			if explicitProjectHasSeparatorCollapse(trimmedProjectChoice, project) {
+			if explicitProjectHasSeparatorCollapse(trimmedProjectChoice, project) && !explicitMatchesConfig(project, cwdRes) {
 				return cwdRes, &normalizedProjectCollisionError{
 					Name:              trimmedProjectChoice,
 					Normalized:        project,
@@ -2595,6 +2595,12 @@ func explicitWriteProjectCollision(trimmedRawProject, normalizedProject, session
 		return nil
 	}
 
+	// Detection returns the canonical form of .engram/config.json's project_name, so
+	// an explicit name that canonicalizes to it is the configured project itself.
+	if explicitMatchesConfig(normalizedProject, cwdRes) {
+		return nil
+	}
+
 	if sessionProject != "" && sessionProject == normalizedProject {
 		return &normalizedProjectCollisionError{
 			Name:              trimmedRawProject,
@@ -2619,6 +2625,14 @@ func explicitWriteProjectCollision(trimmedRawProject, normalizedProject, session
 	}
 
 	return nil
+}
+
+func explicitMatchesConfig(normalizedProject string, cwdRes projectpkg.DetectionResult) bool {
+	if cwdRes.Source != projectpkg.SourceConfig {
+		return false
+	}
+	canonical, _ := store.NormalizeProject(strings.TrimSpace(cwdRes.Project))
+	return canonical != "" && canonical == normalizedProject
 }
 
 func explicitProjectHasSeparatorCollapse(trimmedRawProject, normalizedProject string) bool {

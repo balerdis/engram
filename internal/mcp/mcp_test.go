@@ -7474,3 +7474,38 @@ func TestSessionStartReopensEndedSessionButImplicitDoesNot(t *testing.T) {
 		t.Fatalf("expected reopened session active, got %q ok=%v", id, ok)
 	}
 }
+
+func TestMemSave_ExplicitProjectCanonicalizingToConfiguredProjectIsAccepted(t *testing.T) {
+	root := t.TempDir()
+	initTestGitRepo(t, root)
+	configDir := filepath.Join(root, ".engram")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "config.json"), []byte(`{"project_name":"my--repo"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(root)
+
+	s := newMCPTestStore(t)
+	h := handleSave(s, MCPConfig{}, NewSessionActivity(10*time.Minute))
+	save := func(title string) *mcppkg.CallToolResult {
+		res, err := h(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
+			"title": title, "content": "configured project spelled with a double hyphen", "project": "my--repo",
+		}}})
+		if err != nil {
+			t.Fatalf("handler error: %v", err)
+		}
+		return res
+	}
+	// First save creates the canonical project, the second finds it already there.
+	for _, title := range []string{"configured first save", "configured second save"} {
+		if res := save(title); res.IsError {
+			t.Fatalf("explicit name equal to the configured one must be accepted: %v", callResultJSON(t, res))
+		}
+	}
+	obs, err := s.Search("configured", store.SearchOptions{Project: "my-repo", Limit: 10})
+	if err != nil || len(obs) != 2 {
+		t.Fatalf("expected 2 observations in my-repo, got %d err=%v", len(obs), err)
+	}
+}
