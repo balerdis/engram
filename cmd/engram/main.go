@@ -2030,6 +2030,7 @@ Commands:
                      Cascade-delete a project: soft-deletes observations (or hard if --hard),
                      removes prompts; with --hard also removes sessions
   purge              Hard-delete test-run leftovers: dry-run by default; --yes executes after a backup
+                       --sync-leftovers [--vacuum]  clean the unused sync tables (leftover rows)
                        --project NAME  --session ID  --since DATE  --until DATE   (AND-ed, one required;
                        DATE = YYYY-MM-DD or RFC3339, both bounds inclusive)
                        [--yes] [--include-pinned] [--json]

@@ -12,6 +12,7 @@ import (
 func printPurgeUsage() {
 	fmt.Fprint(os.Stderr, `usage: engram purge [--project NAME] [--session ID] [--since DATE] [--until DATE]
                     [--yes] [--include-pinned] [--json]
+       engram purge --sync-leftovers [--yes] [--vacuum] [--json]
 
 Remove the memories that test runs leave in the real database. Hard delete,
 CLI only. Selectors are combined with AND; at least one is required.
@@ -27,6 +28,21 @@ CLI only. Selectors are combined with AND; at least one is required.
   --include-pinned  Allow pinned observations to be deleted (refused otherwise)
   --json            Machine-readable output; refusals and errors come out as
                     {"error": "...", "refused": true|false} on stdout (exit 1)
+
+--sync-leftovers    Clean what the removed cloud sync left in the database
+                    instead of purging memories (no other selector applies):
+                    every row of sync_mutations, sync_apply_deferred,
+                    sync_enrolled_projects and cloud_upgrade_state, and the
+                    sync_state rows other than 'local' (used by chunk
+                    import) and 'cloud' (recreated on every open). Dry-run by default: it shows rows and
+                    approximate bytes per table. With --yes it makes the same
+                    verified backup (0600, kept) and deletes in one
+                    transaction. sync_chunks and those two sync_state rows are
+                    never touched, so engram sync keeps working.
+  --vacuum          With --sync-leftovers --yes, also rewrite the database file
+                    to give the space back. It needs the database to itself:
+                    stop engram serve and engram mcp first. If another process
+                    holds it, purge refuses before deleting anything.
 
 A flag value may not start with "-" (--project --yes is rejected); write
 --project=-x if you really mean it. --since later than --until is refused.
@@ -76,6 +92,7 @@ func cmdPurge(cfg store.Config) {
 	var sel store.PurgeSelector
 	var opts store.PurgeOptions
 	execute, jsonOut := false, false
+	leftovers, vacuum := false, false
 
 	args := os.Args[2:]
 	// --json decides how every later error is printed, wherever it appears.
@@ -122,6 +139,10 @@ func cmdPurge(cfg store.Config) {
 			opts.IncludePinned = true
 		case "--json":
 			jsonOut = true
+		case "--sync-leftovers":
+			leftovers = true
+		case "--vacuum":
+			vacuum = true
 		case "--help", "-h", "help":
 			printPurgeUsage()
 			return
@@ -132,6 +153,18 @@ func cmdPurge(cfg store.Config) {
 		if failed {
 			return
 		}
+	}
+	if vacuum && !leftovers {
+		purgeFail(jsonOut, errors.New("--vacuum only applies to --sync-leftovers"), false, true)
+		return
+	}
+	if leftovers {
+		if sel != (store.PurgeSelector{}) || opts.IncludePinned {
+			purgeFail(jsonOut, errors.New("--sync-leftovers takes no selector (--project, --session, --since, --until) and no --include-pinned"), false, true)
+			return
+		}
+		cmdPurgeSyncLeftovers(cfg, execute, vacuum, jsonOut)
+		return
 	}
 	if strings.TrimSpace(sel.Project) == "" && strings.TrimSpace(sel.SessionID) == "" &&
 		strings.TrimSpace(sel.Since) == "" && strings.TrimSpace(sel.Until) == "" {
@@ -237,5 +270,104 @@ func printPurge(plan *store.PurgePlan, result *store.PurgeResult) {
 	}
 	if result != nil && result.BackupPath != "" {
 		fmt.Printf("Backup kept at %s\nIt is not deleted automatically and holds the purged data in clear text; remove it yourself once you no longer need it.\n", result.BackupPath)
+	}
+}
+
+func cmdPurgeSyncLeftovers(cfg store.Config, execute, vacuum, jsonOut bool) {
+	s, err := storeNew(cfg)
+	if err != nil {
+		purgeFail(jsonOut, err, false, false)
+		return
+	}
+	defer s.Close()
+
+	var plan *store.SyncLeftoversPlan
+	var result *store.SyncLeftoversResult
+	if execute {
+		result, err = s.PurgeSyncLeftovers(store.SyncLeftoversOptions{Vacuum: vacuum})
+		if result != nil {
+			plan = result.Plan
+		}
+	} else {
+		plan, err = s.SyncLeftoversPlan()
+	}
+	if err != nil {
+		purgeFail(jsonOut, err, errors.Is(err, store.ErrPurgeRefused), false)
+		return
+	}
+	if jsonOut {
+		payload := map[string]any{"sync_leftovers": true, "dry_run": true, "vacuum_requested": vacuum, "plan": plan}
+		if execute {
+			payload = map[string]any{"sync_leftovers": true, "dry_run": false, "result": result}
+		}
+		out, merr := jsonMarshalIndent(payload, "", "  ")
+		if merr != nil {
+			purgeFail(jsonOut, merr, false, false)
+			return
+		}
+		fmt.Println(string(out))
+		return
+	}
+	printSyncLeftovers(plan, result, vacuum)
+}
+
+func humanBytes(n int64) string {
+	switch {
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.1f KB", float64(n)/(1<<10))
+	}
+	return fmt.Sprintf("%d B", n)
+}
+
+func printSyncLeftovers(plan *store.SyncLeftoversPlan, result *store.SyncLeftoversResult, vacuum bool) {
+	rows := plan.Tables
+	verb := "Sync leftovers (dry-run, nothing deleted; add --yes to delete"
+	if vacuum {
+		verb += ", with --vacuum to also shrink the file"
+	}
+	verb += ")"
+	if result != nil {
+		verb = "Sync leftovers deleted"
+		if result.BackupPath != "" {
+			fmt.Printf("Backup written: %s\n", result.BackupPath)
+		}
+		if len(result.Deleted) > 0 {
+			rows = result.Deleted
+		}
+	}
+	if plan.Empty() {
+		fmt.Println("No sync leftovers found; nothing to clean.")
+	} else {
+		fmt.Println(verb)
+		for i, tb := range rows {
+			note := ""
+			if result == nil || len(result.Deleted) == 0 {
+				note = "  ~" + humanBytes(tb.ApproxBytes)
+			} else {
+				note = "  ~" + humanBytes(plan.Tables[i].ApproxBytes)
+			}
+			if tb.Table == "sync_state" {
+				note += "  (rows other than local and cloud)"
+			}
+			fmt.Printf("  %-26s %7d%s\n", tb.Table, tb.Rows, note)
+		}
+		fmt.Printf("  %-26s %7d  ~%s\n", "total", plan.TotalRows, humanBytes(plan.ApproxBytes))
+		fmt.Println("  sync_chunks and the local and cloud sync_state rows are never touched.")
+	}
+	if result == nil {
+		return
+	}
+	if result.Vacuumed {
+		fmt.Printf("Database file: %s -> %s (vacuumed)\n", humanBytes(result.DBBytesBefore), humanBytes(result.DBBytesAfter))
+	} else if !plan.Empty() {
+		fmt.Printf("Database file: %s -> %s (not vacuumed: the space is reused by new rows, run again with --vacuum to give it back; stop engram serve and engram mcp first)\n", humanBytes(result.DBBytesBefore), humanBytes(result.DBBytesAfter))
+	}
+	for _, w := range result.Warnings {
+		fmt.Printf("WARNING: %s\n", w)
+	}
+	if result.BackupPath != "" {
+		fmt.Printf("Backup kept at %s\nIt is not deleted automatically and holds the deleted data in clear text; remove it yourself once you no longer need it.\n", result.BackupPath)
 	}
 }
