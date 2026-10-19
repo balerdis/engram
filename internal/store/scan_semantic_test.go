@@ -30,8 +30,8 @@ func (r *errorRunner) Compare(_ context.Context, _ string) (SemanticVerdict, err
 
 // routingRunner routes calls to different runners based on the call index.
 type routingRunner struct {
-	runners  []SemanticRunner
-	callIdx  int
+	runners []SemanticRunner
+	callIdx int
 }
 
 func (r *routingRunner) Compare(ctx context.Context, prompt string) (SemanticVerdict, error) {
