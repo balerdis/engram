@@ -182,6 +182,8 @@ func main() {
 		cmdDelete(cfg)
 	case "purge":
 		cmdPurge(cfg)
+	case "redact":
+		cmdRedactScan(cfg, os.Args[2:])
 	case "timeline":
 		cmdTimeline(cfg)
 	case "conflicts":
@@ -244,6 +246,9 @@ func handleConfigFreeCommand(args []string) bool {
 		printUsage()
 		return true
 	case "redact":
+		if isRedactScan(args[1:]) {
+			return false // needs the data dir: handled by main with its config
+		}
 		if err := runRedact(args[1:], os.Stdin, os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, "engram redact:", err)
 			exitFunc(1)
@@ -2050,6 +2055,10 @@ Commands:
   redact [--catalog-sha256]
                      Read stdin, write it with credentials replaced by [REDACTED:NAME];
                      --catalog-sha256 prints the hash of the embedded catalog
+  redact --scan [--yes] [--json]
+                     Re-redact the stored data (older than 1.22.0, or the type/directory/project
+                     fields): dry-run by default (counts per table and field, never values);
+                     --yes applies it after a verified backup
   purge              Hard-delete test-run leftovers: dry-run by default; --yes executes after a backup
                        --sync-leftovers [--vacuum]  clean the unused sync tables (leftover rows)
                        --project NAME  --session ID  --since DATE  --until DATE   (AND-ed, one required;
