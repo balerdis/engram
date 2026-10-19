@@ -142,7 +142,10 @@ func DetectProjectFull(dir string) DetectionResult {
 			// Case 4: multiple children → ambiguous.
 			names := make([]string, len(children))
 			for i, c := range children {
-				names[i] = normalize(filepath.Base(c))
+				// Candidate labels keep the on-disk spelling (lowercase+trim only):
+				// the recovery flow requires the caller to echo one back exactly,
+				// and the store canonicalizes it when saving.
+				names[i] = strings.TrimSpace(strings.ToLower(filepath.Base(c)))
 			}
 			absDir, _ := filepath.Abs(dir)
 			// REQ-304: Project is empty on ambiguous (spec is authoritative).
@@ -360,12 +363,12 @@ func DetectProject(dir string) string {
 	return res.Project
 }
 
-// normalize applies canonical project name rules: lowercase + trim whitespace.
-// It mirrors the normalization applied by the store layer so that DetectProject
-// always returns a value that is consistent with stored project names.
+// normalize applies the canonical project name rules (see Canonical). It
+// delegates to Canonical so detection returns exactly what the store writes.
+// Empty names and directory placeholders ("/", ".") become "unknown".
 func normalize(name string) string {
-	n := strings.TrimSpace(strings.ToLower(name))
-	if n == "" {
+	n, _ := Canonical(name)
+	if n == "" || n == "/" || n == "." || n == `\` {
 		return "unknown"
 	}
 	return n
@@ -390,12 +393,25 @@ func detectFromGitRemote(dir string) string {
 // extractRepoName parses a git remote URL and returns just the repository name.
 //
 // Supported URL formats:
-//   - SSH:   git@github.com:user/repo.git
-//   - HTTPS: https://github.com/user/repo.git
-//   - Either with or without the trailing .git suffix
+//   - SCP-style SSH: git@github.com:user/repo.git
+//   - HTTPS/SSH URLs: https://github.com/user/repo.git, ssh://git@host:2222/user/repo.git
+//   - With or without the .git suffix (any case), and with trailing slashes
+//     ("repo/", "repo.git/").
 func extractRepoName(url string) string {
-	// Strip trailing .git suffix
-	url = strings.TrimSuffix(url, ".git")
+	url = strings.TrimSpace(url)
+	if i := strings.Index(url, "://"); i >= 0 {
+		rest := url[i+3:]
+		j := strings.Index(rest, "/")
+		if j < 0 {
+			return "" // scheme://host[:port] without a path
+		}
+		url = rest[j:]
+	}
+	url = strings.TrimRight(url, "/")
+	if len(url) >= 4 && strings.EqualFold(url[len(url)-4:], ".git") {
+		url = url[:len(url)-4]
+	}
+	url = strings.TrimRight(url, "/")
 
 	// Split on both "/" and ":" to handle SSH and HTTPS uniformly
 	parts := strings.FieldsFunc(url, func(r rune) bool {
@@ -404,6 +420,5 @@ func extractRepoName(url string) string {
 	if len(parts) == 0 {
 		return ""
 	}
-	name := parts[len(parts)-1]
-	return strings.TrimSpace(name)
+	return strings.TrimSpace(parts[len(parts)-1])
 }

@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	projectpkg "github.com/Gentleman-Programming/engram/internal/project"
 	"github.com/Gentleman-Programming/engram/internal/timeutil"
 	sqlite "modernc.org/sqlite"
 )
@@ -2684,9 +2685,18 @@ type MigrateResult struct {
 	ObservationsUpdated int64 `json:"observations_updated"`
 	SessionsUpdated     int64 `json:"sessions_updated"`
 	PromptsUpdated      int64 `json:"prompts_updated"`
+	// TargetNotEmpty is true when nothing was moved because the target project
+	// already has observations, sessions or prompts of its own.
+	TargetNotEmpty bool `json:"target_not_empty,omitempty"`
 }
 
+// MigrateProject renames a project (old → new) when the target is empty. Both
+// names are canonicalized first. If the target already has any observation,
+// session or prompt, nothing is moved and TargetNotEmpty is set: a rename must
+// never silently merge two projects. Explicit merges go through MergeProjects.
 func (s *Store) MigrateProject(oldName, newName string) (*MigrateResult, error) {
+	oldName, _ = NormalizeProject(oldName)
+	newName, _ = NormalizeProject(newName)
 	if oldName == "" || newName == "" || oldName == newName {
 		return &MigrateResult{}, nil
 	}
@@ -2712,6 +2722,22 @@ func (s *Store) MigrateProject(oldName, newName string) (*MigrateResult, error) 
 	result := &MigrateResult{Migrated: true}
 
 	err = s.withTx(func(tx *sql.Tx) error {
+		var targetHasRows bool
+		if err := tx.QueryRow(
+			`SELECT EXISTS(
+				SELECT 1 FROM observations WHERE project = ?
+				UNION ALL
+				SELECT 1 FROM sessions WHERE project = ?
+				UNION ALL
+				SELECT 1 FROM user_prompts WHERE project = ?
+			)`, newName, newName, newName,
+		).Scan(&targetHasRows); err != nil {
+			return fmt.Errorf("check target project: %w", err)
+		}
+		if targetHasRows {
+			result = &MigrateResult{TargetNotEmpty: true}
+			return nil
+		}
 		// FTS triggers handle index updates automatically on UPDATE
 		res, err := s.execHook(tx, `UPDATE observations SET project = ? WHERE project = ?`, newName, oldName)
 		if err != nil {
@@ -4018,22 +4044,7 @@ func normalizeScope(scope string) string {
 // (empty string if no change was needed).
 // Exported so MCP and CLI handlers can surface the warning to users.
 func NormalizeProject(project string) (normalized string, warning string) {
-	if project == "" {
-		return "", ""
-	}
-	n := strings.TrimSpace(strings.ToLower(project))
-	// Collapse multiple consecutive hyphens
-	for strings.Contains(n, "--") {
-		n = strings.ReplaceAll(n, "--", "-")
-	}
-	// Collapse multiple consecutive underscores
-	for strings.Contains(n, "__") {
-		n = strings.ReplaceAll(n, "__", "_")
-	}
-	if n == project {
-		return n, ""
-	}
-	return n, fmt.Sprintf("⚠️ Project name normalized: %q → %q", project, n)
+	return projectpkg.Canonical(project)
 }
 
 // SuggestTopicKey generates a stable topic key suggestion from type/title/content.

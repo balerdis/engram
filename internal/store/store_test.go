@@ -13,6 +13,8 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite"
+
+	projectpkg "github.com/Gentleman-Programming/engram/internal/project"
 )
 
 func mustDefaultConfig(t *testing.T) Config {
@@ -5980,4 +5982,109 @@ func TestCreateSessionKeepsEndedSessionClosed(t *testing.T) {
 	if _, ok, _ := s.MostRecentActiveSession("engram"); ok {
 		t.Fatal("closed session must not be active")
 	}
+}
+
+// ─── Canonical names / safe migrate ─────────────────────────────────────────
+
+func TestNormalizeProjectIsProjectCanonical(t *testing.T) {
+	for _, in := range []string{"My--Repo", "A__B", "  Spaced Name  ", "", "   ", ".GIT", "Ñandú--Proyecto", "ok"} {
+		g1, w1 := NormalizeProject(in)
+		g2, w2 := projectpkg.Canonical(in)
+		if g1 != g2 || w1 != w2 {
+			t.Errorf("NormalizeProject(%q) = (%q,%q); Canonical = (%q,%q)", in, g1, w1, g2, w2)
+		}
+	}
+	if got, _ := NormalizeProject("My--Repo"); got != "my-repo" {
+		t.Errorf("My--Repo -> %q", got)
+	}
+}
+
+func seedProject(t *testing.T, s *Store, sid, project string) {
+	t.Helper()
+	if err := s.CreateSession(sid, project, "/tmp/"+project); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	if _, err := s.AddObservation(AddObservationParams{SessionID: sid, Type: "decision", Title: "t " + sid,
+		Content: "c " + sid, Project: project, Scope: "project"}); err != nil {
+		t.Fatalf("AddObservation: %v", err)
+	}
+	if _, err := s.AddPrompt(AddPromptParams{SessionID: sid, Content: "p " + sid, Project: project}); err != nil {
+		t.Fatalf("AddPrompt: %v", err)
+	}
+}
+
+func assertNoRawProject(t *testing.T, s *Store, raw string) {
+	t.Helper()
+	var n int
+	if err := s.db.QueryRow(`SELECT (SELECT COUNT(*) FROM observations WHERE project = ?) +
+		(SELECT COUNT(*) FROM sessions WHERE project = ?) + (SELECT COUNT(*) FROM user_prompts WHERE project = ?)`,
+		raw, raw, raw).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("%d rows stored under raw name %q", n, raw)
+	}
+}
+
+func TestMigrateProjectSkipsNonEmptyTarget(t *testing.T) {
+	s := newTestStore(t)
+	seedProject(t, s, "s-old", "docs")
+	seedProject(t, s, "s-new", "foo")
+
+	res, err := s.MigrateProject("docs", "foo")
+	if err != nil {
+		t.Fatalf("MigrateProject: %v", err)
+	}
+	if res.Migrated || !res.TargetNotEmpty {
+		t.Fatalf("expected skip with TargetNotEmpty, got %+v", res)
+	}
+	for proj, want := range map[string]int{"docs": 1, "foo": 1} {
+		obs, _ := s.RecentObservations(proj, "", 10)
+		if len(obs) != want {
+			t.Errorf("%s: %d observations, want %d", proj, len(obs), want)
+		}
+	}
+}
+
+func TestMigrateProjectTargetWithOnlyPromptsOrSessionsIsNotEmpty(t *testing.T) {
+	s := newTestStore(t)
+	seedProject(t, s, "s-old", "old")
+	if err := s.CreateSession("s-t", "target", "/tmp/t"); err != nil {
+		t.Fatal(err)
+	}
+	res, err := s.MigrateProject("old", "target")
+	if err != nil || !res.TargetNotEmpty {
+		t.Fatalf("session-only target must block: %+v err=%v", res, err)
+	}
+}
+
+func TestMigrateProjectCanonicalizesNames(t *testing.T) {
+	s := newTestStore(t)
+	seedProject(t, s, "s1", "old-name")
+
+	res, err := s.MigrateProject("Old--Name", "New--Name")
+	if err != nil {
+		t.Fatalf("MigrateProject: %v", err)
+	}
+	if !res.Migrated || res.ObservationsUpdated != 1 {
+		t.Fatalf("expected migration, got %+v", res)
+	}
+	if obs, _ := s.RecentObservations("new-name", "", 10); len(obs) != 1 {
+		t.Fatalf("want 1 obs under new-name, got %d", len(obs))
+	}
+	assertNoRawProject(t, s, "New--Name")
+}
+
+func TestMergeProjectsCanonicalizesTarget(t *testing.T) {
+	s := newTestStore(t)
+	seedProject(t, s, "s1", "src")
+	seedProject(t, s, "s2", "dst-name")
+
+	if _, err := s.MergeProjects([]string{"SRC"}, "Dst--Name"); err != nil {
+		t.Fatalf("MergeProjects: %v", err)
+	}
+	if obs, _ := s.RecentObservations("dst-name", "", 10); len(obs) != 2 {
+		t.Fatalf("want 2 obs merged under dst-name, got %d", len(obs))
+	}
+	assertNoRawProject(t, s, "Dst--Name")
 }

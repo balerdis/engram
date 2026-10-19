@@ -898,10 +898,19 @@ func (s *Server) handleMigrateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := s.store.MigrateProject(body.OldProject, body.NewProject)
+	// Pass canonical names: the store matches project names exactly, so raw
+	// names could split one project in two.
+	result, err := s.store.MigrateProject(normalizedOld, normalizedNew)
 	if err != nil {
 		log.Printf("[engram] project migration failed: %v", err)
 		jsonError(w, http.StatusInternalServerError, "migration failed")
+		return
+	}
+
+	if result.TargetNotEmpty {
+		log.Printf("[engram] project migration %q → %q skipped: target already has data (use mem_merge_projects to merge on purpose)",
+			normalizedOld, normalizedNew)
+		jsonResponse(w, http.StatusOK, map[string]any{"status": "skipped", "reason": "target_not_empty"})
 		return
 	}
 
@@ -911,13 +920,13 @@ func (s *Server) handleMigrateProject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[engram] migrated project %q → %q (obs: %d, sessions: %d, prompts: %d)",
-		body.OldProject, body.NewProject,
+		normalizedOld, normalizedNew,
 		result.ObservationsUpdated, result.SessionsUpdated, result.PromptsUpdated)
 
 	jsonResponse(w, http.StatusOK, map[string]any{
 		"status":       "migrated",
-		"old_project":  body.OldProject,
-		"new_project":  body.NewProject,
+		"old_project":  normalizedOld,
+		"new_project":  normalizedNew,
 		"observations": result.ObservationsUpdated,
 		"sessions":     result.SessionsUpdated,
 		"prompts":      result.PromptsUpdated,

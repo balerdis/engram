@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -1977,5 +1978,71 @@ func TestHandleCreateSessionReopensEndedSession(t *testing.T) {
 	}
 	if sess.Summary == nil || *sess.Summary != "x" {
 		t.Fatalf("summary must be preserved, got %v", sess.Summary)
+	}
+}
+
+func doJSON(t *testing.T, h http.Handler, method, path, body string) (int, map[string]any) {
+	t.Helper()
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var out map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	return rec.Code, out
+}
+
+func seedServerProject(t *testing.T, h http.Handler, sid, project string) {
+	t.Helper()
+	code, _ := doJSON(t, h, http.MethodPost, "/sessions", `{"id":"`+sid+`","project":"`+project+`","directory":"/tmp/x"}`)
+	if code != http.StatusCreated {
+		t.Fatalf("seed session %s: %d", sid, code)
+	}
+}
+
+func TestMigrateProjectTargetNotEmptySkipped(t *testing.T) {
+	st := newServerTestStore(t)
+	h := New(st, 0).Handler()
+	seedServerProject(t, h, "s-docs", "docs")
+	seedServerProject(t, h, "s-foo", "foo")
+
+	code, resp := doJSON(t, h, http.MethodPost, "/projects/migrate", `{"old_project":"docs","new_project":"foo"}`)
+	if code != http.StatusOK || resp["status"] != "skipped" || resp["reason"] != "target_not_empty" {
+		t.Fatalf("unexpected: %d %#v", code, resp)
+	}
+	sessions, _ := st.RecentSessions("docs", 10)
+	if len(sessions) != 1 {
+		t.Fatalf("docs session must stay, got %d", len(sessions))
+	}
+}
+
+func TestMigrateProjectEmptyTargetNormalized(t *testing.T) {
+	st := newServerTestStore(t)
+	h := New(st, 0).Handler()
+	seedServerProject(t, h, "s-old", "old-name")
+
+	code, resp := doJSON(t, h, http.MethodPost, "/projects/migrate", `{"old_project":"Old--Name","new_project":"New__Name"}`)
+	if code != http.StatusOK || resp["status"] != "migrated" || resp["new_project"] != "new_name" {
+		t.Fatalf("unexpected: %d %#v", code, resp)
+	}
+	if sessions, _ := st.RecentSessions("new_name", 10); len(sessions) != 1 {
+		t.Fatalf("session must land under canonical name, got %d", len(sessions))
+	}
+}
+
+func TestCurrentProjectReturnsCanonicalName(t *testing.T) {
+	st := newServerTestStore(t)
+	h := New(st, 0).Handler()
+	dir := filepath.Join(t.TempDir(), "My--Repo")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	code, resp := doJSON(t, h, http.MethodGet, "/project/current?cwd="+dir, "")
+	if code != http.StatusOK {
+		t.Fatalf("status %d", code)
+	}
+	want, _ := store.NormalizeProject(resp["project"].(string))
+	if resp["project"] != "my-repo" || resp["project"] != want {
+		t.Fatalf("project = %v; want canonical my-repo", resp["project"])
 	}
 }
