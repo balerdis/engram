@@ -101,9 +101,9 @@ fi
 # stays outside the $mode gate even when the static protocol text is slim.
 echo "CRITICAL INSTRUCTION POST-COMPACTION — follow these steps IN ORDER:"
 
-if [ -n "$PROJECT" ]; then
-  # Sanitized: the name ends up in text the model reads as an instruction.
-  SAFE_PROJECT=$(safe_project_text "$PROJECT")
+# The name ends up in text the model reads as an instruction: shown verbatim
+# or not at all (see safe_project_text).
+if [ -n "$PROJECT" ] && SAFE_PROJECT=$(safe_project_text "$PROJECT"); then
   PROJECT_CLAUSE=" Use project: '${SAFE_PROJECT}'."
   PROJECT_CLAUSE_CTX=" with project: '${SAFE_PROJECT}'"
 else

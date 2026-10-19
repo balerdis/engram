@@ -80,9 +80,9 @@ Call `mem_session_summary` with: Goal, Discoveries, Accomplished, Next Steps, Re
 CRITICAL INSTRUCTION POST-COMPACTION — follow these steps IN ORDER:
 PROTOCOL
 
-if [ -n "$PROJECT" ]; then
-  # Sanitized: the name ends up in text the model reads as an instruction.
-  SAFE_PROJECT=$(safe_project_text "$PROJECT")
+# The name ends up in text the model reads as an instruction: shown verbatim
+# or not at all (see safe_project_text).
+if [ -n "$PROJECT" ] && SAFE_PROJECT=$(safe_project_text "$PROJECT"); then
   PROJECT_CLAUSE=" Use project: '${SAFE_PROJECT}'."
   PROJECT_CLAUSE_CTX=" with project: '${SAFE_PROJECT}'"
 else

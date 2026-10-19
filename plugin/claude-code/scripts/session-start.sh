@@ -23,7 +23,8 @@ CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
 resolve_engram_url || exit 0
 
 # Ensure engram server is running (on the explicitly resolved port)
-if ! curl -sf "${ENGRAM_URL}/health" --max-time 1 > /dev/null 2>&1; then
+SERVER_WARNING=""
+if ! HEALTH=$(curl -sf "${ENGRAM_URL}/health" --max-time 1 2>/dev/null); then
   # Detach fully (new session, no stdio) so the server outlives this hook.
   if command -v setsid >/dev/null 2>&1; then
     ENGRAM_PORT="$ENGRAM_RESOLVED_PORT" setsid engram serve </dev/null >/dev/null 2>&1 &
@@ -31,6 +32,9 @@ if ! curl -sf "${ENGRAM_URL}/health" --max-time 1 > /dev/null 2>&1; then
     ENGRAM_PORT="$ENGRAM_RESOLVED_PORT" nohup engram serve </dev/null >/dev/null 2>&1 &
   fi
   sleep 0.5
+else
+  # A server that was already running may predate the installed binary.
+  SERVER_WARNING=$(engram_server_version_warning "$HEALTH")
 fi
 
 # Project name: the server's answer wins; the old detection is the fallback.
@@ -168,6 +172,13 @@ fi
 mode=$(engram protocol-mode claude-code 2>/dev/null)
 if [ "$mode" != "slim" ]; then
   mode="full"
+fi
+
+# An old server still running: say so once, in the context the model reads and
+# on stderr (kept apart from stdout).
+if [ -n "$SERVER_WARNING" ]; then
+  printf '%s\n\n' "$SERVER_WARNING"
+  printf '%s\n' "$SERVER_WARNING" >&2
 fi
 
 # Inject Memory Protocol + context — stdout goes to Claude as additionalContext

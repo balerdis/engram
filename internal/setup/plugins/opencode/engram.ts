@@ -278,11 +278,20 @@ function canonicalProject(name: string): string {
   return n === "" ? "unknown" : n
 }
 
-/** Project name as it is interpolated into text the model reads: only
- *  [a-z0-9._-] survive (anything else becomes "-") and it is capped at 100
- *  characters. The stored name is not changed. */
-function safeProjectText(name: string): string {
-  return (name ?? "").toLowerCase().replace(/[^a-z0-9._-]/g, "-").slice(0, 100)
+/** Project name as it is interpolated into text the model reads: the name
+ *  VERBATIM when it is non-empty, at most 100 characters and every character
+ *  is a Unicode letter or digit, a space, "." "_" or "-"; otherwise null and
+ *  the caller omits the whole project clause (an altered name would not exist).
+ *  The stored name is not changed. */
+function safeProjectText(name: string): string | null {
+  const n = name ?? ""
+  if (n === "" || [...n].length > 100) return null
+  return /^[\p{L}\p{N} ._-]+$/u.test(n) ? n : null
+}
+
+function safeProjectClause(project: string): string {
+  const safe = project ? safeProjectText(project) : null
+  return safe === null ? "" : `Use project: '${safe}'. `
 }
 
 /** Project name from the server (GET /project/current); the git/basename
@@ -700,7 +709,7 @@ export const Engram: Plugin = async (ctx) => {
         `The agent has access to Engram persistent memory via MCP tools.\n` +
         `You MUST include the following instruction at the TOP of the compacted summary:\n\n` +
         `"FIRST ACTION REQUIRED: Call mem_session_summary with the content of this compacted summary. ` +
-        `${project ? `Use project: '${safeProjectText(project)}'. ` : ""}This preserves what was accomplished before compaction. Do this BEFORE any other work."\n\n` +
+        `${safeProjectClause(project)}This preserves what was accomplished before compaction. Do this BEFORE any other work."\n\n` +
         `This is NOT optional. Without this, everything done before compaction is lost from memory.`
       )
     },

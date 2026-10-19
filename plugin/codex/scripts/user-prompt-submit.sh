@@ -138,7 +138,8 @@ fi
 # Get session start time to check if session is > 5 minutes old
 SESSION_START=""
 if [ -n "$SESSION_ID" ]; then
-  SESSION_START=$(curl -sf "${ENGRAM_URL}/sessions/${SESSION_ID}" --max-time 0.2 2>/dev/null \
+  ENCODED_SESSION=$(printf '%s' "$SESSION_ID" | jq -sRr @uri)
+  SESSION_START=$(curl -sf "${ENGRAM_URL}/sessions/${ENCODED_SESSION}" --max-time 0.2 2>/dev/null \
     | jq -r '.started_at // empty' 2>/dev/null)
 fi
 

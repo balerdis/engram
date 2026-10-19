@@ -75,12 +75,14 @@ type hookOpts struct {
 	env         []string               // extra environment
 	projectResp string                 // body of GET /project/current; empty = {}
 	healthDown  bool                   // /health answers 500
+	healthBody  string                 // body of GET /health; empty = {}
 }
 
 type hookResult struct {
 	paths, bodies []string
 	queries       []string
 	stdout        string
+	stderr        string
 	serveLog      string
 	port          string
 }
@@ -129,6 +131,10 @@ func runHook(t *testing.T, script, stdin string, o hookOpts) hookResult {
 			_, _ = w.Write([]byte(projectResp))
 			return
 		}
+		if r.URL.Path == "/health" && o.healthBody != "" {
+			_, _ = w.Write([]byte(o.healthBody))
+			return
+		}
 		_, _ = w.Write([]byte(`{}`))
 	}))
 	defer srv.Close()
@@ -175,10 +181,13 @@ func runHook(t *testing.T, script, stdin string, o hookOpts) hookResult {
 	cmd.Env = env
 	var stdout strings.Builder
 	cmd.Stdout = &stdout
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("%s failed: %v\n%s", script, err, stdout.String())
 	}
 	res.stdout = stdout.String()
+	res.stderr = stderr.String()
 	if script == "user-prompt-submit.sh" && pluginDir(o) == "claude-code" && stdout.Len() != 0 {
 		t.Fatalf("%s must print nothing, got %q", script, stdout.String())
 	}
@@ -317,6 +326,8 @@ func TestUserPromptSubmitHookIsSilentAndExitsZeroWhenServerDown(t *testing.T) {
 		"ENGRAM_PORT_PROC_TCP4="+filepath.Join(t.TempDir(), "absent"))
 	var stdout strings.Builder
 	cmd.Stdout = &stdout
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("hook must exit 0 with the server down: %v", err)
 	}
