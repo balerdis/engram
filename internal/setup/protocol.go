@@ -64,7 +64,7 @@ func WriteProtocolMode(dataDir, slug, mode string) error {
 
 	modes[slug] = normalizeProtocolMode(mode)
 
-	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		return err
 	}
 
