@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 // <private> handling: a scanner, not the two lazy catalog patterns.
@@ -23,7 +24,11 @@ import (
 // `</private>` of each flat span. Everything is linear in the text.
 
 var (
-	rePrivTag   = regexp.MustCompile(`(?i)<(/?)private>`)
+	// `<private>` and `</private>`, with optional whitespace (the catalog's set)
+	// after the `<`, after the `/` and before the `>`. The `/` and its space are
+	// grouped so two runs of whitespace are never adjacent. A close tag is the
+	// one whose group 1 is `/`.
+	rePrivTag   = catalogRE(`<`+cat.ws+`*(?:(/)`+cat.ws+`*)?private`+cat.ws+`*>`, true)
 	reBlankLine = regexp.MustCompile(`\n[ \t\r]*\n`)
 )
 
@@ -207,10 +212,34 @@ func stripPrivate(text string) string {
 // StripPrivate is stripPrivate for callers outside the package.
 func StripPrivate(text string) string { return stripPrivate(text) }
 
+// padding splits inner into its leading whitespace, the rest trimmed and its
+// trailing whitespace, by the catalog's whitespace set. Linear.
+func padding(inner string) (lead, core, trail string) {
+	start := 0
+	for start < len(inner) {
+		r, w := utf8.DecodeRuneInString(inner[start:])
+		if !cat.wsSet.has(r) {
+			break
+		}
+		start += w
+	}
+	end := len(inner)
+	for end > start {
+		r, w := utf8.DecodeLastRuneInString(inner[:end])
+		if !cat.wsSet.has(r) {
+			break
+		}
+		end -= w
+	}
+	return inner[:start], inner[start:end], inner[end:]
+}
+
 // replacePrivateSpans is passes 1 and 2: a span that holds NAME=value (the
 // catalog's named pattern, anchored over the whole flat span) takes NAME as its
 // variable name, every other non-empty span is the bare kind. Named spans
-// register first, as the two catalog passes always did.
+// register first, as the two catalog passes always did. The value is the span
+// trimmed of its padding, and the padding stays where it was, outside the
+// placeholder.
 func replacePrivateSpans(text string, reg *registry, token func(string) string) string {
 	spans := privateSpans(text)
 	if len(spans) == 0 {
@@ -218,22 +247,25 @@ func replacePrivateSpans(text string, reg *registry, token func(string) string) 
 	}
 	repl := map[int]string{}
 	for _, sp := range spans {
-		if m := cat.namedPrivate.FindStringSubmatch("<private>" + sp.inner + "</private>"); m != nil && m[2] != "" && !cat.wsSet.only(m[2]) {
-			repl[sp.start] = token(reg.register(m[2], m[1]))
+		lead, core, trail := padding(sp.inner)
+		if m := cat.namedPrivate.FindStringSubmatch("<private>" + core + "</private>"); m != nil && m[2] != "" && !cat.wsSet.only(m[2]) {
+			repl[sp.start] = lead + token(reg.register(m[2], m[1])) + trail
 		}
 	}
 	for _, sp := range spans {
 		if _, done := repl[sp.start]; done {
 			continue
 		}
+		lead, core, trail := padding(sp.inner)
 		// A span of nothing but whitespace is not a value: it is replaced by
-		// [REDACTED], what the fallback would write, and never registered.
-		if m := cat.barePrivate.FindStringSubmatch("<private>" + sp.inner + "</private>"); m != nil && m[1] != "" {
-			if cat.wsSet.only(m[1]) {
-				repl[sp.start] = "[REDACTED]"
-			} else {
-				repl[sp.start] = token(reg.register(m[1], cat.bareName))
-			}
+		// [REDACTED], what the fallback would write, and never registered. An
+		// empty span is left for the fallback.
+		if sp.inner != "" && core == "" {
+			repl[sp.start] = "[REDACTED]"
+			continue
+		}
+		if m := cat.barePrivate.FindStringSubmatch("<private>" + core + "</private>"); m != nil && m[1] != "" {
+			repl[sp.start] = lead + token(reg.register(m[1], cat.bareName)) + trail
 		}
 	}
 	if len(repl) == 0 {

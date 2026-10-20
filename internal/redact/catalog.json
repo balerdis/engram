@@ -45,12 +45,16 @@
       "\"{key}\"[\t\n\u000b\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*:[\t\n\u000b\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*\"({quoted_value})\"",
       "\\b{key}[\t\n\u000b\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*[:=][\t\n\u000b\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*\"({quoted_value})\"",
       "\\b{key}[\t\n\u000b\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*[:=][\t\n\u000b\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*'({quoted_value})'",
-      "\\b{key}[\t\n\u000b\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*[:=][\t\n\u000b\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*({unquoted_value})"
+      "\\b{key}[\t\n\u000b\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*[:=][\t\n\u000b\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*({unquoted_value})",
+      "\\\\\"{key}\\\\\"[\t\n\u000b\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*:[\t\n\u000b\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*\\\\\"({escaped_value})\\\\\"",
+      "\\b{key}[\t\n\u000b\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*[:=][\t\n\u000b\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*\\\\\"({escaped_value})\\\\\""
     ],
     "unquoted_value_pattern": "[^\t\n\u000b\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff\"'{}\\[\\],;:&?]{4,}",
     "quoted_value_double_body": "(?:[^\"\\\\]|\\\\[\\s\\S])",
     "quoted_value_single_body": "(?:[^'\\\\]|\\\\[\\s\\S])",
     "quoted_value_note": "One unit of a quoted value: any character that is not the quote or a backslash, or a backslash and the character it escapes. A quoted value is `quote + body{min,} + quote`, so an escaped quote (`\\\"`) never closes the value early and leaves its tail in clear. The two alternatives start with different characters, so there is nothing to backtrack into.",
+    "quoted_value_escaped_body": "(?:[^\"\\\\]|\\\\[^\"\\\\]|\\\\\\\\(?:\\\\[\\s\\S]|[^\"\\\\]))",
+    "quoted_value_escaped_note": "The body of a value delimited by ESCAPED quotes (backslash-quote ... backslash-quote), for text that is itself inside a JSON string (a tool result that carries a log line, a config or another JSON document as a string): {\"log\":\"password=\\\"Hunter2Hunter2\\\" x\"}. The text is read one JSON escape at a time, left to right. One unit is a character that is not a quote or a backslash; a backslash and any other character that is not a quote or a backslash (`\\n`, `\\uXXXX`, `\\/`); or an escaped backslash (two backslashes) followed by the next unit, which is the escape of the INNER level: three backslashes and a quote are the inner `\\\"`, a quote inside the value, and four backslashes are an inner backslash. The three alternatives start differently, so there is nothing to backtrack into, and a bare backslash-quote is never a unit: it closes the value. So the 7.9.1 rule (an escaped quote INSIDE a quoted value does not end it) holds one level down as well.",
     "filler_skip_values": [
       "null",
       "none",
@@ -70,16 +74,19 @@
     "filler_skip_patterns": [
       "^\\*+$"
     ],
+    "skip_unquoted_if_note": "A rule skips a value when its `pattern` matches it, unless the rule has `unless_callee`: then the CALLEE, the part of the value before its first `(`, is looked at too. A value is NOT skipped when the callee fully matches `callee` AND every pattern of `all` finds something in it. The catalog uses it for the call rules: an undotted identifier that starts with a capital letter and has a lowercase letter and a digit (`Summer2024`, `Zx9kQ2mP7`, `Passw0rd`) reads like a password, while `getToken`, `get_cache_token`, `os.environ.get`, `strings.Trim`, `sha256`, `md5`, `SHA256`, `hmacSHA256` and every dotted or snake_case name stay code. Measured on this repository, the engram fork and the Python 3.12 standard library: no call-shaped value of those corpora has a callee that qualifies, so nothing new is detected there. Accepted false negatives: a lowercase-first password (`summer2024(`), an all-capitals one, one with an underscore, or a dotted one.",
     "skip_unquoted_if": [
       {
         "name": "function_call",
         "pattern": "^[A-Za-z_$][A-Za-z0-9_$]*[\t\n\u000b\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*\\([\\s\\S]*\\)$",
-        "note": "a value shaped like `getToken()` is a call, not a credential -- pasted code must survive."
+        "unless_callee": {"callee": "^[A-Z][A-Za-z0-9]*$", "all": ["[a-z]", "[0-9]"]},
+        "note": "a value shaped like `getToken()` is a call, not a credential -- pasted code must survive. Not when the callee reads like a password (`unless_callee`): `password=Zx9kQ2mP7(wLr)` and `secret=Zx9kQ2mP7wLr()` are detected."
       },
       {
         "name": "call_open",
         "pattern": "^[A-Za-z_$][A-Za-z0-9_$.]*\\($",
-        "note": "`os.environ.get(`, `strings.Trim(` -- an unquoted value stops at the first quote or space, so a method call with arguments reaches the scan cut right after its open parenthesis, and `function_call` (which wants the closing one) cannot see it. Only a value that ENDS at the `(` is skipped: `Passw0rd(2024`, `abc(12345678` and `correct.horse(battery` go on after the parenthesis and are still detected."
+        "unless_callee": {"callee": "^[A-Z][A-Za-z0-9]*$", "all": ["[a-z]", "[0-9]"]},
+        "note": "`os.environ.get(`, `strings.Trim(` -- an unquoted value stops at the first quote or space, so a method call with arguments reaches the scan cut right after its open parenthesis, and `function_call` (which wants the closing one) cannot see it. Only a value that ENDS at the `(` is skipped: `Passw0rd(2024`, `abc(12345678` and `correct.horse(battery` go on after the parenthesis and are still detected. Also not skipped when the callee reads like a password (`unless_callee`): `password=Summer2024(`."
       },
       {
         "name": "dotted_call_empty",
@@ -108,6 +115,8 @@
       }
     ]
   },
+  "headers_order": ["api_key_header", "authorization", "sensitive_suffix_header"],
+  "headers_order_note": "The order the header rules run in, the same in every engine (a JSON object has no order a port can rely on). The value of a header runs to the next space, comma or quote, so when two headers are glued by a character that is not whitespace (`Authorization: Bearer V1;x-api-key: V2`) the rule that runs first reads its own value, and the second header is still there for the rule after it. `api_key_header` first, `authorization` after it, the suffix rule last.",
   "headers": {
     "authorization": {
       "header_names": ["authorization"],
@@ -189,11 +198,11 @@
     "nesting": {
       "open": "<private>",
       "close": "</private>",
-      "note": "Before the two patterns below run, every span is rewritten as one flat span in canonical lowercase (a close tag closes the innermost open one; overlapping or nested spans merge): a nested open/close pair inside it is dropped, an open tag with no close takes the rest of its line (the rest of its paragraph when nothing else follows the tag on the line) and is closed there, a tag between backticks is a mention and not a tag, and a close tag with nothing open is left alone. The patterns themselves stay flat. The same rewrite runs before the `<private>...</private>` -> `[REDACTED]` fallback."
+      "note": "Before the two patterns below run, every span is rewritten as one flat span in canonical lowercase (a close tag closes the innermost open one; overlapping or nested spans merge): a nested open/close pair inside it is dropped, an open tag with no close takes the rest of its line (the rest of its paragraph when nothing else follows the tag on the line) and is closed there, a tag between backticks is a mention and not a tag, and a close tag with nothing open is left alone. The patterns themselves stay flat. The same rewrite runs before the `<private>...</private>` -> `[REDACTED]` fallback. A tag may carry whitespace (the `whitespace` set above) after the `<`, after the `/` and before the `>`: `<private >`, `<private\n>`, `< /private>`, matched without regard to case; the engines build `<WS*(?:(/)WS*)?privateWS*>` from that set. A fullwidth `\uff1cprivate\uff1e` is not a tag. The span is trimmed of its padding (the same set) before `named` and `bare` look at it, and the padding stays where it was, outside the placeholder: `<private>\nVALUE\n</private>` registers `VALUE`."
     },
     "named": {
-      "pattern": "<private>([A-Za-z0-9_]+)=([\\s\\S]*?)</private>",
-      "note": "captures NAME and value; NAME is used verbatim (normalized)"
+      "pattern": "<private>([A-Za-z0-9_]+)[\t\n\u000b\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*=[\t\n\u000b\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*([\\s\\S]*?)</private>",
+      "note": "captures NAME and value; NAME is used verbatim (normalized). Whitespace around the `=` is allowed (`NAME = value`); the span is trimmed of its padding before this pattern runs, so the value never carries the newlines or spaces around it."
     },
     "bare": {
       "pattern": "<private>([\\s\\S]*?)</private>",

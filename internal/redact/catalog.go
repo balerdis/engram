@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"regexp/syntax"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -35,6 +37,15 @@ type headerRule struct {
 	digitSeg   bool
 }
 
+// skipRule is a skip_unquoted_if rule: a value that matches pattern is code,
+// unless the rule has unless_callee and the callee of the value (what stands
+// before its first "(") matches callee entirely and every pattern of all.
+type skipRule struct {
+	pattern *regexp.Regexp
+	callee  *regexp.Regexp   // nil: no unless_callee
+	all     []*regexp.Regexp // each must find something in the callee
+}
+
 type knownFormat struct {
 	name            string
 	pattern         *regexp.Regexp
@@ -48,7 +59,7 @@ type catalogT struct {
 	placeholders []*regexp.Regexp
 	fillers      map[string]bool
 	fillerPats   []*regexp.Regexp
-	skipUnquoted []*regexp.Regexp
+	skipUnquoted []skipRule
 	whitespace   string // body of a character class
 	ws           string // [whitespace]
 	wsSet        wsSet
@@ -62,7 +73,9 @@ type catalogT struct {
 	urlName      string
 	known        []knownFormat
 	jsonPair     *regexp.Regexp
+	jsonPairEsc  *regexp.Regexp // pass 6b: \"key\":\"value\"
 	quoted       *regexp.Regexp
+	quotedEsc    *regexp.Regexp // pass 7b: key=\"value\"
 	namedPrivate *regexp.Regexp
 	barePrivate  *regexp.Regexp
 	bareName     string
@@ -75,8 +88,57 @@ type catalogT struct {
 func catalogRE(pattern string, ci bool) *regexp.Regexp {
 	if ci {
 		pattern = "(?i)" + pattern
+		if tree, err := syntax.Parse(pattern, syntax.Perl); err == nil {
+			return regexp.MustCompile(dottedI(tree).String())
+		}
 	}
 	return regexp.MustCompile(pattern)
+}
+
+// classHas reports whether the class (pairs of range bounds) holds r.
+func classHas(rs []rune, r rune) bool {
+	for i := 0; i+1 < len(rs); i += 2 {
+		if r >= rs[i] && r <= rs[i+1] {
+			return true
+		}
+	}
+	return false
+}
+
+// dottedI rewrites every case-insensitive `i` literal (and class holding `i`) of
+// the tree so it also matches U+0130 and U+0131 (the dotted capital I and the dotless small i): the
+// reference implementation's case-insensitive matching treats both as `i`, and
+// RE2's simple folding does not.
+func dottedI(n *syntax.Regexp) *syntax.Regexp {
+	for i, sub := range n.Sub {
+		n.Sub[i] = dottedI(sub)
+	}
+	if n.Op == syntax.OpCharClass && classHas(n.Rune, 'i') && !classHas(n.Rune, 0x130) {
+		// A class that holds `i` under (?i) holds both dotted forms in the reference.
+		n.Rune = append(n.Rune, 0x130, 0x131)
+		return n
+	}
+	if n.Op != syntax.OpLiteral || n.Flags&syntax.FoldCase == 0 {
+		return n
+	}
+	hasI := false
+	for _, r := range n.Rune {
+		if r == 'i' || r == 'I' {
+			hasI = true
+		}
+	}
+	if !hasI {
+		return n
+	}
+	concat := &syntax.Regexp{Op: syntax.OpConcat}
+	for _, r := range n.Rune {
+		if r == 'i' || r == 'I' {
+			concat.Sub = append(concat.Sub, &syntax.Regexp{Op: syntax.OpCharClass, Rune: []rune{'I', 'I', 'i', 'i', 0x130, 0x131}})
+		} else {
+			concat.Sub = append(concat.Sub, &syntax.Regexp{Op: syntax.OpLiteral, Rune: []rune{r}, Flags: n.Flags})
+		}
+	}
+	return concat
 }
 
 // wsSet is the catalog's whitespace as a predicate: the body of a character
@@ -139,15 +201,21 @@ func loadCatalog(data []byte) (*catalogT, error) {
 			MinLen   int      `json:"min_value_length"`
 			Unquoted string   `json:"unquoted_value_pattern"`
 			DQBody   string   `json:"quoted_value_double_body"`
+			EscBody  string   `json:"quoted_value_escaped_body"`
 			SQBody   string   `json:"quoted_value_single_body"`
 			Fillers  []string `json:"filler_skip_values"`
 			FillPats []string `json:"filler_skip_patterns"`
 			Skip     []struct {
-				Pattern string `json:"pattern"`
+				Pattern      string `json:"pattern"`
+				UnlessCallee *struct {
+					Callee string   `json:"callee"`
+					All    []string `json:"all"`
+				} `json:"unless_callee"`
 			} `json:"skip_unquoted_if"`
 		} `json:"key_context"`
-		Headers json.RawMessage `json:"headers"`
-		URL     struct {
+		Headers      json.RawMessage `json:"headers"`
+		HeadersOrder []string        `json:"headers_order"`
+		URL          struct {
 			Pattern string `json:"pattern"`
 			Name    string `json:"name"`
 		} `json:"url_credentials"`
@@ -187,8 +255,8 @@ func loadCatalog(data []byte) (*catalogT, error) {
 	if !strings.HasPrefix(raw.URL.Pattern, urlLookbehind) {
 		return nil, fmt.Errorf("url_credentials.pattern lost its lookbehind; the previous-character check must be updated")
 	}
-	if raw.KeyContext.DQBody == "" || raw.KeyContext.SQBody == "" {
-		return nil, fmt.Errorf("catalog lacks quoted_value_double_body/quoted_value_single_body")
+	if raw.KeyContext.DQBody == "" || raw.KeyContext.SQBody == "" || raw.KeyContext.EscBody == "" {
+		return nil, fmt.Errorf("catalog lacks quoted_value_double_body/quoted_value_single_body/quoted_value_escaped_body")
 	}
 	if raw.Explicit.Nesting.Open != "<private>" || raw.Explicit.Nesting.Close != "</private>" {
 		return nil, fmt.Errorf("explicit.nesting changed; the <private> scanner must be updated")
@@ -222,7 +290,14 @@ func loadCatalog(data []byte) (*catalogT, error) {
 		c.fillerPats = append(c.fillerPats, catalogRE(p, false))
 	}
 	for _, r := range raw.KeyContext.Skip {
-		c.skipUnquoted = append(c.skipUnquoted, catalogRE(r.Pattern, false))
+		rule := skipRule{pattern: catalogRE(r.Pattern, false)}
+		if u := r.UnlessCallee; u != nil {
+			rule.callee = catalogRE(u.Callee, false)
+			for _, a := range u.All {
+				rule.all = append(rule.all, catalogRE(a, false))
+			}
+		}
+		c.skipUnquoted = append(c.skipUnquoted, rule)
 	}
 	for _, k := range raw.KeyContext.Keys {
 		kp := components(k)
@@ -234,10 +309,14 @@ func loadCatalog(data []byte) (*catalogT, error) {
 	if _, err := dec.Token(); err != nil {
 		return nil, err
 	}
+	byName := map[string]headerRule{}
+	var docOrder []string
 	for dec.More() {
-		if _, err := dec.Token(); err != nil { // rule key
+		keyTok, err := dec.Token() // rule key
+		if err != nil {
 			return nil, err
 		}
+		ruleKey, _ := keyTok.(string)
 		var h struct {
 			Names      []string `json:"header_names"`
 			Schemes    []string `json:"schemes"`
@@ -249,7 +328,25 @@ func loadCatalog(data []byte) (*catalogT, error) {
 		if err := dec.Decode(&h); err != nil && err != io.EOF {
 			return nil, err
 		}
-		c.headers = append(c.headers, headerRule{h.Names, h.Schemes, h.Suffixes, h.Name, h.DeriveName, h.DigitSeg})
+		byName[ruleKey] = headerRule{h.Names, h.Schemes, h.Suffixes, h.Name, h.DeriveName, h.DigitSeg}
+		docOrder = append(docOrder, ruleKey)
+	}
+	// The rules run in the catalog's headers_order, not in the order of the JSON
+	// object (no port can rely on an object's order); by name when it is missing.
+	order := raw.HeadersOrder
+	if len(order) == 0 {
+		order = append([]string(nil), docOrder...)
+		sort.Strings(order)
+	}
+	if len(order) != len(byName) {
+		return nil, fmt.Errorf("headers_order does not list every header rule")
+	}
+	for _, name := range order {
+		h, ok := byName[name]
+		if !ok {
+			return nil, fmt.Errorf("headers_order names an unknown rule %q", name)
+		}
+		c.headers = append(c.headers, h)
 	}
 	c.urlPattern = catalogRE(strings.TrimPrefix(raw.URL.Pattern, urlLookbehind), false)
 	for _, k := range raw.Known {
@@ -263,6 +360,9 @@ func loadCatalog(data []byte) (*catalogT, error) {
 	// character it escapes (so an escaped quote never closes the value early).
 	min := "{" + itoa(c.keyMinLen) + ",}"
 	c.jsonPair = catalogRE(`"([A-Za-z_$][A-Za-z0-9_$-]*)"`+c.ws+`*:`+c.ws+`*"(`+raw.KeyContext.DQBody+min+`)"`, false)
+	esc := "{" + itoa(c.keyMinLen) + ",}"
+	c.jsonPairEsc = catalogRE(`\\"([A-Za-z_$][A-Za-z0-9_$-]*)\\"`+c.ws+`*:`+c.ws+`*\\"(`+raw.KeyContext.EscBody+esc+`)\\"`, false)
+	c.quotedEsc = catalogRE(`([A-Za-z_$][A-Za-z0-9_$-]*)`+c.ws+`*[:=]`+c.ws+`*\\"(`+raw.KeyContext.EscBody+esc+`)\\"`, false)
 	c.quoted = catalogRE(`([A-Za-z_$][A-Za-z0-9_$-]*)`+c.ws+`*[:=]`+c.ws+`*(?:"(`+raw.KeyContext.DQBody+min+`)"|'(`+raw.KeyContext.SQBody+min+`)')`, false)
 	return c, nil
 }

@@ -97,6 +97,13 @@ func TestLinearTimeOnAdversarialInput(t *testing.T) {
 		}(),
 		"begin_no_end": strings.Repeat("-----BEGIN PRIVATE KEY-----", 9000),
 		"long_ws_run":  "a" + strings.Repeat(" ", 200000) + "=x",
+		// 7.9.2 shapes: escaped quotes without a close, tags with long padding.
+		"esc_quote_open":    strings.Repeat(`password=\"`, n/11),
+		"esc_json_keys":     strings.Repeat(`\"token\":\"`, n/12),
+		"esc_backslashes":   `password=\"` + strings.Repeat(`\\`, n/2),
+		"tag_pad":           "<" + strings.Repeat(" ", n-20) + "private>",
+		"tag_open_pad":      strings.Repeat("< ", n/2),
+		"known_prefix_runs": "token=aaaaaaa1 " + strings.Repeat("a", n-20),
 	}
 	for name, in := range inputs {
 		in := in
@@ -189,6 +196,41 @@ func TestKeyDigitSuffixes(t *testing.T) {
 	} {
 		if got := Redact(in); got != want {
 			t.Errorf("Redact(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// Thousands of distinct registered values in a text near the cap, and many
+// repeated ones: the single scan of pass 9 has no cap on values and stays fast.
+func TestManyRegisteredValues(t *testing.T) {
+	var b strings.Builder
+	n := 0
+	for b.Len() < MaxDetectBytes()-40 {
+		fmt.Fprintf(&b, "api_key=Val%05dXq ", n)
+		n++
+	}
+	in := b.String()
+	start := time.Now()
+	got := Redact(in)
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("%d values took %v", n, d)
+	}
+	if strings.Contains(got, "Val0") || strings.Contains(got, "Xq") {
+		t.Fatalf("a value survived")
+	}
+
+	// 90 distinct values, each repeated three times after its pair: all replaced.
+	var vals, text []string
+	for i := 0; i < 90; i++ {
+		v := fmt.Sprintf("tok%03dQ7z", i)
+		vals = append(vals, v)
+		text = append(text, "api_key="+v)
+	}
+	text = append(text, strings.Join(vals, " "), strings.Join(vals, " "), strings.Join(vals, " "))
+	got = Redact(strings.Join(text, " | "))
+	for _, v := range vals {
+		if strings.Contains(got, v) {
+			t.Fatalf("%s survived the repeated-values pass", v)
 		}
 	}
 }

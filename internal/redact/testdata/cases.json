@@ -1,5 +1,5 @@
 {
-  "about": "Golden cases produced by running the Pegasus redactor (engram-hook.py cut_to_detect_cap + redact, Pegasus 7.9.1 catalog) with _token -> [REDACTED:NAME] and one extra placeholder pattern ^\\[REDACTED:[A-Z0-9_]+\\]$. All values are synthetic. Regenerate with the generator when the catalog changes.",
+  "about": "Golden cases produced by running the Pegasus redactor (engram-hook.py cut_to_detect_cap + redact, Pegasus 7.9.2 catalog) with _token -> [REDACTED:NAME] and one extra placeholder pattern ^\\[REDACTED:[A-Z0-9_]+\\]$. All values are synthetic. Regenerate with the generator when the catalog changes.",
   "cases": [
     {
       "name": "never_git_sha1",
@@ -1239,7 +1239,7 @@
     {
       "name": "v791_widened_10",
       "input": "<private>\nparagraph secret\nsecond line\n\nvisible paragraph",
-      "expected": "[REDACTED:PRIVATE]\n\nvisible paragraph"
+      "expected": "\n[REDACTED:PRIVATE]\n\nvisible paragraph"
     },
     {
       "name": "v791_widened_11",
@@ -1419,7 +1419,7 @@
     {
       "name": "v791_parity_23",
       "input": "<private>aaaa-note</private> tail <private>b=c1234567</private> <private>open <private><private><private><private><private><private><private><private><private><private><private><private><private><private><private><private><private><private><private><private><private><private><private><private><private><private><private><private><private><private><private><private><private><private><private><private><private><private><private><private><private><private><private><private><private><private><private><private><private><private>",
-      "expected": "[REDACTED:PRIVATE] tail [REDACTED:B] [REDACTED:PRIVATE_2]"
+      "expected": "[REDACTED:PRIVATE] tail [REDACTED:B] [REDACTED:PRIVATE_2] "
     },
     {
       "name": "v791_parity_24",
@@ -1469,7 +1469,7 @@
     {
       "name": "v791_private_02",
       "input": "<private>unclosed and </private> then <private>again",
-      "expected": "[REDACTED:PRIVATE] then [REDACTED:PRIVATE_2]"
+      "expected": "[REDACTED:PRIVATE]  then [REDACTED:PRIVATE_2]"
     },
     {
       "name": "v791_private_03",
@@ -1479,7 +1479,7 @@
     {
       "name": "v791_private_04",
       "input": "<private>\nparagraph one\nstill one\n\nparagraph two",
-      "expected": "[REDACTED:PRIVATE]\n\nparagraph two"
+      "expected": "\n[REDACTED:PRIVATE]\n\nparagraph two"
     },
     {
       "name": "v791_private_05",
@@ -1779,7 +1779,7 @@
     {
       "name": "v791_extra_31",
       "input": "<private>NAME=   </private> tail",
-      "expected": "[REDACTED:PRIVATE] tail"
+      "expected": "[REDACTED:PRIVATE]    tail"
     },
     {
       "name": "v791_extra_32",
@@ -1835,6 +1835,626 @@
       "name": "v791_extra_42",
       "input": "password=abcdefg1 password=abcdefg2 password=abcdefg3 password=abcdefg1 password=abcdefg2 password=abcdefg3 password=abcdefg1 password=abcdefg2 password=abcdefg3 abcdefg1 abcdefg2 abcdefg3",
       "expected": "password=[REDACTED:PASSWORD] password=[REDACTED:PASSWORD_2] password=[REDACTED:PASSWORD_3] password=[REDACTED:PASSWORD] password=[REDACTED:PASSWORD_2] password=[REDACTED:PASSWORD_3] password=[REDACTED:PASSWORD] password=[REDACTED:PASSWORD_2] password=[REDACTED:PASSWORD_3] [REDACTED:PASSWORD] [REDACTED:PASSWORD_2] [REDACTED:PASSWORD_3]"
+    },
+    {
+      "name": "v791_widened_28",
+      "input": "{\"log\":\"password=\\\"Hunter2Hunter2\\\" x\"}",
+      "expected": "{\"log\":\"password=\\\"[REDACTED:PASSWORD]\\\" x\"}"
+    },
+    {
+      "name": "v791_widened_29",
+      "input": "{\"log\": \"apiKey: \\\"SuperSecretValue99\\\\\\\"AccessToken = npm_abcdefghijklmnopqrstuvwxyz0123456789\\\\\\\"\\\"\"}",
+      "expected": "{\"log\": \"apiKey: \\\"[REDACTED:APIKEY]\\\"\"}"
+    },
+    {
+      "name": "v791_widened_30",
+      "input": "{\"m\":\"{\\\"password\\\":\\\"Hunter2Hunter2\\\",\\\"user\\\":\\\"admin\\\"}\"}",
+      "expected": "{\"m\":\"{\\\"password\\\":\\\"[REDACTED:PASSWORD]\\\",\\\"user\\\":\\\"admin\\\"}\"}"
+    },
+    {
+      "name": "v791_widened_31",
+      "input": "{\"log\":\"password=\\\"ab\\\\\\\"cdefgh1\\\" x\"}",
+      "expected": "{\"log\":\"password=\\\"[REDACTED:PASSWORD]\\\" x\"}"
+    },
+    {
+      "name": "v791_widened_32",
+      "input": "password: \"ab\\\"cdefgh\" and {\"log\":\"token=\\\"abcd1234\\\" ok\"} and pwd='x\\'yzwvut'",
+      "expected": "password: \"[REDACTED:PASSWORD]\" and {\"log\":\"token=\\\"[REDACTED:TOKEN]\\\" ok\"} and pwd='[REDACTED:PWD]'"
+    },
+    {
+      "name": "v791_widened_33",
+      "input": "export DB_PASSWORD=\\\"hunter2hunter2\\\" and secret: \\\"qwertyuiop\\\\\\\\\\\" tail",
+      "expected": "export DB_PASSWORD=\\\"[REDACTED:DB_PASSWORD]\\\" and secret: \\\"[REDACTED:SECRET]\\\" tail"
+    },
+    {
+      "name": "v791_widened_34",
+      "input": "<private>\nHunter2Hunter2\n</private>\n$ cat out\nHunter2Hunter2",
+      "expected": "\n[REDACTED:PRIVATE]\n\n$ cat out\n[REDACTED:PRIVATE]"
+    },
+    {
+      "name": "v791_widened_35",
+      "input": "x <private> Hunter2Hunter2 </private> y Hunter2Hunter2.",
+      "expected": "x  [REDACTED:PRIVATE]  y [REDACTED:PRIVATE]."
+    },
+    {
+      "name": "v791_widened_36",
+      "input": "<private>\n  DB_PASSWORD = Hunter2Hunter2 \n</private>\nlater: Hunter2Hunter2",
+      "expected": "\n  [REDACTED:DB_PASSWORD] \n\nlater: [REDACTED:DB_PASSWORD]"
+    },
+    {
+      "name": "v791_widened_37",
+      "input": "<private>\n\t</private> and <private></private>",
+      "expected": "[REDACTED] and [REDACTED]"
+    },
+    {
+      "name": "v791_widened_38",
+      "input": "<private >one11111</private> <private\n>two22222</private\n> <private>three333< /private> < Private\t>four4444</ PRIVATE\n> `<private >` is a mention",
+      "expected": "[REDACTED:PRIVATE] [REDACTED:PRIVATE_2] [REDACTED:PRIVATE_3] [REDACTED:PRIVATE_4] `<private >` is a mention"
+    },
+    {
+      "name": "v791_widened_39",
+      "input": "Authorization: Bearer Passw0rd2024;x-api-key: correct.horse2battery",
+      "expected": "Authorization: Bearer [REDACTED:AUTHORIZATION] [REDACTED:API_KEY]"
+    },
+    {
+      "name": "v791_widened_40",
+      "input": "Authorization: Bearer Passw0rd2024\u001cx-api-key: correct.horse2battery",
+      "expected": "Authorization: Bearer [REDACTED:AUTHORIZATION] [REDACTED:API_KEY]"
+    },
+    {
+      "name": "v791_widened_41",
+      "input": "password=Summer2024( and password=Zx9kQ2mP7(wLr) and secret=Zx9kQ2mP7wLr() and token=Passw0rd()",
+      "expected": "password=[REDACTED:PASSWORD] and password=[REDACTED:PASSWORD_2] and secret=[REDACTED:SECRET] and token=[REDACTED:TOKEN]"
+    },
+    {
+      "name": "v791_widened_42",
+      "input": "api_key=abcdefghij1 \\x41abcdefghij1 \\101abcdefghij1 \\7abcdefghij1 \\eabcdefghij1 \\aabcdefghij1 xabcdefghij1 abcdefghij1x",
+      "expected": "api_key=[REDACTED:API_KEY] \\x41[REDACTED:API_KEY] \\101[REDACTED:API_KEY] \\7[REDACTED:API_KEY] \\e[REDACTED:API_KEY] \\a[REDACTED:API_KEY] xabcdefghij1 abcdefghij1x"
+    },
+    {
+      "name": "v791_widened_43",
+      "input": "api_key=abcdefghij1 and abcdefghij1𓛏 here, 𝐀abcdefghij1 and abcdefghij1😀",
+      "expected": "api_key=[REDACTED:API_KEY] and [REDACTED:API_KEY]𓛏 here, 𝐀[REDACTED:API_KEY] and [REDACTED:API_KEY]😀"
+    },
+    {
+      "name": "v791_widened_44",
+      "input": "token=😀😀😀 x and secret: -𓛏< y and pwd=😀😀😀😀 z and password=\"😀😀\" and apikey: \"😀😀😀😀\" end",
+      "expected": "token=😀😀😀 x and secret: -𓛏< y and pwd=[REDACTED:APIKEY] z and password=\"😀😀\" and apikey: \"[REDACTED:APIKEY]\" end"
+    },
+    {
+      "name": "v791_surviving_15",
+      "input": "{\"log\":\"nothing \\\"quoted words here\\\" and token=\\\"ab\\\" and password=\\\"\\\"\"}",
+      "expected": "{\"log\":\"nothing \\\"quoted words here\\\" and token=\\\"ab\\\" and password=\\\"\\\"\"}"
+    },
+    {
+      "name": "v791_surviving_16",
+      "input": "password = sha256(x); token = MD5(abc); pwd = getPassword(User1); secret = os.environ.get(); key_token = Get_Token2()",
+      "expected": "password = sha256(x); token = MD5(abc); pwd = getPassword(User1); secret = os.environ.get(); key_token = Get_Token2()"
+    },
+    {
+      "name": "v791_surviving_17",
+      "input": "password = SHA256(x); token = SHA256(; secret = utf8(; pwd = hmacSHA256(",
+      "expected": "password = SHA256(x); token = SHA256(; secret = utf8(; pwd = hmacSHA256("
+    },
+    {
+      "name": "v791_surviving_18",
+      "input": "use `<private >` and `< /private>` in prose",
+      "expected": "use `<private >` and `< /private>` in prose"
+    },
+    {
+      "name": "v792_corpus_07",
+      "input": "password=abcdXYZ1efghijkl9",
+      "expected": "password=[REDACTED:PASSWORD]efghijkl9"
+    },
+    {
+      "name": "v792_corpus_08",
+      "input": "api_key=abcdefghij1 and then abcdefghij1 again",
+      "expected": "api_key=[REDACTED:API_KEY] and then [REDACTED:API_KEY] again"
+    },
+    {
+      "name": "v792_corpus_09",
+      "input": "git clone https://bob:s3cretPass9@host/x.git; echo s3cretPass9",
+      "expected": "git clone https://bob:[REDACTED:URL_PASSWORD]@host/x.git; echo [REDACTED:URL_PASSWORD]"
+    },
+    {
+      "name": "v792_corpus_10",
+      "input": "DB_PASSWORD=hunter2hunter2\nDB_USER=admin",
+      "expected": "DB_PASSWORD=[REDACTED:DB_PASSWORD]\nDB_USER=admin"
+    },
+    {
+      "name": "v792_corpus_11",
+      "input": "export API_KEY=\"k9x8c7v6b5n4m3\"",
+      "expected": "export API_KEY=\"[REDACTED:API_KEY]\""
+    },
+    {
+      "name": "v792_corpus_12",
+      "input": "SECRET_KEY=django-insecure-8f#k2$9x@abc123",
+      "expected": "SECRET_KEY=[REDACTED:SECRET_KEY]"
+    },
+    {
+      "name": "v792_corpus_13",
+      "input": "JWT_SECRET_KEY=wxyzwxyz1234",
+      "expected": "JWT_SECRET_KEY=[REDACTED:JWT_SECRET_KEY]"
+    },
+    {
+      "name": "v792_corpus_14",
+      "input": "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+      "expected": "AWS_SECRET_ACCESS_KEY=[REDACTED:AWS_SECRET_ACCESS_KEY]"
+    },
+    {
+      "name": "v792_corpus_15",
+      "input": "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE",
+      "expected": "AWS_ACCESS_KEY_ID=[REDACTED:AWS_ACCESS_KEY]"
+    },
+    {
+      "name": "v792_corpus_16",
+      "input": "GITHUB_TOKEN=ghp_a1B2c3D4e5a1B2c3D4e5a1B2c3D4e5xy",
+      "expected": "GITHUB_TOKEN=[REDACTED:GITHUB_TOKEN]"
+    },
+    {
+      "name": "v792_corpus_17",
+      "input": "OPENAI_API_KEY=sk-A1b2C3d4E5A1b2C3d4E5A1b2C3d4E5",
+      "expected": "OPENAI_API_KEY=[REDACTED:OPENAI_KEY]"
+    },
+    {
+      "name": "v792_corpus_18",
+      "input": "ANTHROPIC_API_KEY=sk-ant-api03-AbCdEf_GhIj-KlMnOpQrStUvWxYz0123456789",
+      "expected": "ANTHROPIC_API_KEY=[REDACTED:SK_ANT_KEY]"
+    },
+    {
+      "name": "v792_corpus_19",
+      "input": "key sk-proj-AbCdEf_GhIj-KlMnOpQrStUv0123 end",
+      "expected": "key [REDACTED:SK_PROJ_KEY] end"
+    },
+    {
+      "name": "v792_corpus_20",
+      "input": "GITLAB_TOKEN=glpat-abcdefghij0123456789",
+      "expected": "GITLAB_TOKEN=[REDACTED:GITLAB_TOKEN]"
+    },
+    {
+      "name": "v792_corpus_21",
+      "input": "GOOGLE_API_KEY=AIzaSyA-1234567890abcdefghijklmnopqrstu",
+      "expected": "GOOGLE_API_KEY=[REDACTED:GOOGLE_API_KEY]"
+    },
+    {
+      "name": "v792_corpus_22",
+      "input": "//registry.npmjs.org/:_authToken=npm_abcdefghijklmnopqrstuvwxyz0123456789",
+      "expected": "//registry.npmjs.org/:_authToken=[REDACTED:NPM_TOKEN]"
+    },
+    {
+      "name": "v792_corpus_23",
+      "input": "TOKEN2=abcd1234efgh",
+      "expected": "TOKEN2=[REDACTED:TOKEN2]"
+    },
+    {
+      "name": "v792_corpus_24",
+      "input": "PASSWORD_V2=abc12345xyz",
+      "expected": "PASSWORD_V2=[REDACTED:PASSWORD_V2]"
+    },
+    {
+      "name": "v792_corpus_25",
+      "input": "DB_PASSWORD_2=zzzz98765",
+      "expected": "DB_PASSWORD_2=[REDACTED:DB_PASSWORD_2]"
+    },
+    {
+      "name": "v792_corpus_26",
+      "input": "DB_PASSWORD=secretpassword",
+      "expected": "DB_PASSWORD=[REDACTED:DB_PASSWORD]"
+    },
+    {
+      "name": "v792_corpus_27",
+      "input": "password=hunterhun",
+      "expected": "password=hunterhun"
+    },
+    {
+      "name": "v792_corpus_28",
+      "input": "password=Correcthorse",
+      "expected": "password=Correcthorse"
+    },
+    {
+      "name": "v792_corpus_29",
+      "input": "dbPassword=hunter2hunter2",
+      "expected": "dbPassword=[REDACTED:DBPASSWORD]"
+    },
+    {
+      "name": "v792_corpus_30",
+      "input": "SLACK_TOKEN=xoxb-1234567890-abcdefghij",
+      "expected": "SLACK_TOKEN=[REDACTED:SLACK_TOKEN]"
+    },
+    {
+      "name": "v792_corpus_31",
+      "input": "{\"password\": \"hunter2hunter2\", \"user\": \"x\"}",
+      "expected": "{\"password\": \"[REDACTED:PASSWORD]\", \"user\": \"x\"}"
+    },
+    {
+      "name": "v792_corpus_32",
+      "input": "{\"dbPassword\":\"qwertyuiop\"}",
+      "expected": "{\"dbPassword\":\"[REDACTED:DBPASSWORD]\"}"
+    },
+    {
+      "name": "v792_corpus_33",
+      "input": "{\"clientSecret\": \"abcd1234efgh5678\"}",
+      "expected": "{\"clientSecret\": \"[REDACTED:CLIENTSECRET]\"}"
+    },
+    {
+      "name": "v792_corpus_34",
+      "input": "{\"password\": \"ab\\\"cdefgh1\"}",
+      "expected": "{\"password\": \"[REDACTED:PASSWORD]\"}"
+    },
+    {
+      "name": "v792_corpus_35",
+      "input": "{\"db\": {\"password\": \"nestedpass99\", \"port\": 5432}}",
+      "expected": "{\"db\": {\"password\": \"[REDACTED:PASSWORD]\", \"port\": 5432}}"
+    },
+    {
+      "name": "v792_corpus_36",
+      "input": "{\"apiKey\": \"k9x8c7\"}",
+      "expected": "{\"apiKey\": \"[REDACTED:APIKEY]\"}"
+    },
+    {
+      "name": "v792_corpus_37",
+      "input": "{\"token2\": \"abcd1234efgh\"}",
+      "expected": "{\"token2\": \"[REDACTED:TOKEN2]\"}"
+    },
+    {
+      "name": "v792_corpus_38",
+      "input": "db:\n  password: hunter2hunter2\n  user: admin",
+      "expected": "db:\n  password: [REDACTED:PASSWORD]\n  user: admin"
+    },
+    {
+      "name": "v792_corpus_39",
+      "input": "api_key: 'k9x8c7v6b5n4m3'",
+      "expected": "api_key: '[REDACTED:API_KEY]'"
+    },
+    {
+      "name": "v792_corpus_40",
+      "input": "[db]\npassword = hunter2hunter2",
+      "expected": "[db]\npassword = [REDACTED:PASSWORD]"
+    },
+    {
+      "name": "v792_corpus_41",
+      "input": "client_secret: abcdefghijklmnop",
+      "expected": "client_secret: [REDACTED:CLIENT_SECRET]"
+    },
+    {
+      "name": "v792_corpus_42",
+      "input": "Authorization: Bearer abcdef1234567890xyz",
+      "expected": "Authorization: Bearer [REDACTED:AUTHORIZATION]"
+    },
+    {
+      "name": "v792_corpus_43",
+      "input": "Authorization: Basic dXNlcjpwYXNzd29yZA==",
+      "expected": "Authorization: Basic [REDACTED:AUTHORIZATION]"
+    },
+    {
+      "name": "v792_corpus_45",
+      "input": "curl -H 'Authorization: Bearer abcdef1234567890xyz' https://x",
+      "expected": "curl -H 'Authorization: Bearer [REDACTED:AUTHORIZATION]' https://x"
+    },
+    {
+      "name": "v792_corpus_47",
+      "input": "X-Auth-Token: abcd1234efgh5678",
+      "expected": "X-Auth-Token: [REDACTED:X_AUTH_TOKEN]"
+    },
+    {
+      "name": "v792_corpus_48",
+      "input": "Cookie: sessionid=abcdef1234567890",
+      "expected": "Cookie: sessionid=abcdef1234567890"
+    },
+    {
+      "name": "v792_corpus_49",
+      "input": "Proxy-Authorization: Basic dXNlcjpwYXNz",
+      "expected": "Proxy-Authorization: Basic [REDACTED:AUTHORIZATION]"
+    },
+    {
+      "name": "v792_corpus_51",
+      "input": "https://api.x/y?access_token=abcd1234efgh&page=2",
+      "expected": "https://api.x/y?access_token=[REDACTED:ACCESS_TOKEN]&page=2"
+    },
+    {
+      "name": "v792_corpus_52",
+      "input": "jdbc:mysql://h/db?user=u&password=hunter2hunter2",
+      "expected": "jdbc:mysql://h/db?user=u&password=[REDACTED:PASSWORD]"
+    },
+    {
+      "name": "v792_corpus_53",
+      "input": "app --password hunter2hunter2 --host x",
+      "expected": "app --password hunter2hunter2 --host x"
+    },
+    {
+      "name": "v792_corpus_54",
+      "input": "mysql -u root -pSecret1234 db",
+      "expected": "mysql -u root -pSecret1234 db"
+    },
+    {
+      "name": "v792_corpus_55",
+      "input": "curl -u admin:hunter2hunter2 https://x",
+      "expected": "curl -u admin:hunter2hunter2 https://x"
+    },
+    {
+      "name": "v792_corpus_56",
+      "input": "-----BEGIN RSA PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwgg\n-----END RSA PRIVATE KEY-----",
+      "expected": "[REDACTED:PRIVATE_KEY_BLOCK]"
+    },
+    {
+      "name": "v792_corpus_57",
+      "input": "-----BEGIN RSA PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwgg\nabcdefghijklmnopqrstuvwxyz0123456789ABCDEF",
+      "expected": "[REDACTED:PRIVATE_KEY_UNTERMINATED]"
+    },
+    {
+      "name": "v792_corpus_58",
+      "input": "-----BEGIN PGP PRIVATE KEY BLOCK-----\nVersion: GnuPG v2\n\nlQOYBF8vabcdefghijklmnop12345678\n-----END PGP PRIVATE KEY BLOCK-----",
+      "expected": "[REDACTED:PRIVATE_KEY_BLOCK]"
+    },
+    {
+      "name": "v792_corpus_59",
+      "input": "token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVPmB92K27uhbUJU1p1r",
+      "expected": "token [REDACTED:JWT]"
+    },
+    {
+      "name": "v792_corpus_60",
+      "input": "note <private>my diary secret</private> end",
+      "expected": "note [REDACTED:PRIVATE] end"
+    },
+    {
+      "name": "v792_corpus_61",
+      "input": "<private>a1b2c3 <private>inner</private> tailsecret</private>",
+      "expected": "[REDACTED:PRIVATE]"
+    },
+    {
+      "name": "v792_corpus_62",
+      "input": "<private>unclosedsecret99 and more",
+      "expected": "[REDACTED:PRIVATE]"
+    },
+    {
+      "name": "v792_corpus_63",
+      "input": "<private>DB_PASSWORD=topsecretvalue</private>",
+      "expected": "[REDACTED:DB_PASSWORD]"
+    },
+    {
+      "name": "v792_corpus_64",
+      "input": "token = getX() || \"realsecret99\"",
+      "expected": "token = getX() || \"realsecret99\""
+    },
+    {
+      "name": "v792_corpus_65",
+      "input": "password: correct horse battery",
+      "expected": "password: correct horse battery"
+    },
+    {
+      "name": "v792_corpus_70",
+      "input": "export DB_PASSWORD=\\\"hunter2hunter2\\\"",
+      "expected": "export DB_PASSWORD=\\\"[REDACTED:DB_PASSWORD]\\\""
+    },
+    {
+      "name": "v792_corpus_74",
+      "input": "<private >tagvariantsecret1</private>",
+      "expected": "[REDACTED:PRIVATE]"
+    },
+    {
+      "name": "v792_corpus_75",
+      "input": "<private\n>tagvariantsecret2</private>",
+      "expected": "[REDACTED:PRIVATE]"
+    },
+    {
+      "name": "v792_corpus_76",
+      "input": "<private>tagvariantsecret3< /private>",
+      "expected": "[REDACTED:PRIVATE]"
+    },
+    {
+      "name": "v792_corpus_77",
+      "input": "< Private\t>tagvariantsecret4</ PRIVATE\n>",
+      "expected": "[REDACTED:PRIVATE]"
+    },
+    {
+      "name": "v792_corpus_80",
+      "input": "password=Summer2024(",
+      "expected": "password=[REDACTED:PASSWORD]"
+    },
+    {
+      "name": "v792_corpus_81",
+      "input": "password=Zx9kQ2mP7(wLr)",
+      "expected": "password=[REDACTED:PASSWORD]"
+    },
+    {
+      "name": "v792_corpus_82",
+      "input": "secret=Zx9kQ2mP7wLr()",
+      "expected": "secret=[REDACTED:SECRET]"
+    },
+    {
+      "name": "v792_corpus_83",
+      "input": "api_key=abcdefghij1 and \\x41abcdefghij1 and \\101abcdefghij1",
+      "expected": "api_key=[REDACTED:API_KEY] and \\x41[REDACTED:API_KEY] and \\101[REDACTED:API_KEY]"
+    },
+    {
+      "name": "v792_corpus_84",
+      "input": "x-api-key: abcdefgh1234;Authorization: Bearer secret12345678",
+      "expected": "x-api-key: [REDACTED:API_KEY] Bearer secret12345678"
+    },
+    {
+      "name": "v792_corpus_85",
+      "input": "password=summer2024(",
+      "expected": "password=summer2024("
+    },
+    {
+      "name": "v792_extra_02",
+      "input": "{\"log\":\"password=\\\"abcd\\\\\\\\\\\" x\"}",
+      "expected": "{\"log\":\"password=\\\"[REDACTED:PASSWORD]\\\" x\"}"
+    },
+    {
+      "name": "v792_extra_03",
+      "input": "{\"log\":\"\\\"token\\\":\\\"abcdefgh1234\\\", \\\"user\\\":\\\"bob\\\"\"}",
+      "expected": "{\"log\":\"\\\"token\\\":\\\"[REDACTED:TOKEN]\\\", \\\"user\\\":\\\"bob\\\"\"}"
+    },
+    {
+      "name": "v792_extra_04",
+      "input": "{\"log\":\"\\\"api_key\\\" :\\t\\\"abcdefgh1234\\\"\"}",
+      "expected": "{\"log\":\"\\\"api_key\\\" :\\t\\\"abcdefgh1234\\\"\"}"
+    },
+    {
+      "name": "v792_extra_05",
+      "input": "apiKey: \"SuperSecretValue99\\\"AccessToken = npm_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"\"",
+      "expected": "apiKey: \"[REDACTED:APIKEY]\""
+    },
+    {
+      "name": "v792_extra_06",
+      "input": "x token=\\\"ab\\\" password=\\\"\\\" nothing \\\"quoted words here\\\" password: \"ab\\\"cdefgh\"",
+      "expected": "x token=\\\"ab\\\" password=\\\"\\\" nothing \\\"quoted words here\\\" password: \"[REDACTED:PASSWORD]\""
+    },
+    {
+      "name": "v792_extra_07",
+      "input": "{\"log\":\"export TOKEN=\\\"abcd1234efgh\\\" && echo \\\"password: \\\"zzzz9999\\\"\\\"\"}",
+      "expected": "{\"log\":\"export TOKEN=\\\"[REDACTED:TOKEN]\\\" && echo \\\"password: \\\"[REDACTED:PASSWORD]\\\"\\\"\"}"
+    },
+    {
+      "name": "v792_extra_08",
+      "input": "{\"log\":\"a\\nb password=\\\"line\\\\nbreak1234\\\" end\"}",
+      "expected": "{\"log\":\"a\\nb password=\\\"[REDACTED:PASSWORD]\\\" end\"}"
+    },
+    {
+      "name": "v792_extra_09",
+      "input": "tokenpassword=\\\"abcdefgh12\\\" mypassword=\\\"abcdefgh12\\\" -password=\\\"abcdefgh12\\\"",
+      "expected": "tokenpassword=\\\"abcdefgh12\\\" mypassword=\\\"abcdefgh12\\\" -password=\\\"abcdefgh12\\\""
+    },
+    {
+      "name": "v792_extra_10",
+      "input": "secret=\\\"unterminated1234 and then password=\\\"closed-1234\\\"",
+      "expected": "secret=\\\"[REDACTED:SECRET]\\\"closed-1234\\\""
+    },
+    {
+      "name": "v792_extra_11",
+      "input": "token=\\\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\" password=\\\"\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\x\\\"",
+      "expected": "token=\\\"[REDACTED:TOKEN]\\\" password=\\\"[REDACTED:PASSWORD]\\\""
+    },
+    {
+      "name": "v792_extra_12",
+      "input": "<private>\nVALUE1234\n</private> then VALUE1234 alone",
+      "expected": "\n[REDACTED:PRIVATE]\n then [REDACTED:PRIVATE] alone"
+    },
+    {
+      "name": "v792_extra_13",
+      "input": "<private> SPACED1234 </private> and SPACED1234",
+      "expected": " [REDACTED:PRIVATE]  and [REDACTED:PRIVATE]"
+    },
+    {
+      "name": "v792_extra_14",
+      "input": "<private>\n  NAME = VALUE5678 \n</private> then VALUE5678",
+      "expected": "\n  [REDACTED:NAME] \n then [REDACTED:NAME]"
+    },
+    {
+      "name": "v792_extra_15",
+      "input": "<private>\tNAME\t=\tVALUE5678\t</private>",
+      "expected": "\t[REDACTED:NAME]\t"
+    },
+    {
+      "name": "v792_extra_16",
+      "input": "<private >one1234567</private> <private\n>two1234567</private\n> < /private> < private> x1234567 </ private >",
+      "expected": "[REDACTED:PRIVATE] [REDACTED:PRIVATE_2] < /private>  [REDACTED:PRIVATE_3] "
+    },
+    {
+      "name": "v792_extra_17",
+      "input": "<PRIVATE >a</PRIVATE > < private >b1234567< / private >",
+      "expected": "[REDACTED:PRIVATE] [REDACTED:PRIVATE_2]"
+    },
+    {
+      "name": "v792_extra_18",
+      "input": "＜private＞this stays＜/private＞ and <private>　 　</private> and <private></private>",
+      "expected": "＜private＞this stays＜/private＞ and [REDACTED] and [REDACTED]"
+    },
+    {
+      "name": "v792_extra_19",
+      "input": "`<private >` mention <private\n>unclosed secret\nnext line",
+      "expected": "`<private >` mention [REDACTED:PRIVATE]\nnext line"
+    },
+    {
+      "name": "v792_extra_20",
+      "input": "<private>NAME=</private> <private>   </private> <private>\n\n</private> end",
+      "expected": "[REDACTED:PRIVATE] [REDACTED] [REDACTED] end"
+    },
+    {
+      "name": "v792_extra_21",
+      "input": "<private> PADDED1234 </private> ﻿<private>﻿BOM12345﻿</private>",
+      "expected": " [REDACTED:PRIVATE]  ﻿﻿[REDACTED:PRIVATE_2]﻿"
+    },
+    {
+      "name": "v792_extra_22",
+      "input": "< /private> < /private><private> two1234 </private >",
+      "expected": "< /private> < /private> [REDACTED:PRIVATE] "
+    },
+    {
+      "name": "v792_extra_23",
+      "input": "<                                        private                                        >x1234567</private>",
+      "expected": "[REDACTED:PRIVATE]"
+    },
+    {
+      "name": "v792_extra_24",
+      "input": "api_key=abcdefgh1234x then \\x41abcdefgh1234x and \\101abcdefgh1234x and \\7abcdefgh1234x and \\eabcdefgh1234x and \\aabcdefgh1234x and \\1234abcdefgh1234x and \\xZZabcdefgh1234x and \\ x abcdefgh1234x",
+      "expected": "api_key=[REDACTED:API_KEY] then \\x41[REDACTED:API_KEY] and \\101[REDACTED:API_KEY] and \\7[REDACTED:API_KEY] and \\e[REDACTED:API_KEY] and \\a[REDACTED:API_KEY] and \\1234abcdefgh1234x and \\xZZabcdefgh1234x and \\ x [REDACTED:API_KEY]"
+    },
+    {
+      "name": "v792_extra_27",
+      "input": "x-api-key: V1value12345;Authorization: Bearer V2value12345",
+      "expected": "x-api-key: [REDACTED:API_KEY] Bearer V2value12345"
+    },
+    {
+      "name": "v792_extra_28",
+      "input": "X-Auth-Token: tok123456789;Authorization: Basic dXNlcjpwYXNz1234;x-foo-token: zzzzzzzz1234",
+      "expected": "X-Auth-Token: [REDACTED:X_AUTH_TOKEN] Basic [REDACTED:AUTHORIZATION] zzzzzzzz1234"
+    },
+    {
+      "name": "v792_extra_29",
+      "input": "token=abcdefghij1😀 and abcdefghij1😀 and 𓿏abcdefghij1 and abcdefghij1𝐀 and 𝐀abcdefghij1",
+      "expected": "token=[REDACTED:TOKEN] and [REDACTED:TOKEN] and 𓿏abcdefghij1 and abcdefghij1𝐀 and 𝐀abcdefghij1"
+    },
+    {
+      "name": "v792_extra_30",
+      "input": "secret: -𓛏< secret: 𓛏𓛏𓛏𓛏 token=😀😀😀😀",
+      "expected": "secret: -𓛏< secret: [REDACTED:SECRET] token=[REDACTED:TOKEN]"
+    },
+    {
+      "name": "v792_extra_31",
+      "input": "password=éééé password=ééé éééé",
+      "expected": "password=[REDACTED:PASSWORD] password=ééé [REDACTED:PASSWORD]"
+    },
+    {
+      "name": "v792_extra_32",
+      "input": "token=ábcd1234 ábcd1234 and xábcd1234 and ábcd1234é",
+      "expected": "token=[REDACTED:TOKEN] [REDACTED:TOKEN] and xábcd1234 and ábcd1234é"
+    },
+    {
+      "name": "v792_extra_33",
+      "input": "password=Summer2024( password=Zx9kQ2mP7(wLr) secret=Zx9kQ2mP7wLr() token=Passw0rd() password = sha256(x) token = MD5(abc) pwd = getPassword(User1) secret = utf8( pwd = hmacSHA256( password=summer2024( password=Abc1Def_2(x)",
+      "expected": "password=[REDACTED:PASSWORD] password=[REDACTED:PASSWORD_2] secret=[REDACTED:SECRET] token=[REDACTED:TOKEN] password = sha256(x) token = MD5(abc) pwd = getPassword(User1) secret = utf8( pwd = hmacSHA256( password=summer2024( password=Abc1Def_2(x)"
+    },
+    {
+      "name": "v792_extra_34",
+      "input": "password = md5($input) token = toBase64(x) pwd = readUInt8(buf) secret = decodeBase64(s) password=Vec3(1,2) token=Sha256(abc)",
+      "expected": "password = md5($input) token = toBase64(x) pwd = readUInt8(buf) secret = decodeBase64(s) password=[REDACTED:PASSWORD],2) token=[REDACTED:TOKEN]"
+    },
+    {
+      "name": "v792_many_values",
+      "input": "password=val00000X password=val00001X password=val00002X password=val00003X password=val00004X password=val00005X password=val00006X password=val00007X password=val00008X password=val00009X password=val00010X password=val00011X password=val00012X password=val00013X password=val00014X password=val00015X password=val00016X password=val00017X password=val00018X password=val00019X password=val00020X password=val00021X password=val00022X password=val00023X password=val00024X password=val00025X password=val00026X password=val00027X password=val00028X password=val00029X password=val00030X password=val00031X password=val00032X password=val00033X password=val00034X password=val00035X password=val00036X password=val00037X password=val00038X password=val00039X password=val00040X password=val00041X password=val00042X password=val00043X password=val00044X password=val00045X password=val00046X password=val00047X password=val00048X password=val00049X password=val00050X password=val00051X password=val00052X password=val00053X password=val00054X password=val00055X password=val00056X password=val00057X password=val00058X password=val00059X password=val00060X password=val00061X password=val00062X password=val00063X password=val00064X password=val00065X password=val00066X password=val00067X password=val00068X password=val00069X password=val00070X password=val00071X password=val00072X password=val00073X password=val00074X password=val00075X password=val00076X password=val00077X password=val00078X password=val00079X password=val00080X password=val00081X password=val00082X password=val00083X password=val00084X password=val00085X password=val00086X password=val00087X password=val00088X password=val00089X password=val00090X password=val00091X password=val00092X password=val00093X password=val00094X password=val00095X password=val00096X password=val00097X password=val00098X password=val00099X password=val00100X password=val00101X password=val00102X password=val00103X password=val00104X password=val00105X password=val00106X password=val00107X password=val00108X password=val00109X password=val00110X password=val00111X password=val00112X password=val00113X password=val00114X password=val00115X password=val00116X password=val00117X password=val00118X password=val00119X password=val00120X password=val00121X password=val00122X password=val00123X password=val00124X password=val00125X password=val00126X password=val00127X password=val00128X password=val00129X password=val00130X password=val00131X password=val00132X password=val00133X password=val00134X password=val00135X password=val00136X password=val00137X password=val00138X password=val00139X password=val00140X password=val00141X password=val00142X password=val00143X password=val00144X password=val00145X password=val00146X password=val00147X password=val00148X password=val00149X password=val00150X password=val00151X password=val00152X password=val00153X password=val00154X password=val00155X password=val00156X password=val00157X password=val00158X password=val00159X password=val00160X password=val00161X password=val00162X password=val00163X password=val00164X password=val00165X password=val00166X password=val00167X password=val00168X password=val00169X password=val00170X password=val00171X password=val00172X password=val00173X password=val00174X password=val00175X password=val00176X password=val00177X password=val00178X password=val00179X password=val00180X password=val00181X password=val00182X password=val00183X password=val00184X password=val00185X password=val00186X password=val00187X password=val00188X password=val00189X password=val00190X password=val00191X password=val00192X password=val00193X password=val00194X password=val00195X password=val00196X password=val00197X password=val00198X password=val00199X password=val00200X password=val00201X password=val00202X password=val00203X password=val00204X password=val00205X password=val00206X password=val00207X password=val00208X password=val00209X password=val00210X password=val00211X password=val00212X password=val00213X password=val00214X password=val00215X password=val00216X password=val00217X password=val00218X password=val00219X password=val00220X password=val00221X password=val00222X password=val00223X password=val00224X password=val00225X password=val00226X password=val00227X password=val00228X password=val00229X password=val00230X password=val00231X password=val00232X password=val00233X password=val00234X password=val00235X password=val00236X password=val00237X password=val00238X password=val00239X password=val00240X password=val00241X password=val00242X password=val00243X password=val00244X password=val00245X password=val00246X password=val00247X password=val00248X password=val00249X password=val00250X password=val00251X password=val00252X password=val00253X password=val00254X password=val00255X password=val00256X password=val00257X password=val00258X password=val00259X password=val00260X password=val00261X password=val00262X password=val00263X password=val00264X password=val00265X password=val00266X password=val00267X password=val00268X password=val00269X password=val00270X password=val00271X password=val00272X password=val00273X password=val00274X password=val00275X password=val00276X password=val00277X password=val00278X password=val00279X password=val00280X password=val00281X password=val00282X password=val00283X password=val00284X password=val00285X password=val00286X password=val00287X password=val00288X password=val00289X password=val00290X password=val00291X password=val00292X password=val00293X password=val00294X password=val00295X password=val00296X password=val00297X password=val00298X password=val00299X tail val00000X val00003X val00006X val00009X val00012X val00015X val00018X val00021X val00024X val00027X val00030X val00033X val00036X val00039X val00042X val00045X val00048X val00051X val00054X val00057X val00060X val00063X val00066X val00069X val00072X val00075X val00078X val00081X val00084X val00087X val00090X val00093X val00096X val00099X val00102X val00105X val00108X val00111X val00114X val00117X val00120X val00123X val00126X val00129X val00132X val00135X val00138X val00141X val00144X val00147X val00150X val00153X val00156X val00159X val00162X val00165X val00168X val00171X val00174X val00177X val00180X val00183X val00186X val00189X val00192X val00195X val00198X val00201X val00204X val00207X val00210X val00213X val00216X val00219X val00222X val00225X val00228X val00231X val00234X val00237X val00240X val00243X val00246X val00249X val00252X val00255X val00258X val00261X val00264X val00267X val00270X val00273X val00276X val00279X val00282X val00285X val00288X val00291X val00294X val00297X and xval00000X",
+      "expected": "password=[REDACTED:PASSWORD] password=[REDACTED:PASSWORD_2] password=[REDACTED:PASSWORD_3] password=[REDACTED:PASSWORD_4] password=[REDACTED:PASSWORD_5] password=[REDACTED:PASSWORD_6] password=[REDACTED:PASSWORD_7] password=[REDACTED:PASSWORD_8] password=[REDACTED:PASSWORD_9] password=[REDACTED:PASSWORD_10] password=[REDACTED:PASSWORD_11] password=[REDACTED:PASSWORD_12] password=[REDACTED:PASSWORD_13] password=[REDACTED:PASSWORD_14] password=[REDACTED:PASSWORD_15] password=[REDACTED:PASSWORD_16] password=[REDACTED:PASSWORD_17] password=[REDACTED:PASSWORD_18] password=[REDACTED:PASSWORD_19] password=[REDACTED:PASSWORD_20] password=[REDACTED:PASSWORD_21] password=[REDACTED:PASSWORD_22] password=[REDACTED:PASSWORD_23] password=[REDACTED:PASSWORD_24] password=[REDACTED:PASSWORD_25] password=[REDACTED:PASSWORD_26] password=[REDACTED:PASSWORD_27] password=[REDACTED:PASSWORD_28] password=[REDACTED:PASSWORD_29] password=[REDACTED:PASSWORD_30] password=[REDACTED:PASSWORD_31] password=[REDACTED:PASSWORD_32] password=[REDACTED:PASSWORD_33] password=[REDACTED:PASSWORD_34] password=[REDACTED:PASSWORD_35] password=[REDACTED:PASSWORD_36] password=[REDACTED:PASSWORD_37] password=[REDACTED:PASSWORD_38] password=[REDACTED:PASSWORD_39] password=[REDACTED:PASSWORD_40] password=[REDACTED:PASSWORD_41] password=[REDACTED:PASSWORD_42] password=[REDACTED:PASSWORD_43] password=[REDACTED:PASSWORD_44] password=[REDACTED:PASSWORD_45] password=[REDACTED:PASSWORD_46] password=[REDACTED:PASSWORD_47] password=[REDACTED:PASSWORD_48] password=[REDACTED:PASSWORD_49] password=[REDACTED:PASSWORD_50] password=[REDACTED:PASSWORD_51] password=[REDACTED:PASSWORD_52] password=[REDACTED:PASSWORD_53] password=[REDACTED:PASSWORD_54] password=[REDACTED:PASSWORD_55] password=[REDACTED:PASSWORD_56] password=[REDACTED:PASSWORD_57] password=[REDACTED:PASSWORD_58] password=[REDACTED:PASSWORD_59] password=[REDACTED:PASSWORD_60] password=[REDACTED:PASSWORD_61] password=[REDACTED:PASSWORD_62] password=[REDACTED:PASSWORD_63] password=[REDACTED:PASSWORD_64] password=[REDACTED:PASSWORD_65] password=[REDACTED:PASSWORD_66] password=[REDACTED:PASSWORD_67] password=[REDACTED:PASSWORD_68] password=[REDACTED:PASSWORD_69] password=[REDACTED:PASSWORD_70] password=[REDACTED:PASSWORD_71] password=[REDACTED:PASSWORD_72] password=[REDACTED:PASSWORD_73] password=[REDACTED:PASSWORD_74] password=[REDACTED:PASSWORD_75] password=[REDACTED:PASSWORD_76] password=[REDACTED:PASSWORD_77] password=[REDACTED:PASSWORD_78] password=[REDACTED:PASSWORD_79] password=[REDACTED:PASSWORD_80] password=[REDACTED:PASSWORD_81] password=[REDACTED:PASSWORD_82] password=[REDACTED:PASSWORD_83] password=[REDACTED:PASSWORD_84] password=[REDACTED:PASSWORD_85] password=[REDACTED:PASSWORD_86] password=[REDACTED:PASSWORD_87] password=[REDACTED:PASSWORD_88] password=[REDACTED:PASSWORD_89] password=[REDACTED:PASSWORD_90] password=[REDACTED:PASSWORD_91] password=[REDACTED:PASSWORD_92] password=[REDACTED:PASSWORD_93] password=[REDACTED:PASSWORD_94] password=[REDACTED:PASSWORD_95] password=[REDACTED:PASSWORD_96] password=[REDACTED:PASSWORD_97] password=[REDACTED:PASSWORD_98] password=[REDACTED:PASSWORD_99] password=[REDACTED:PASSWORD_100] password=[REDACTED:PASSWORD_101] password=[REDACTED:PASSWORD_102] password=[REDACTED:PASSWORD_103] password=[REDACTED:PASSWORD_104] password=[REDACTED:PASSWORD_105] password=[REDACTED:PASSWORD_106] password=[REDACTED:PASSWORD_107] password=[REDACTED:PASSWORD_108] password=[REDACTED:PASSWORD_109] password=[REDACTED:PASSWORD_110] password=[REDACTED:PASSWORD_111] password=[REDACTED:PASSWORD_112] password=[REDACTED:PASSWORD_113] password=[REDACTED:PASSWORD_114] password=[REDACTED:PASSWORD_115] password=[REDACTED:PASSWORD_116] password=[REDACTED:PASSWORD_117] password=[REDACTED:PASSWORD_118] password=[REDACTED:PASSWORD_119] password=[REDACTED:PASSWORD_120] password=[REDACTED:PASSWORD_121] password=[REDACTED:PASSWORD_122] password=[REDACTED:PASSWORD_123] password=[REDACTED:PASSWORD_124] password=[REDACTED:PASSWORD_125] password=[REDACTED:PASSWORD_126] password=[REDACTED:PASSWORD_127] password=[REDACTED:PASSWORD_128] password=[REDACTED:PASSWORD_129] password=[REDACTED:PASSWORD_130] password=[REDACTED:PASSWORD_131] password=[REDACTED:PASSWORD_132] password=[REDACTED:PASSWORD_133] password=[REDACTED:PASSWORD_134] password=[REDACTED:PASSWORD_135] password=[REDACTED:PASSWORD_136] password=[REDACTED:PASSWORD_137] password=[REDACTED:PASSWORD_138] password=[REDACTED:PASSWORD_139] password=[REDACTED:PASSWORD_140] password=[REDACTED:PASSWORD_141] password=[REDACTED:PASSWORD_142] password=[REDACTED:PASSWORD_143] password=[REDACTED:PASSWORD_144] password=[REDACTED:PASSWORD_145] password=[REDACTED:PASSWORD_146] password=[REDACTED:PASSWORD_147] password=[REDACTED:PASSWORD_148] password=[REDACTED:PASSWORD_149] password=[REDACTED:PASSWORD_150] password=[REDACTED:PASSWORD_151] password=[REDACTED:PASSWORD_152] password=[REDACTED:PASSWORD_153] password=[REDACTED:PASSWORD_154] password=[REDACTED:PASSWORD_155] password=[REDACTED:PASSWORD_156] password=[REDACTED:PASSWORD_157] password=[REDACTED:PASSWORD_158] password=[REDACTED:PASSWORD_159] password=[REDACTED:PASSWORD_160] password=[REDACTED:PASSWORD_161] password=[REDACTED:PASSWORD_162] password=[REDACTED:PASSWORD_163] password=[REDACTED:PASSWORD_164] password=[REDACTED:PASSWORD_165] password=[REDACTED:PASSWORD_166] password=[REDACTED:PASSWORD_167] password=[REDACTED:PASSWORD_168] password=[REDACTED:PASSWORD_169] password=[REDACTED:PASSWORD_170] password=[REDACTED:PASSWORD_171] password=[REDACTED:PASSWORD_172] password=[REDACTED:PASSWORD_173] password=[REDACTED:PASSWORD_174] password=[REDACTED:PASSWORD_175] password=[REDACTED:PASSWORD_176] password=[REDACTED:PASSWORD_177] password=[REDACTED:PASSWORD_178] password=[REDACTED:PASSWORD_179] password=[REDACTED:PASSWORD_180] password=[REDACTED:PASSWORD_181] password=[REDACTED:PASSWORD_182] password=[REDACTED:PASSWORD_183] password=[REDACTED:PASSWORD_184] password=[REDACTED:PASSWORD_185] password=[REDACTED:PASSWORD_186] password=[REDACTED:PASSWORD_187] password=[REDACTED:PASSWORD_188] password=[REDACTED:PASSWORD_189] password=[REDACTED:PASSWORD_190] password=[REDACTED:PASSWORD_191] password=[REDACTED:PASSWORD_192] password=[REDACTED:PASSWORD_193] password=[REDACTED:PASSWORD_194] password=[REDACTED:PASSWORD_195] password=[REDACTED:PASSWORD_196] password=[REDACTED:PASSWORD_197] password=[REDACTED:PASSWORD_198] password=[REDACTED:PASSWORD_199] password=[REDACTED:PASSWORD_200] password=[REDACTED:PASSWORD_201] password=[REDACTED:PASSWORD_202] password=[REDACTED:PASSWORD_203] password=[REDACTED:PASSWORD_204] password=[REDACTED:PASSWORD_205] password=[REDACTED:PASSWORD_206] password=[REDACTED:PASSWORD_207] password=[REDACTED:PASSWORD_208] password=[REDACTED:PASSWORD_209] password=[REDACTED:PASSWORD_210] password=[REDACTED:PASSWORD_211] password=[REDACTED:PASSWORD_212] password=[REDACTED:PASSWORD_213] password=[REDACTED:PASSWORD_214] password=[REDACTED:PASSWORD_215] password=[REDACTED:PASSWORD_216] password=[REDACTED:PASSWORD_217] password=[REDACTED:PASSWORD_218] password=[REDACTED:PASSWORD_219] password=[REDACTED:PASSWORD_220] password=[REDACTED:PASSWORD_221] password=[REDACTED:PASSWORD_222] password=[REDACTED:PASSWORD_223] password=[REDACTED:PASSWORD_224] password=[REDACTED:PASSWORD_225] password=[REDACTED:PASSWORD_226] password=[REDACTED:PASSWORD_227] password=[REDACTED:PASSWORD_228] password=[REDACTED:PASSWORD_229] password=[REDACTED:PASSWORD_230] password=[REDACTED:PASSWORD_231] password=[REDACTED:PASSWORD_232] password=[REDACTED:PASSWORD_233] password=[REDACTED:PASSWORD_234] password=[REDACTED:PASSWORD_235] password=[REDACTED:PASSWORD_236] password=[REDACTED:PASSWORD_237] password=[REDACTED:PASSWORD_238] password=[REDACTED:PASSWORD_239] password=[REDACTED:PASSWORD_240] password=[REDACTED:PASSWORD_241] password=[REDACTED:PASSWORD_242] password=[REDACTED:PASSWORD_243] password=[REDACTED:PASSWORD_244] password=[REDACTED:PASSWORD_245] password=[REDACTED:PASSWORD_246] password=[REDACTED:PASSWORD_247] password=[REDACTED:PASSWORD_248] password=[REDACTED:PASSWORD_249] password=[REDACTED:PASSWORD_250] password=[REDACTED:PASSWORD_251] password=[REDACTED:PASSWORD_252] password=[REDACTED:PASSWORD_253] password=[REDACTED:PASSWORD_254] password=[REDACTED:PASSWORD_255] password=[REDACTED:PASSWORD_256] password=[REDACTED:PASSWORD_257] password=[REDACTED:PASSWORD_258] password=[REDACTED:PASSWORD_259] password=[REDACTED:PASSWORD_260] password=[REDACTED:PASSWORD_261] password=[REDACTED:PASSWORD_262] password=[REDACTED:PASSWORD_263] password=[REDACTED:PASSWORD_264] password=[REDACTED:PASSWORD_265] password=[REDACTED:PASSWORD_266] password=[REDACTED:PASSWORD_267] password=[REDACTED:PASSWORD_268] password=[REDACTED:PASSWORD_269] password=[REDACTED:PASSWORD_270] password=[REDACTED:PASSWORD_271] password=[REDACTED:PASSWORD_272] password=[REDACTED:PASSWORD_273] password=[REDACTED:PASSWORD_274] password=[REDACTED:PASSWORD_275] password=[REDACTED:PASSWORD_276] password=[REDACTED:PASSWORD_277] password=[REDACTED:PASSWORD_278] password=[REDACTED:PASSWORD_279] password=[REDACTED:PASSWORD_280] password=[REDACTED:PASSWORD_281] password=[REDACTED:PASSWORD_282] password=[REDACTED:PASSWORD_283] password=[REDACTED:PASSWORD_284] password=[REDACTED:PASSWORD_285] password=[REDACTED:PASSWORD_286] password=[REDACTED:PASSWORD_287] password=[REDACTED:PASSWORD_288] password=[REDACTED:PASSWORD_289] password=[REDACTED:PASSWORD_290] password=[REDACTED:PASSWORD_291] password=[REDACTED:PASSWORD_292] password=[REDACTED:PASSWORD_293] password=[REDACTED:PASSWORD_294] password=[REDACTED:PASSWORD_295] password=[REDACTED:PASSWORD_296] password=[REDACTED:PASSWORD_297] password=[REDACTED:PASSWORD_298] password=[REDACTED:PASSWORD_299] password=[REDACTED:PASSWORD_300] tail [REDACTED:PASSWORD] [REDACTED:PASSWORD_4] [REDACTED:PASSWORD_7] [REDACTED:PASSWORD_10] [REDACTED:PASSWORD_13] [REDACTED:PASSWORD_16] [REDACTED:PASSWORD_19] [REDACTED:PASSWORD_22] [REDACTED:PASSWORD_25] [REDACTED:PASSWORD_28] [REDACTED:PASSWORD_31] [REDACTED:PASSWORD_34] [REDACTED:PASSWORD_37] [REDACTED:PASSWORD_40] [REDACTED:PASSWORD_43] [REDACTED:PASSWORD_46] [REDACTED:PASSWORD_49] [REDACTED:PASSWORD_52] [REDACTED:PASSWORD_55] [REDACTED:PASSWORD_58] [REDACTED:PASSWORD_61] [REDACTED:PASSWORD_64] [REDACTED:PASSWORD_67] [REDACTED:PASSWORD_70] [REDACTED:PASSWORD_73] [REDACTED:PASSWORD_76] [REDACTED:PASSWORD_79] [REDACTED:PASSWORD_82] [REDACTED:PASSWORD_85] [REDACTED:PASSWORD_88] [REDACTED:PASSWORD_91] [REDACTED:PASSWORD_94] [REDACTED:PASSWORD_97] [REDACTED:PASSWORD_100] [REDACTED:PASSWORD_103] [REDACTED:PASSWORD_106] [REDACTED:PASSWORD_109] [REDACTED:PASSWORD_112] [REDACTED:PASSWORD_115] [REDACTED:PASSWORD_118] [REDACTED:PASSWORD_121] [REDACTED:PASSWORD_124] [REDACTED:PASSWORD_127] [REDACTED:PASSWORD_130] [REDACTED:PASSWORD_133] [REDACTED:PASSWORD_136] [REDACTED:PASSWORD_139] [REDACTED:PASSWORD_142] [REDACTED:PASSWORD_145] [REDACTED:PASSWORD_148] [REDACTED:PASSWORD_151] [REDACTED:PASSWORD_154] [REDACTED:PASSWORD_157] [REDACTED:PASSWORD_160] [REDACTED:PASSWORD_163] [REDACTED:PASSWORD_166] [REDACTED:PASSWORD_169] [REDACTED:PASSWORD_172] [REDACTED:PASSWORD_175] [REDACTED:PASSWORD_178] [REDACTED:PASSWORD_181] [REDACTED:PASSWORD_184] [REDACTED:PASSWORD_187] [REDACTED:PASSWORD_190] [REDACTED:PASSWORD_193] [REDACTED:PASSWORD_196] [REDACTED:PASSWORD_199] [REDACTED:PASSWORD_202] [REDACTED:PASSWORD_205] [REDACTED:PASSWORD_208] [REDACTED:PASSWORD_211] [REDACTED:PASSWORD_214] [REDACTED:PASSWORD_217] [REDACTED:PASSWORD_220] [REDACTED:PASSWORD_223] [REDACTED:PASSWORD_226] [REDACTED:PASSWORD_229] [REDACTED:PASSWORD_232] [REDACTED:PASSWORD_235] [REDACTED:PASSWORD_238] [REDACTED:PASSWORD_241] [REDACTED:PASSWORD_244] [REDACTED:PASSWORD_247] [REDACTED:PASSWORD_250] [REDACTED:PASSWORD_253] [REDACTED:PASSWORD_256] [REDACTED:PASSWORD_259] [REDACTED:PASSWORD_262] [REDACTED:PASSWORD_265] [REDACTED:PASSWORD_268] [REDACTED:PASSWORD_271] [REDACTED:PASSWORD_274] [REDACTED:PASSWORD_277] [REDACTED:PASSWORD_280] [REDACTED:PASSWORD_283] [REDACTED:PASSWORD_286] [REDACTED:PASSWORD_289] [REDACTED:PASSWORD_292] [REDACTED:PASSWORD_295] [REDACTED:PASSWORD_298] and xval00000X"
+    },
+    {
+      "name": "v792_repeated_values",
+      "input": "api_key=tok000Q7z api_key=tok001Q7z api_key=tok002Q7z api_key=tok003Q7z api_key=tok004Q7z api_key=tok005Q7z api_key=tok006Q7z api_key=tok007Q7z api_key=tok008Q7z api_key=tok009Q7z api_key=tok010Q7z api_key=tok011Q7z api_key=tok012Q7z api_key=tok013Q7z api_key=tok014Q7z api_key=tok015Q7z api_key=tok016Q7z api_key=tok017Q7z api_key=tok018Q7z api_key=tok019Q7z api_key=tok020Q7z api_key=tok021Q7z api_key=tok022Q7z api_key=tok023Q7z api_key=tok024Q7z api_key=tok025Q7z api_key=tok026Q7z api_key=tok027Q7z api_key=tok028Q7z api_key=tok029Q7z api_key=tok030Q7z api_key=tok031Q7z api_key=tok032Q7z api_key=tok033Q7z api_key=tok034Q7z api_key=tok035Q7z api_key=tok036Q7z api_key=tok037Q7z api_key=tok038Q7z api_key=tok039Q7z api_key=tok040Q7z api_key=tok041Q7z api_key=tok042Q7z api_key=tok043Q7z api_key=tok044Q7z api_key=tok045Q7z api_key=tok046Q7z api_key=tok047Q7z api_key=tok048Q7z api_key=tok049Q7z api_key=tok050Q7z api_key=tok051Q7z api_key=tok052Q7z api_key=tok053Q7z api_key=tok054Q7z api_key=tok055Q7z api_key=tok056Q7z api_key=tok057Q7z api_key=tok058Q7z api_key=tok059Q7z api_key=tok060Q7z api_key=tok061Q7z api_key=tok062Q7z api_key=tok063Q7z api_key=tok064Q7z api_key=tok065Q7z api_key=tok066Q7z api_key=tok067Q7z api_key=tok068Q7z api_key=tok069Q7z api_key=tok070Q7z api_key=tok071Q7z api_key=tok072Q7z api_key=tok073Q7z api_key=tok074Q7z api_key=tok075Q7z api_key=tok076Q7z api_key=tok077Q7z api_key=tok078Q7z api_key=tok079Q7z api_key=tok080Q7z api_key=tok081Q7z api_key=tok082Q7z api_key=tok083Q7z api_key=tok084Q7z api_key=tok085Q7z api_key=tok086Q7z api_key=tok087Q7z api_key=tok088Q7z api_key=tok089Q7z | tok000Q7z tok001Q7z tok002Q7z tok003Q7z tok004Q7z tok005Q7z tok006Q7z tok007Q7z tok008Q7z tok009Q7z tok010Q7z tok011Q7z tok012Q7z tok013Q7z tok014Q7z tok015Q7z tok016Q7z tok017Q7z tok018Q7z tok019Q7z tok020Q7z tok021Q7z tok022Q7z tok023Q7z tok024Q7z tok025Q7z tok026Q7z tok027Q7z tok028Q7z tok029Q7z tok030Q7z tok031Q7z tok032Q7z tok033Q7z tok034Q7z tok035Q7z tok036Q7z tok037Q7z tok038Q7z tok039Q7z tok040Q7z tok041Q7z tok042Q7z tok043Q7z tok044Q7z tok045Q7z tok046Q7z tok047Q7z tok048Q7z tok049Q7z tok050Q7z tok051Q7z tok052Q7z tok053Q7z tok054Q7z tok055Q7z tok056Q7z tok057Q7z tok058Q7z tok059Q7z tok060Q7z tok061Q7z tok062Q7z tok063Q7z tok064Q7z tok065Q7z tok066Q7z tok067Q7z tok068Q7z tok069Q7z tok070Q7z tok071Q7z tok072Q7z tok073Q7z tok074Q7z tok075Q7z tok076Q7z tok077Q7z tok078Q7z tok079Q7z tok080Q7z tok081Q7z tok082Q7z tok083Q7z tok084Q7z tok085Q7z tok086Q7z tok087Q7z tok088Q7z tok089Q7z | tok000Q7z tok001Q7z tok002Q7z tok003Q7z tok004Q7z tok005Q7z tok006Q7z tok007Q7z tok008Q7z tok009Q7z tok010Q7z tok011Q7z tok012Q7z tok013Q7z tok014Q7z tok015Q7z tok016Q7z tok017Q7z tok018Q7z tok019Q7z tok020Q7z tok021Q7z tok022Q7z tok023Q7z tok024Q7z tok025Q7z tok026Q7z tok027Q7z tok028Q7z tok029Q7z tok030Q7z tok031Q7z tok032Q7z tok033Q7z tok034Q7z tok035Q7z tok036Q7z tok037Q7z tok038Q7z tok039Q7z tok040Q7z tok041Q7z tok042Q7z tok043Q7z tok044Q7z tok045Q7z tok046Q7z tok047Q7z tok048Q7z tok049Q7z tok050Q7z tok051Q7z tok052Q7z tok053Q7z tok054Q7z tok055Q7z tok056Q7z tok057Q7z tok058Q7z tok059Q7z tok060Q7z tok061Q7z tok062Q7z tok063Q7z tok064Q7z tok065Q7z tok066Q7z tok067Q7z tok068Q7z tok069Q7z tok070Q7z tok071Q7z tok072Q7z tok073Q7z tok074Q7z tok075Q7z tok076Q7z tok077Q7z tok078Q7z tok079Q7z tok080Q7z tok081Q7z tok082Q7z tok083Q7z tok084Q7z tok085Q7z tok086Q7z tok087Q7z tok088Q7z tok089Q7z | tok000Q7z tok001Q7z tok002Q7z tok003Q7z tok004Q7z tok005Q7z tok006Q7z tok007Q7z tok008Q7z tok009Q7z tok010Q7z tok011Q7z tok012Q7z tok013Q7z tok014Q7z tok015Q7z tok016Q7z tok017Q7z tok018Q7z tok019Q7z tok020Q7z tok021Q7z tok022Q7z tok023Q7z tok024Q7z tok025Q7z tok026Q7z tok027Q7z tok028Q7z tok029Q7z tok030Q7z tok031Q7z tok032Q7z tok033Q7z tok034Q7z tok035Q7z tok036Q7z tok037Q7z tok038Q7z tok039Q7z tok040Q7z tok041Q7z tok042Q7z tok043Q7z tok044Q7z tok045Q7z tok046Q7z tok047Q7z tok048Q7z tok049Q7z tok050Q7z tok051Q7z tok052Q7z tok053Q7z tok054Q7z tok055Q7z tok056Q7z tok057Q7z tok058Q7z tok059Q7z tok060Q7z tok061Q7z tok062Q7z tok063Q7z tok064Q7z tok065Q7z tok066Q7z tok067Q7z tok068Q7z tok069Q7z tok070Q7z tok071Q7z tok072Q7z tok073Q7z tok074Q7z tok075Q7z tok076Q7z tok077Q7z tok078Q7z tok079Q7z tok080Q7z tok081Q7z tok082Q7z tok083Q7z tok084Q7z tok085Q7z tok086Q7z tok087Q7z tok088Q7z tok089Q7z",
+      "expected": "api_key=[REDACTED:API_KEY] api_key=[REDACTED:API_KEY_2] api_key=[REDACTED:API_KEY_3] api_key=[REDACTED:API_KEY_4] api_key=[REDACTED:API_KEY_5] api_key=[REDACTED:API_KEY_6] api_key=[REDACTED:API_KEY_7] api_key=[REDACTED:API_KEY_8] api_key=[REDACTED:API_KEY_9] api_key=[REDACTED:API_KEY_10] api_key=[REDACTED:API_KEY_11] api_key=[REDACTED:API_KEY_12] api_key=[REDACTED:API_KEY_13] api_key=[REDACTED:API_KEY_14] api_key=[REDACTED:API_KEY_15] api_key=[REDACTED:API_KEY_16] api_key=[REDACTED:API_KEY_17] api_key=[REDACTED:API_KEY_18] api_key=[REDACTED:API_KEY_19] api_key=[REDACTED:API_KEY_20] api_key=[REDACTED:API_KEY_21] api_key=[REDACTED:API_KEY_22] api_key=[REDACTED:API_KEY_23] api_key=[REDACTED:API_KEY_24] api_key=[REDACTED:API_KEY_25] api_key=[REDACTED:API_KEY_26] api_key=[REDACTED:API_KEY_27] api_key=[REDACTED:API_KEY_28] api_key=[REDACTED:API_KEY_29] api_key=[REDACTED:API_KEY_30] api_key=[REDACTED:API_KEY_31] api_key=[REDACTED:API_KEY_32] api_key=[REDACTED:API_KEY_33] api_key=[REDACTED:API_KEY_34] api_key=[REDACTED:API_KEY_35] api_key=[REDACTED:API_KEY_36] api_key=[REDACTED:API_KEY_37] api_key=[REDACTED:API_KEY_38] api_key=[REDACTED:API_KEY_39] api_key=[REDACTED:API_KEY_40] api_key=[REDACTED:API_KEY_41] api_key=[REDACTED:API_KEY_42] api_key=[REDACTED:API_KEY_43] api_key=[REDACTED:API_KEY_44] api_key=[REDACTED:API_KEY_45] api_key=[REDACTED:API_KEY_46] api_key=[REDACTED:API_KEY_47] api_key=[REDACTED:API_KEY_48] api_key=[REDACTED:API_KEY_49] api_key=[REDACTED:API_KEY_50] api_key=[REDACTED:API_KEY_51] api_key=[REDACTED:API_KEY_52] api_key=[REDACTED:API_KEY_53] api_key=[REDACTED:API_KEY_54] api_key=[REDACTED:API_KEY_55] api_key=[REDACTED:API_KEY_56] api_key=[REDACTED:API_KEY_57] api_key=[REDACTED:API_KEY_58] api_key=[REDACTED:API_KEY_59] api_key=[REDACTED:API_KEY_60] api_key=[REDACTED:API_KEY_61] api_key=[REDACTED:API_KEY_62] api_key=[REDACTED:API_KEY_63] api_key=[REDACTED:API_KEY_64] api_key=[REDACTED:API_KEY_65] api_key=[REDACTED:API_KEY_66] api_key=[REDACTED:API_KEY_67] api_key=[REDACTED:API_KEY_68] api_key=[REDACTED:API_KEY_69] api_key=[REDACTED:API_KEY_70] api_key=[REDACTED:API_KEY_71] api_key=[REDACTED:API_KEY_72] api_key=[REDACTED:API_KEY_73] api_key=[REDACTED:API_KEY_74] api_key=[REDACTED:API_KEY_75] api_key=[REDACTED:API_KEY_76] api_key=[REDACTED:API_KEY_77] api_key=[REDACTED:API_KEY_78] api_key=[REDACTED:API_KEY_79] api_key=[REDACTED:API_KEY_80] api_key=[REDACTED:API_KEY_81] api_key=[REDACTED:API_KEY_82] api_key=[REDACTED:API_KEY_83] api_key=[REDACTED:API_KEY_84] api_key=[REDACTED:API_KEY_85] api_key=[REDACTED:API_KEY_86] api_key=[REDACTED:API_KEY_87] api_key=[REDACTED:API_KEY_88] api_key=[REDACTED:API_KEY_89] api_key=[REDACTED:API_KEY_90] | [REDACTED:API_KEY] [REDACTED:API_KEY_2] [REDACTED:API_KEY_3] [REDACTED:API_KEY_4] [REDACTED:API_KEY_5] [REDACTED:API_KEY_6] [REDACTED:API_KEY_7] [REDACTED:API_KEY_8] [REDACTED:API_KEY_9] [REDACTED:API_KEY_10] [REDACTED:API_KEY_11] [REDACTED:API_KEY_12] [REDACTED:API_KEY_13] [REDACTED:API_KEY_14] [REDACTED:API_KEY_15] [REDACTED:API_KEY_16] [REDACTED:API_KEY_17] [REDACTED:API_KEY_18] [REDACTED:API_KEY_19] [REDACTED:API_KEY_20] [REDACTED:API_KEY_21] [REDACTED:API_KEY_22] [REDACTED:API_KEY_23] [REDACTED:API_KEY_24] [REDACTED:API_KEY_25] [REDACTED:API_KEY_26] [REDACTED:API_KEY_27] [REDACTED:API_KEY_28] [REDACTED:API_KEY_29] [REDACTED:API_KEY_30] [REDACTED:API_KEY_31] [REDACTED:API_KEY_32] [REDACTED:API_KEY_33] [REDACTED:API_KEY_34] [REDACTED:API_KEY_35] [REDACTED:API_KEY_36] [REDACTED:API_KEY_37] [REDACTED:API_KEY_38] [REDACTED:API_KEY_39] [REDACTED:API_KEY_40] [REDACTED:API_KEY_41] [REDACTED:API_KEY_42] [REDACTED:API_KEY_43] [REDACTED:API_KEY_44] [REDACTED:API_KEY_45] [REDACTED:API_KEY_46] [REDACTED:API_KEY_47] [REDACTED:API_KEY_48] [REDACTED:API_KEY_49] [REDACTED:API_KEY_50] [REDACTED:API_KEY_51] [REDACTED:API_KEY_52] [REDACTED:API_KEY_53] [REDACTED:API_KEY_54] [REDACTED:API_KEY_55] [REDACTED:API_KEY_56] [REDACTED:API_KEY_57] [REDACTED:API_KEY_58] [REDACTED:API_KEY_59] [REDACTED:API_KEY_60] [REDACTED:API_KEY_61] [REDACTED:API_KEY_62] [REDACTED:API_KEY_63] [REDACTED:API_KEY_64] [REDACTED:API_KEY_65] [REDACTED:API_KEY_66] [REDACTED:API_KEY_67] [REDACTED:API_KEY_68] [REDACTED:API_KEY_69] [REDACTED:API_KEY_70] [REDACTED:API_KEY_71] [REDACTED:API_KEY_72] [REDACTED:API_KEY_73] [REDACTED:API_KEY_74] [REDACTED:API_KEY_75] [REDACTED:API_KEY_76] [REDACTED:API_KEY_77] [REDACTED:API_KEY_78] [REDACTED:API_KEY_79] [REDACTED:API_KEY_80] [REDACTED:API_KEY_81] [REDACTED:API_KEY_82] [REDACTED:API_KEY_83] [REDACTED:API_KEY_84] [REDACTED:API_KEY_85] [REDACTED:API_KEY_86] [REDACTED:API_KEY_87] [REDACTED:API_KEY_88] [REDACTED:API_KEY_89] [REDACTED:API_KEY_90] | [REDACTED:API_KEY] [REDACTED:API_KEY_2] [REDACTED:API_KEY_3] [REDACTED:API_KEY_4] [REDACTED:API_KEY_5] [REDACTED:API_KEY_6] [REDACTED:API_KEY_7] [REDACTED:API_KEY_8] [REDACTED:API_KEY_9] [REDACTED:API_KEY_10] [REDACTED:API_KEY_11] [REDACTED:API_KEY_12] [REDACTED:API_KEY_13] [REDACTED:API_KEY_14] [REDACTED:API_KEY_15] [REDACTED:API_KEY_16] [REDACTED:API_KEY_17] [REDACTED:API_KEY_18] [REDACTED:API_KEY_19] [REDACTED:API_KEY_20] [REDACTED:API_KEY_21] [REDACTED:API_KEY_22] [REDACTED:API_KEY_23] [REDACTED:API_KEY_24] [REDACTED:API_KEY_25] [REDACTED:API_KEY_26] [REDACTED:API_KEY_27] [REDACTED:API_KEY_28] [REDACTED:API_KEY_29] [REDACTED:API_KEY_30] [REDACTED:API_KEY_31] [REDACTED:API_KEY_32] [REDACTED:API_KEY_33] [REDACTED:API_KEY_34] [REDACTED:API_KEY_35] [REDACTED:API_KEY_36] [REDACTED:API_KEY_37] [REDACTED:API_KEY_38] [REDACTED:API_KEY_39] [REDACTED:API_KEY_40] [REDACTED:API_KEY_41] [REDACTED:API_KEY_42] [REDACTED:API_KEY_43] [REDACTED:API_KEY_44] [REDACTED:API_KEY_45] [REDACTED:API_KEY_46] [REDACTED:API_KEY_47] [REDACTED:API_KEY_48] [REDACTED:API_KEY_49] [REDACTED:API_KEY_50] [REDACTED:API_KEY_51] [REDACTED:API_KEY_52] [REDACTED:API_KEY_53] [REDACTED:API_KEY_54] [REDACTED:API_KEY_55] [REDACTED:API_KEY_56] [REDACTED:API_KEY_57] [REDACTED:API_KEY_58] [REDACTED:API_KEY_59] [REDACTED:API_KEY_60] [REDACTED:API_KEY_61] [REDACTED:API_KEY_62] [REDACTED:API_KEY_63] [REDACTED:API_KEY_64] [REDACTED:API_KEY_65] [REDACTED:API_KEY_66] [REDACTED:API_KEY_67] [REDACTED:API_KEY_68] [REDACTED:API_KEY_69] [REDACTED:API_KEY_70] [REDACTED:API_KEY_71] [REDACTED:API_KEY_72] [REDACTED:API_KEY_73] [REDACTED:API_KEY_74] [REDACTED:API_KEY_75] [REDACTED:API_KEY_76] [REDACTED:API_KEY_77] [REDACTED:API_KEY_78] [REDACTED:API_KEY_79] [REDACTED:API_KEY_80] [REDACTED:API_KEY_81] [REDACTED:API_KEY_82] [REDACTED:API_KEY_83] [REDACTED:API_KEY_84] [REDACTED:API_KEY_85] [REDACTED:API_KEY_86] [REDACTED:API_KEY_87] [REDACTED:API_KEY_88] [REDACTED:API_KEY_89] [REDACTED:API_KEY_90] | [REDACTED:API_KEY] [REDACTED:API_KEY_2] [REDACTED:API_KEY_3] [REDACTED:API_KEY_4] [REDACTED:API_KEY_5] [REDACTED:API_KEY_6] [REDACTED:API_KEY_7] [REDACTED:API_KEY_8] [REDACTED:API_KEY_9] [REDACTED:API_KEY_10] [REDACTED:API_KEY_11] [REDACTED:API_KEY_12] [REDACTED:API_KEY_13] [REDACTED:API_KEY_14] [REDACTED:API_KEY_15] [REDACTED:API_KEY_16] [REDACTED:API_KEY_17] [REDACTED:API_KEY_18] [REDACTED:API_KEY_19] [REDACTED:API_KEY_20] [REDACTED:API_KEY_21] [REDACTED:API_KEY_22] [REDACTED:API_KEY_23] [REDACTED:API_KEY_24] [REDACTED:API_KEY_25] [REDACTED:API_KEY_26] [REDACTED:API_KEY_27] [REDACTED:API_KEY_28] [REDACTED:API_KEY_29] [REDACTED:API_KEY_30] [REDACTED:API_KEY_31] [REDACTED:API_KEY_32] [REDACTED:API_KEY_33] [REDACTED:API_KEY_34] [REDACTED:API_KEY_35] [REDACTED:API_KEY_36] [REDACTED:API_KEY_37] [REDACTED:API_KEY_38] [REDACTED:API_KEY_39] [REDACTED:API_KEY_40] [REDACTED:API_KEY_41] [REDACTED:API_KEY_42] [REDACTED:API_KEY_43] [REDACTED:API_KEY_44] [REDACTED:API_KEY_45] [REDACTED:API_KEY_46] [REDACTED:API_KEY_47] [REDACTED:API_KEY_48] [REDACTED:API_KEY_49] [REDACTED:API_KEY_50] [REDACTED:API_KEY_51] [REDACTED:API_KEY_52] [REDACTED:API_KEY_53] [REDACTED:API_KEY_54] [REDACTED:API_KEY_55] [REDACTED:API_KEY_56] [REDACTED:API_KEY_57] [REDACTED:API_KEY_58] [REDACTED:API_KEY_59] [REDACTED:API_KEY_60] [REDACTED:API_KEY_61] [REDACTED:API_KEY_62] [REDACTED:API_KEY_63] [REDACTED:API_KEY_64] [REDACTED:API_KEY_65] [REDACTED:API_KEY_66] [REDACTED:API_KEY_67] [REDACTED:API_KEY_68] [REDACTED:API_KEY_69] [REDACTED:API_KEY_70] [REDACTED:API_KEY_71] [REDACTED:API_KEY_72] [REDACTED:API_KEY_73] [REDACTED:API_KEY_74] [REDACTED:API_KEY_75] [REDACTED:API_KEY_76] [REDACTED:API_KEY_77] [REDACTED:API_KEY_78] [REDACTED:API_KEY_79] [REDACTED:API_KEY_80] [REDACTED:API_KEY_81] [REDACTED:API_KEY_82] [REDACTED:API_KEY_83] [REDACTED:API_KEY_84] [REDACTED:API_KEY_85] [REDACTED:API_KEY_86] [REDACTED:API_KEY_87] [REDACTED:API_KEY_88] [REDACTED:API_KEY_89] [REDACTED:API_KEY_90]"
+    },
+    {
+      "name": "v792_long_values",
+      "input": "token=LLLLL000zzzzzzzzzzzzzzzzzzzz token=LLLLL001zzzzzzzzzzzzzzzzzzzz token=LLLLL002zzzzzzzzzzzzzzzzzzzz token=LLLLL003zzzzzzzzzzzzzzzzzzzz token=LLLLL004zzzzzzzzzzzzzzzzzzzz token=LLLLL005zzzzzzzzzzzzzzzzzzzz token=LLLLL006zzzzzzzzzzzzzzzzzzzz token=LLLLL007zzzzzzzzzzzzzzzzzzzz token=LLLLL008zzzzzzzzzzzzzzzzzzzz token=LLLLL009zzzzzzzzzzzzzzzzzzzz LLLLL000zzzzzzzzzzzzzzzzzzzzLLLLL001zzzzzzzzzzzzzzzzzzzzLLLLL002zzzzzzzzzzzzzzzzzzzzLLLLL003zzzzzzzzzzzzzzzzzzzzLLLLL004zzzzzzzzzzzzzzzzzzzzLLLLL005zzzzzzzzzzzzzzzzzzzzLLLLL006zzzzzzzzzzzzzzzzzzzzLLLLL007zzzzzzzzzzzzzzzzzzzzLLLLL008zzzzzzzzzzzzzzzzzzzzLLLLL009zzzzzzzzzzzzzzzzzzzz LLLLL000zzzzzzzzzzzzzzzzzzzz.LLLLL001zzzzzzzzzzzzzzzzzzzz.LLLLL002zzzzzzzzzzzzzzzzzzzz.LLLLL003zzzzzzzzzzzzzzzzzzzz.LLLLL004zzzzzzzzzzzzzzzzzzzz.LLLLL005zzzzzzzzzzzzzzzzzzzz.LLLLL006zzzzzzzzzzzzzzzzzzzz.LLLLL007zzzzzzzzzzzzzzzzzzzz.LLLLL008zzzzzzzzzzzzzzzzzzzz.LLLLL009zzzzzzzzzzzzzzzzzzzz",
+      "expected": "token=[REDACTED:TOKEN] token=[REDACTED:TOKEN_2] token=[REDACTED:TOKEN_3] token=[REDACTED:TOKEN_4] token=[REDACTED:TOKEN_5] token=[REDACTED:TOKEN_6] token=[REDACTED:TOKEN_7] token=[REDACTED:TOKEN_8] token=[REDACTED:TOKEN_9] token=[REDACTED:TOKEN_10] [REDACTED:TOKEN][REDACTED:TOKEN_2][REDACTED:TOKEN_3][REDACTED:TOKEN_4][REDACTED:TOKEN_5][REDACTED:TOKEN_6][REDACTED:TOKEN_7][REDACTED:TOKEN_8][REDACTED:TOKEN_9][REDACTED:TOKEN_10] [REDACTED:TOKEN].[REDACTED:TOKEN_2].[REDACTED:TOKEN_3].[REDACTED:TOKEN_4].[REDACTED:TOKEN_5].[REDACTED:TOKEN_6].[REDACTED:TOKEN_7].[REDACTED:TOKEN_8].[REDACTED:TOKEN_9].[REDACTED:TOKEN_10]"
+    },
+    {
+      "name": "v792_prefix_values",
+      "input": "token=abcdefgh token=abcdefghijkl x abcdefghijklmnopqrstuvwxyz1 abcdefghijklm abcdefgh.abcdefghijkl abcdefghijkl",
+      "expected": "token=abcdefgh token=[REDACTED:TOKEN] x abcdefghijklmnopqrstuvwxyz1 abcdefghijklm abcdefgh.abcdefghijkl [REDACTED:TOKEN]"
+    },
+    {
+      "name": "v792_prefix_values",
+      "input": "token=abcdefg1 token=abcdefg1ijkl x abcdefg1ijklm abcdefg1.abcdefg1ijkl abcdefg1ijkl abcdefg1ijklmnopqrstuvwxyz1 token=abcdefg1ijklmnopqrstuvwxyz1",
+      "expected": "token=[REDACTED:TOKEN] token=[REDACTED:TOKEN_2] x abcdefg1ijklm abcdefg1.abcdefg1ijkl [REDACTED:TOKEN_2] [REDACTED:TOKEN_3] token=[REDACTED:TOKEN_3]"
     }
   ]
 }

@@ -61,6 +61,63 @@ for i, case in enumerate([
     "<private>\n\n\n</private>",
 ]):
     new.append((f"v791_private_{i:02d}", case))
+corpus = json.load(open(f"{wt}/tests/fixtures/redaction_leak_corpus.json"))
+for i, case in enumerate(corpus["cases"]):
+    new.append((f"v792_corpus_{i:02d}", case["text"]))
+for i, case in enumerate([
+    # 7.9.2: escaped quotes inside a JSON string (passes 6b and 7b).
+    '{"log":"password=\\"Hunter2Hunter2\\" x"}',
+    '{"log":"password=\\"ab\\\\\\"cdefgh1\\" x"}',
+    '{"log":"password=\\"abcd\\\\\\\\\\" x"}',
+    '{"log":"\\"token\\":\\"abcdefgh1234\\", \\"user\\":\\"bob\\""}',
+    '{"log":"\\"api_key\\" :\\t\\"abcdefgh1234\\""}',
+    'apiKey: "SuperSecretValue99\\"AccessToken = npm_' + "a" * 36 + '\\""',
+    'x token=\\"ab\\" password=\\"\\" nothing \\"quoted words here\\" password: "ab\\"cdefgh"',
+    '{"log":"export TOKEN=\\"abcd1234efgh\\" && echo \\"password: \\"zzzz9999\\"\\""}',
+    '{"log":"a\\nb password=\\"line\\\\nbreak1234\\" end"}',
+    'tokenpassword=\\"abcdefgh12\\" mypassword=\\"abcdefgh12\\" -password=\\"abcdefgh12\\"',
+    'secret=\\"unterminated1234 and then password=\\"closed-1234\\"',
+    "token=\\\"" + "a" * 60 + "\\\"" + " " + 'password=\\"' + "\\\\" * 50 + 'x\\"',
+    # 7.9.2: <private> padding and tag variants.
+    "<private>\nVALUE1234\n</private> then VALUE1234 alone",
+    "<private> SPACED1234 </private> and SPACED1234",
+    "<private>\n  NAME = VALUE5678 \n</private> then VALUE5678",
+    "<private>\tNAME\t=\tVALUE5678\t</private>",
+    "<private >one1234567</private> <private\n>two1234567</private\n> < /private> < private> x1234567 </ private >",
+    "<PRIVATE >a</PRIVATE > <\u00a0private\u00a0>b1234567<\u00a0/\u00a0private\u00a0>",
+    "\uff1cprivate\uff1ethis stays\uff1c/private\uff1e and <private>\u3000 \u3000</private> and <private></private>",
+    "`<private >` mention <private\n>unclosed secret\nnext line",
+    "<private>NAME=</private> <private>   </private> <private>\n\n</private> end",
+    "<private>\u2003PADDED1234\u2003</private> \ufeff<private>\ufeffBOM12345\ufeff</private>",
+    "< /private> < /private><private> two1234 </private >",
+    "<" + " " * 40 + "private" + " " * 40 + ">x1234567</private>",
+    # 7.9.2: escape borders (\xNN, octal, \a, \e) before a repeated value.
+    "api_key=abcdefgh1234x then \\x41abcdefgh1234x and \\101abcdefgh1234x and \\7abcdefgh1234x and \\eabcdefgh1234x and \\aabcdefgh1234x and \\1234abcdefgh1234x and \\xZZabcdefgh1234x and \\ x abcdefgh1234x",
+    # 7.9.2: headers glued by a character that is not whitespace.
+    "Authorization: Bearer Passw0rd2024;x-api-key: correct.horse2battery",
+    "Authorization: Bearer Passw0rd2024\x1cx-api-key: correct.horse2battery",
+    "x-api-key: V1value12345;Authorization: Bearer V2value12345",
+    "X-Auth-Token: tok123456789;Authorization: Basic dXNlcjpwYXNz1234;x-foo-token: zzzzzzzz1234",
+    # 7.9.2: astral neighbours and rune-counted floors.
+    "token=abcdefghij1\U0001f600 and abcdefghij1\U0001f600 and \U00013fcfabcdefghij1 and abcdefghij1\U0001d400 and \U0001d400abcdefghij1",
+    "secret: -\U000136cf< secret: \U000136cf\U000136cf\U000136cf\U000136cf token=\U0001f600\U0001f600\U0001f600\U0001f600",
+    "password=\u00e9\u00e9\u00e9\u00e9 password=\u00e9\u00e9\u00e9 \u00e9\u00e9\u00e9\u00e9",
+    "token=\u00e1bcd1234 \u00e1bcd1234 and x\u00e1bcd1234 and \u00e1bcd1234\u00e9",
+    # 7.9.2: call-shaped values with a callee that reads like a password.
+    "password=Summer2024( password=Zx9kQ2mP7(wLr) secret=Zx9kQ2mP7wLr() token=Passw0rd() password = sha256(x) token = MD5(abc) pwd = getPassword(User1) secret = utf8( pwd = hmacSHA256( password=summer2024( password=Abc1Def_2(x)",
+    "password = md5($input) token = toBase64(x) pwd = readUInt8(buf) secret = decodeBase64(s) password=Vec3(1,2) token=Sha256(abc)",
+]):
+    new.append((f"v792_extra_{i:02d}", case))
+import random
+rng = random.Random(7)
+vals = ["val%05dX" % n for n in range(300)]
+new.append(("v792_many_values", " ".join("password=%s" % v for v in vals) + " tail " + " ".join(vals[::3]) + " and x" + vals[0]))
+rep = [("tok%03dQ7z" % n) for n in range(90)]
+new.append(("v792_repeated_values", " ".join("api_key=%s" % v for v in rep) + " | " + " ".join(rep) + " | " + " ".join(rep) + " | " + " ".join(rep)))
+longs = ["L" * 5 + "%03d" % n + "z" * 20 for n in range(10)]
+new.append(("v792_long_values", " ".join("token=%s" % v for v in longs) + " " + "".join(longs) + " " + ".".join(longs)))
+nest = ["abcdefgh", "abcdefghijkl", "abcdefghijklmnopqrstuvwxyz1"]
+new.append(("v792_prefix_values", "token=abcdefg1 token=abcdefg1ijkl x abcdefg1ijklm abcdefg1.abcdefg1ijkl abcdefg1ijkl abcdefg1ijklmnopqrstuvwxyz1 token=abcdefg1ijklmnopqrstuvwxyz1"))
 for i, case in enumerate([
     "dbPassword=hunter2hunter2 DBPassword: abc12345 myAPIKey=abcd1234efgh userPwd='abcd1234' awsSecretAccessKey=\"wJalrXUtnFEMI\"",
     "accessToken=abcd1234 AccessToken: abcd1234 access-token=abcd1234 ACCESS_TOKEN=abcd1234 XAccessToken=abcd1234",
@@ -124,7 +181,7 @@ for name, text in new:
         continue
     seen.add(text)
     cases.append({"name": name, "input": text, "expected": oracle(text)})
-doc = {"about": "Golden cases produced by running the Pegasus redactor (engram-hook.py cut_to_detect_cap + redact, Pegasus 7.9.1 catalog) with _token -> [REDACTED:NAME] and one extra placeholder pattern ^\\[REDACTED:[A-Z0-9_]+\\]$. All values are synthetic. Regenerate with the generator when the catalog changes.", "cases": cases}
+doc = {"about": "Golden cases produced by running the Pegasus redactor (engram-hook.py cut_to_detect_cap + redact, Pegasus 7.9.2 catalog) with _token -> [REDACTED:NAME] and one extra placeholder pattern ^\\[REDACTED:[A-Z0-9_]+\\]$. All values are synthetic. Regenerate with the generator when the catalog changes.", "cases": cases}
 json.dump(doc, open(out_path, "w"), indent=2, ensure_ascii=False)
 open(out_path, "a").write("\n")
 print(len(old["cases"]), "old,", len(cases) - len(old["cases"]), "new; old expected changed by the oracle:", changed)

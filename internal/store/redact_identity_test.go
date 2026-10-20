@@ -88,3 +88,36 @@ func TestRedactScanCoversRelationIdentityFields(t *testing.T) {
 		t.Fatalf("second scan not idempotent: %+v %v", res, err)
 	}
 }
+
+// Rows stored by an older catalog that the newer one now catches (a value in
+// escaped quotes inside a JSON string, a padded <private> value) are rewritten
+// by the scan, and a second scan finds nothing.
+func TestRedactScanAppliesTheCurrentCatalog(t *testing.T) {
+	s := newTestStore(t)
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := s.db.Exec(q, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(`INSERT INTO sessions (id, project, directory) VALUES ('s1', 'p', '/x')`)
+	exec(`INSERT INTO observations (sync_id, session_id, type, title, content, project, scope, normalized_hash)
+	      VALUES ('o1', 's1', 'note', 'escaped', ?, 'p', 'project', 'h1')`, `{"log":"password=\"Hunter2Hunter2\" x"}`)
+	exec(`INSERT INTO observations (sync_id, session_id, type, title, content, project, scope, normalized_hash)
+	      VALUES ('o2', 's1', 'note', 'padded', ?, 'p', 'project', 'h2')`, "<private>\nPaddedValue1\n</private> and PaddedValue1 again")
+	res, err := s.RedactScan(false)
+	if err != nil || scanChanged(res, "observations") != 2 {
+		t.Fatalf("dry-run: %+v %v", res, err)
+	}
+	if _, err := s.RedactScan(true); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := s.db.QueryRow(`SELECT count(*) FROM observations WHERE instr(content, 'Hunter2Hunter2') OR instr(content, 'PaddedValue1')`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("a value survived the scan (n=%d err=%v)", n, err)
+	}
+	res, err = s.RedactScan(false)
+	if err != nil || res.RowsChanged != 0 {
+		t.Fatalf("second scan not idempotent: %+v %v", res, err)
+	}
+}

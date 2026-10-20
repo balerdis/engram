@@ -39,7 +39,7 @@ func TestUnclosedPrivateRedactsToEndOfLineOrParagraph(t *testing.T) {
 	if got := Redact("note <private>password is hunter2\nnext line stays"); got != "note [REDACTED:PRIVATE]\nnext line stays" {
 		t.Fatalf("line: %q", got)
 	}
-	if got := Redact("<private>\nline one\nline two\n\nvisible"); got != "[REDACTED:PRIVATE]\n\nvisible" {
+	if got := Redact("<private>\nline one\nline two\n\nvisible"); got != "\n[REDACTED:PRIVATE]\n\nvisible" {
 		t.Fatalf("paragraph: %q", got)
 	}
 	if got := Redact("a stray </private> stays, `<private>` too"); got != "a stray </private> stays, `<private>` too" {

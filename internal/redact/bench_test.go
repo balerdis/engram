@@ -83,6 +83,18 @@ func BenchmarkRedact(b *testing.B) {
 	b.Run("worst_skipped_real_pair_175KB", func(b *testing.B) {
 		benchRedact(b, strings.Repeat("token=getX(password=hunter2hunter2 ", 5000))
 	})
+	// 13,000 distinct registered values in a text at the cap (the single scan
+	// of the repeated-values pass).
+	b.Run("many_values_13k_256KB", func(b *testing.B) {
+		var sb strings.Builder
+		for n := 0; sb.Len() < MaxDetectBytes()-40; n++ {
+			fmt.Fprintf(&sb, "api_key=Val%05dXq ", n)
+		}
+		benchRedact(b, sb.String())
+	})
+	b.Run("escaped_json_256KB", func(b *testing.B) {
+		benchRedact(b, fill(`{"log":"login ok password=\"Hunter2Hunter2\" \"token\":\"abcdefgh1234\" done"}`+"\n", MaxDetectBytes()))
+	})
 	b.Run("worst_chain_eq_256KB", func(b *testing.B) {
 		benchRedact(b, strings.Repeat("a=", MaxDetectBytes()/2))
 	})

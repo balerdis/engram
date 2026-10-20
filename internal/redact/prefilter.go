@@ -220,7 +220,7 @@ func newKeyGate(keys [][]string) *keyGate {
 }
 
 func gapByte(c byte) bool {
-	return c == '"' || c >= 0x80 || c >= 9 && c <= 13 || c >= 0x1c && c <= 0x20
+	return c == '"' || c == '\\' || c >= 0x80 || c >= 9 && c <= 13 || c >= 0x1c && c <= 0x20
 }
 
 func (g *keyGate) ok(v *view) bool {
@@ -260,18 +260,22 @@ func (g *keyGate) ok(v *view) bool {
 var gates = buildGates()
 
 type passGates struct {
-	known    []*gate
-	headers  []*gate
-	url      *gate
-	privOpen *gate
-	keys     *keyGate
+	known     []*gate
+	headers   []*gate
+	url       *gate
+	jsonEsc   *gate // pass 6b
+	quotedEsc *gate // pass 7b
+	privOpen  *gate
+	keys      *keyGate
 }
 
 func buildGates() *passGates {
 	g := &passGates{
-		url:      literalGate(cat.urlPattern),
-		privOpen: literalGate(rePrivTag),
-		keys:     newKeyGate(cat.keys),
+		url:       literalGate(cat.urlPattern),
+		jsonEsc:   literalGate(cat.jsonPairEsc),
+		quotedEsc: literalGate(cat.quotedEsc),
+		privOpen:  literalGate(rePrivTag),
+		keys:      newKeyGate(cat.keys),
 	}
 	for _, k := range cat.known {
 		g.known = append(g.known, literalGate(k.pattern))

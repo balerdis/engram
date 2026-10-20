@@ -158,12 +158,35 @@ func skipsAsUnquotedCode(v string) bool {
 	if tooLong(v) {
 		return false
 	}
-	for _, p := range cat.skipUnquoted {
-		if p.MatchString(v) {
+	for _, r := range cat.skipUnquoted {
+		if r.pattern.MatchString(v) && !r.rescued(v) {
 			return true
 		}
 	}
 	return false
+}
+
+// rescued reports whether a value that matched the rule is not code after all
+// (unless_callee): the callee, the part before the first "(" (empty when there
+// is none), matches the rule's callee pattern entirely and every pattern of
+// `all` finds something in it.
+func (r skipRule) rescued(v string) bool {
+	if r.callee == nil {
+		return false
+	}
+	callee := ""
+	if i := strings.IndexByte(v, '('); i > 0 {
+		callee = v[:i]
+	}
+	if !r.callee.MatchString(callee) {
+		return false
+	}
+	for _, a := range r.all {
+		if !a.MatchString(callee) {
+			return false
+		}
+	}
+	return true
 }
 
 func matchesCatalogKey(raw string) bool {
@@ -402,6 +425,20 @@ func keyContextPasses(out string, reg *registry, token func(string) string, repl
 		})
 	}
 
+	var v view // folded forms of out, for the prefilters of 6b and 7b
+
+	// 6b. The same inside a JSON string: \"key\":\"value\", the quotes escaped.
+	if gates.jsonEsc.ok(v.of(out)) {
+		cur := out
+		out = scan(cat.jsonPairEsc, cur, nil, func(m []int) (string, bool) {
+			key, value := cur[m[2]:m[3]], cur[m[4]:m[5]]
+			if !matchesCatalogKey(key) || isPlaceholder(value) {
+				return "", false
+			}
+			return replaceAt(cur, m[0], m[1], m[4], m[5], key), true
+		})
+	}
+
 	// 7. key = "value" / key: 'value'.
 	{
 		cur := out
@@ -415,6 +452,19 @@ func keyContextPasses(out string, reg *registry, token func(string) string, repl
 				return "", false
 			}
 			return replaceAt(cur, m[0], m[1], vs, ve, key), true
+		})
+	}
+
+	// 7b. key=\"value\" / key: \"value\": the quotes are escaped because the text
+	// is itself inside a JSON string; the escaped quote delimits the value.
+	if gates.quotedEsc.ok(v.of(out)) {
+		cur := out
+		out = scan(cat.quotedEsc, cur, inIdent, func(m []int) (string, bool) {
+			key, value := cur[m[2]:m[3]], cur[m[4]:m[5]]
+			if !matchesCatalogKey(key) || isPlaceholder(value) {
+				return "", false
+			}
+			return replaceAt(cur, m[0], m[1], m[4], m[5], key), true
 		})
 	}
 
