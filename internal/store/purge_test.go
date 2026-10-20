@@ -663,8 +663,9 @@ func TestPurgeAbortsWhenBackupVerificationFails(t *testing.T) {
 	s.hooks.exec = func(db execer, query string, args ...any) (sql.Result, error) {
 		r, err := orig(db, query, args...)
 		if err == nil && strings.Contains(query, "VACUUM INTO") {
-			// Corrupt the freshly written backup.
-			if werr := os.WriteFile(args[0].(string), []byte(strings.Repeat("not a database", 500)), 0o600); werr != nil {
+			// Corrupt the freshly written backup (keeping the SQLite magic, so it
+			// is purge's own check that catches it).
+			if werr := os.WriteFile(args[0].(string), []byte("SQLite format 3\x00"+strings.Repeat("not a database", 500)), 0o600); werr != nil {
 				t.Fatal(werr)
 			}
 		}

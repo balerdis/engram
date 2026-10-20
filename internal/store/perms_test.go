@@ -2,6 +2,7 @@ package store
 
 import (
 	"bytes"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -203,5 +204,47 @@ func TestSymlinkedDBIsWarnedAboutNotChanged(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "symlink") || !strings.Contains(buf.String(), "644") {
 		t.Fatalf("no warning about the symlinked database: %q", buf.String())
+	}
+}
+
+// A backups directory swapped for a symlink between the check and VACUUM INTO
+// must not receive the backup: on Linux the write goes through the descriptor
+// of the directory that was opened, elsewhere the result is verified and the
+// backup is refused. Either way nothing lands in the symlink's target.
+func TestBackupIntoSurvivesABackupsDirSwappedForASymlink(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("pinning the directory needs /proc/self/fd (Linux)")
+	}
+	s := newTestStore(t)
+	dataDir := s.cfg.DataDir
+	elsewhere := t.TempDir()
+	orig := s.hooks.exec
+	swapped := false
+	s.hooks.exec = func(db execer, query string, args ...any) (sql.Result, error) {
+		if strings.Contains(query, "VACUUM INTO") && !swapped {
+			swapped = true
+			if err := os.Rename(filepath.Join(dataDir, "backups"), filepath.Join(dataDir, "backups.real")); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(elsewhere, filepath.Join(dataDir, "backups")); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return orig(db, query, args...)
+	}
+	path, err := s.backupInto("engram-test-")
+	if es, _ := os.ReadDir(elsewhere); len(es) != 0 {
+		t.Fatalf("the backup was steered into the symlink target: %v (err=%v)", es, err)
+	}
+	if err != nil {
+		t.Fatalf("the backup lands in the real directory: %v", err)
+	}
+	real := filepath.Join(dataDir, "backups.real", filepath.Base(path))
+	fi, serr := os.Stat(real)
+	if serr != nil || fi.Mode().Perm() != 0o600 || fi.Size() == 0 {
+		t.Fatalf("backup in the real directory: %v %v", fi, serr)
+	}
+	if es, _ := filepath.Glob(filepath.Join(dataDir, "backups.real", ".*.tmp")); len(es) != 0 {
+		t.Fatalf("temp file left behind: %v", es)
 	}
 }

@@ -2,8 +2,10 @@ package store
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 )
 
@@ -56,18 +58,25 @@ func (s *Store) backupInto(prefix string) (string, error) {
 		return "", err
 	}
 	defer root.Close()
+	// From here on every name is relative to the backups directory as it was
+	// when it was opened: a swapped path or symlink above it cannot redirect it.
+	bk, err := root.OpenRoot("backups")
+	if err != nil {
+		return "", fmt.Errorf("create backup dir: %w", err)
+	}
+	defer bk.Close()
+
 	stamp := backupNow().UTC().Format("20060102T150405Z")
-	var path string
+	var name string
 	for n := 1; ; n++ {
-		name := prefix + stamp
+		name = prefix + stamp
 		if n > 1 {
 			name = fmt.Sprintf("%s-%d", name, n)
 		}
 		name += ".db"
-		path = filepath.Join(s.cfg.DataDir, "backups", name)
-		// VACUUM INTO accepts an existing empty file, so pre-create it with 0600
-		// (through the Root, never through a plain path).
-		f, err := root.OpenFile("backups/"+name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		// The final name is reserved (O_EXCL, 0600) so two backups never share
+		// it; the content arrives by rename once it is verified.
+		f, err := bk.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 		if err == nil {
 			f.Close()
 			break
@@ -76,9 +85,80 @@ func (s *Store) backupInto(prefix string) (string, error) {
 			return "", fmt.Errorf("create backup file: %w", err)
 		}
 	}
-	if _, err := s.execHook(s.db, `VACUUM INTO ?`, path); err != nil {
-		_ = root.Remove("backups/" + filepath.Base(path))
-		return "", fmt.Errorf("backup sqlite database: %w", err)
+	final := filepath.Join(s.cfg.DataDir, "backups", name)
+	fail := func(tmp string, err error) (string, error) {
+		if tmp != "" {
+			_ = bk.Remove(tmp)
+		}
+		_ = bk.Remove(name)
+		return "", err
 	}
-	return path, nil
+
+	// VACUUM INTO accepts an existing empty file, so the copy is written to a
+	// temporary name created (O_EXCL, 0600) through the Root.
+	tmp := "." + name + ".tmp"
+	f, err := bk.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fail("", fmt.Errorf("create backup file: %w", err))
+	}
+	pre, _ := f.Stat()
+	f.Close()
+
+	// SQLite takes a path, not a Root. On Linux the path goes through the
+	// open descriptor of the backups directory (/proc/self/fd), which names
+	// that directory itself, whatever happens to its name afterwards. Elsewhere
+	// the plain path is used and the result is verified below.
+	target := filepath.Join(s.cfg.DataDir, "backups", tmp)
+	if dir, err := bk.Open("."); err == nil {
+		defer dir.Close()
+		if p := fdPath(dir, tmp); p != "" {
+			target = p
+		}
+	}
+	if _, err := s.execHook(s.db, `VACUUM INTO ?`, target); err != nil {
+		return fail(tmp, fmt.Errorf("backup sqlite database: %w", err))
+	}
+	if err := verifyBackupTemp(bk, tmp, pre); err != nil {
+		return fail(tmp, fmt.Errorf("backup sqlite database: %w", err))
+	}
+	if err := bk.Rename(tmp, name); err != nil {
+		return fail(tmp, fmt.Errorf("backup sqlite database: %w", err))
+	}
+	return final, nil
+}
+
+// fdPath returns a path to name inside the directory held by dir, or "" when
+// the platform has no such thing.
+func fdPath(dir *os.File, name string) string {
+	if runtime.GOOS != "linux" {
+		return ""
+	}
+	p := fmt.Sprintf("/proc/self/fd/%d", dir.Fd())
+	if st, err := os.Stat(p); err != nil || !st.IsDir() {
+		return ""
+	}
+	return p + "/" + name
+}
+
+// verifyBackupTemp checks, through the Root, that the file VACUUM INTO wrote is
+// the one that was created (not a replacement), is a regular file and holds an
+// SQLite database. A write that went somewhere else leaves it empty.
+func verifyBackupTemp(bk *os.Root, tmp string, pre os.FileInfo) error {
+	st, err := bk.Lstat(tmp)
+	if err != nil {
+		return fmt.Errorf("backup file vanished: %w", err)
+	}
+	if !st.Mode().IsRegular() || (pre != nil && !os.SameFile(pre, st)) {
+		return fmt.Errorf("backup file was replaced while it was written")
+	}
+	f, err := bk.Open(tmp)
+	if err != nil {
+		return fmt.Errorf("open backup file: %w", err)
+	}
+	defer f.Close()
+	head := make([]byte, 16)
+	if _, err := io.ReadFull(f, head); err != nil || string(head) != "SQLite format 3\x00" {
+		return fmt.Errorf("backup file is empty or not a database (the write did not land in the backups directory)")
+	}
+	return nil
 }
