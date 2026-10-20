@@ -48,7 +48,7 @@ func ParseGraphConfigMode(s string) (GraphConfigMode, error) {
 //   - force:    always creates or overwrites the file with the embedded default.
 //   - skip:     no-op; returns nil immediately.
 //
-// The .obsidian/ directory is created with 0755 permissions if it does not exist
+// The .obsidian/ directory is created with 0700 permissions if it does not exist
 // (except in skip mode where nothing is written).
 func WriteGraphConfig(vaultPath string, mode GraphConfigMode) error {
 	if mode == GraphConfigSkip {
@@ -69,10 +69,10 @@ func WriteGraphConfig(vaultPath string, mode GraphConfigMode) error {
 	}
 
 	// force or preserve-with-absent-file: create dir + write
-	if err := os.MkdirAll(obsidianDir, 0755); err != nil {
+	if err := os.MkdirAll(obsidianDir, dirPerm); err != nil {
 		return fmt.Errorf("creating .obsidian dir: %w", err)
 	}
-	if err := os.WriteFile(graphPath, defaultGraphTemplate, 0644); err != nil {
+	if err := os.WriteFile(graphPath, defaultGraphTemplate, filePerm); err != nil {
 		return fmt.Errorf("writing graph.json: %w", err)
 	}
 	return nil

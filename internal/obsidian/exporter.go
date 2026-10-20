@@ -10,6 +10,15 @@ import (
 	"github.com/Gentleman-Programming/engram/internal/store"
 )
 
+// Modes of what the exporter creates. The notes hold the user's memories, so
+// they are private by default. Only what the exporter creates gets these modes:
+// a vault folder or note that already exists keeps the mode it had (a vault is
+// often shared on purpose, for example synced to other devices).
+const (
+	dirPerm  os.FileMode = 0o700
+	filePerm os.FileMode = 0o600
+)
+
 // ExportConfig holds all CLI flags for the obsidian-export command.
 type ExportConfig struct {
 	VaultPath   string          // --vault (required): path to the Obsidian vault root
@@ -107,14 +116,14 @@ func (e *Exporter) Export() (*ExportResult, error) {
 
 	// ── Create vault namespace directory ─────────────────────────────────────
 	engRoot := e.engramRoot()
-	if err := os.MkdirAll(engRoot, 0755); err != nil {
+	if err := os.MkdirAll(engRoot, dirPerm); err != nil {
 		return nil, fmt.Errorf("obsidian: create vault dir %q: %w", engRoot, err)
 	}
 	// Create hub directories up front
 	sessionsDir := filepath.Join(engRoot, "_sessions")
 	topicsDir := filepath.Join(engRoot, "_topics")
 	for _, d := range []string{sessionsDir, topicsDir} {
-		if err := os.MkdirAll(d, 0755); err != nil {
+		if err := os.MkdirAll(d, dirPerm); err != nil {
 			return nil, fmt.Errorf("obsidian: create dir %q: %w", d, err)
 		}
 	}
@@ -237,7 +246,7 @@ func (e *Exporter) Export() (*ExportResult, error) {
 		}
 
 		// Create directory
-		if err := os.MkdirAll(absDir, 0755); err != nil {
+		if err := os.MkdirAll(absDir, dirPerm); err != nil {
 			result.Errors = append(result.Errors, fmt.Errorf("mkdir %s: %w", absDir, err))
 			continue
 		}
@@ -261,14 +270,14 @@ func (e *Exporter) Export() (*ExportResult, error) {
 				continue
 			}
 			// Content changed → update
-			if err := os.WriteFile(absPath, []byte(content), 0644); err != nil {
+			if err := os.WriteFile(absPath, []byte(content), filePerm); err != nil {
 				result.Errors = append(result.Errors, fmt.Errorf("write %s: %w", absPath, err))
 				continue
 			}
 			result.Updated++
 		} else {
 			// New file
-			if err := os.WriteFile(absPath, []byte(content), 0644); err != nil {
+			if err := os.WriteFile(absPath, []byte(content), filePerm); err != nil {
 				result.Errors = append(result.Errors, fmt.Errorf("write %s: %w", absPath, err))
 				continue
 			}
@@ -294,7 +303,7 @@ func (e *Exporter) Export() (*ExportResult, error) {
 		}
 		hubPath := filepath.Join(sessionsDir, sessionID+".md")
 		content := SessionHubMarkdown(sessionID, refs)
-		if err := os.WriteFile(hubPath, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(hubPath, []byte(content), filePerm); err != nil {
 			result.Errors = append(result.Errors, fmt.Errorf("write session hub %s: %w", hubPath, err))
 			continue
 		}
@@ -310,7 +319,7 @@ func (e *Exporter) Export() (*ExportResult, error) {
 		safeName := strings.ReplaceAll(prefix, "/", "--")
 		hubPath := filepath.Join(topicsDir, safeName+".md")
 		content := TopicHubMarkdown(prefix, refs)
-		if err := os.WriteFile(hubPath, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(hubPath, []byte(content), filePerm); err != nil {
 			result.Errors = append(result.Errors, fmt.Errorf("write topic hub %s: %w", hubPath, err))
 			continue
 		}

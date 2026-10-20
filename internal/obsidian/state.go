@@ -61,11 +61,11 @@ func ReadState(path string) (SyncState, error) {
 }
 
 // WriteState persists the sync state as JSON to the given file path.
-// The file is written atomically (overwrite) with 0644 permissions.
+// The file is written atomically (overwrite) with 0600 permissions.
 func WriteState(path string, s SyncState) error {
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, filePerm)
 }
