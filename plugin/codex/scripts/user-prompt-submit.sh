@@ -98,7 +98,7 @@ OUTPUT="{}"
 # FIRST-MESSAGE DETECTION
 #
 # Use a state file per session to determine if this is the first user message.
-# State file lives in a per-user 0700 directory and is keyed by session_id (falls back to project+pid).
+# State file lives in a per-user 0700 directory and is keyed by session_id (falls back to the project).
 # ──────────────────────────────────────────────────────────────────────────────
 
 # Build a stable session key. The session id is free text (it comes from the
@@ -117,8 +117,13 @@ if [ -n "$SESSION_ID" ]; then
   SESSION_KEY="$(engram_state_key "$SESSION_ID")"
 else
   # No session ID available — only then detect project for the fallback state key.
-  SAFE_PROJECT=$(printf '%s' "$(canonical_project "$(basename "$CWD")")" | tr -cs 'a-zA-Z0-9_-' '_')
-  SESSION_KEY="p-${SAFE_PROJECT}-$$"
+  # The key is stable per project (not per process: `$$` made a new file, and a
+  # new "first message", on every prompt). Without a session boundary the state
+  # expires after a day (see below), so each working day injects the
+  # tool-loading instruction once.
+  SAFE_PROJECT=$(printf '%s' "$(canonical_project "$(basename "$CWD")")" | tr -cs 'a-zA-Z0-9_-' '_' | cut -c1-64)
+  SESSION_KEY="p-${SAFE_PROJECT}-$(printf '%s' "$CWD" | cksum | cut -d ' ' -f 1)"
+  FALLBACK_KEY=1
 fi
 
 # Per-user state directory (never a shared /tmp path another user could
@@ -142,7 +147,16 @@ if [ -L "$STATE_FILE" ] || { [ -e "$STATE_FILE" ] && [ ! -f "$STATE_FILE" ]; }; 
   exit 0
 fi
 
+# No session id: the project state is one file, so a day-old one is stale (a new
+# working session) and is dropped. -mtime +0 means "more than 24 hours old".
+if [ -n "${FALLBACK_KEY:-}" ] && [ -f "$STATE_FILE" ] && [ -n "$(find "$STATE_FILE" -mtime +0 2>/dev/null)" ]; then
+  rm -f "$STATE_FILE" 2>/dev/null
+fi
+
 if [ ! -e "$STATE_FILE" ]; then
+  # Prune state nothing has touched for a week (sessions that ended, and their
+  # nudge files). Once per session, when its state is created. POSIX find only.
+  find "$STATE_DIR" -type f -mtime +7 -exec rm -f {} + 2>/dev/null
   # ── FIRST MESSAGE ────────────────────────────────────────────────────────────
   # Create the state file immediately to prevent repeat injections. noclobber
   # makes the shell open it with O_EXCL: it fails instead of following a link.

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func codexStateOpts(home, xdg string) hookOpts {
@@ -138,5 +139,65 @@ func TestCodexPromptHookRefusesASymlinkStateDir(t *testing.T) {
 	}
 	if es, _ := os.ReadDir(elsewhere); len(es) != 0 {
 		t.Fatalf("wrote through the symlinked dir: %v", es)
+	}
+}
+
+// Without a session id the state is one stable file per project: a second
+// prompt does not inject again and no file piles up per prompt; a day-old one
+// is stale.
+func TestCodexPromptHookWithoutSessionIDUsesOneStableFile(t *testing.T) {
+	home := t.TempDir()
+	o := codexStateOpts(home, "")
+	in := `{"prompt":"hi","cwd":"` + t.TempDir() + `"}`
+	if r := runHook(t, "user-prompt-submit.sh", in, o); !strings.Contains(r.stdout, "CRITICAL FIRST ACTION") {
+		t.Fatalf("first prompt must inject: %q", r.stdout)
+	}
+	for i := 0; i < 3; i++ {
+		if r := runHook(t, "user-prompt-submit.sh", in, o); strings.Contains(r.stdout, "CRITICAL FIRST ACTION") {
+			t.Fatalf("prompt %d injected again", i+2)
+		}
+	}
+	dir := filepath.Join(home, ".engram", "codex-state")
+	ents, _ := os.ReadDir(dir)
+	if len(ents) != 1 {
+		t.Fatalf("want one state file, got %d", len(ents))
+	}
+	old := time.Now().Add(-30 * time.Hour)
+	if err := os.Chtimes(filepath.Join(dir, ents[0].Name()), old, old); err != nil {
+		t.Fatal(err)
+	}
+	if r := runHook(t, "user-prompt-submit.sh", in, o); !strings.Contains(r.stdout, "CRITICAL FIRST ACTION") {
+		t.Fatalf("a day-old project state must expire: %q", r.stdout)
+	}
+}
+
+// State nothing touched for a week is pruned when a new session's state is made.
+func TestCodexPromptHookPrunesOldState(t *testing.T) {
+	home := t.TempDir()
+	o := codexStateOpts(home, "")
+	runHook(t, "user-prompt-submit.sh", promptInput("first"), o)
+	dir := filepath.Join(home, ".engram", "codex-state")
+	oldFile := filepath.Join(dir, "s-old-tools-loaded")
+	oldNudge := filepath.Join(dir, "s-old-last-nudge")
+	young := filepath.Join(dir, "s-young-tools-loaded")
+	for _, f := range []string{oldFile, oldNudge, young} {
+		if err := os.WriteFile(f, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	past := time.Now().Add(-9 * 24 * time.Hour)
+	for _, f := range []string{oldFile, oldNudge} {
+		if err := os.Chtimes(f, past, past); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runHook(t, "user-prompt-submit.sh", promptInput("second"), o)
+	for _, f := range []string{oldFile, oldNudge} {
+		if _, err := os.Stat(f); err == nil {
+			t.Fatalf("%s should have been pruned", filepath.Base(f))
+		}
+	}
+	if _, err := os.Stat(young); err != nil {
+		t.Fatalf("a recent file was pruned: %v", err)
 	}
 }
