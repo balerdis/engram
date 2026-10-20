@@ -85,6 +85,30 @@ Las ideas se acumulan acá y se toman por release.
 
 ## Releases
 
+### 1.22.2
+
+Cierra los detalles que quedaron anotados de la 1.22.1. No cambia el esquema de la base ni el catálogo de credenciales.
+
+1. **El estado del hook de Codex ya no vive en `/tmp`.** `user-prompt-submit.sh` guardaba el aviso de «primer mensaje» en `/tmp/engram-codex-<id>-tools-loaded` con el id de sesión tal cual: un id con `../` o `/` salía de la carpeta, y un `/tmp` compartido deja que otro usuario cree antes el archivo o ponga un enlace simbólico.
+   - La carpeta es por usuario: `$XDG_RUNTIME_DIR/codex-state` o, si no existe esa variable, `~/.engram/codex-state` (la misma base que usa el candado de importación de `session-start.sh`). Se crea `0700`; se rechaza si es un enlace simbólico o de otro dueño y entonces el hook no inyecta nada (sale `{}`).
+   - El nombre usa solo `[A-Za-z0-9._-]` (64 caracteres como máximo) con prefijo `s-` y un checksum del id crudo, así dos ids que se sanean igual (`a/b` y `a?b`) no comparten estado. El archivo se crea con `O_EXCL` (`noclobber`) y `0600`; un enlace simbólico, o algo que no sea un archivo común, en esa ruta no se sigue ni se reutiliza (tampoco el archivo del recordatorio). Probado con `../../escape`, `/etc/passwd`, `..`, saltos de línea, 500 caracteres y unicode.
+   - El plugin de hooks de Claude Code no guarda estado en disco, así que no tenía el patrón. Las pruebas de los hooks ahora corren con un `HOME` propio y sin `XDG_RUNTIME_DIR`.
+   - Una sesión de Codex que ya estaba abierta al actualizar vuelve a recibir una vez el aviso de primer mensaje (el estado viejo estaba en `/tmp`).
+2. **Los campos de identidad de las relaciones se tapan.** `marked_by_actor`, `marked_by_kind`, `marked_by_model` y `session_id` existen solo en `memory_relations` (no en `observations`) y son texto libre.
+   - Pasan por `sanitizeStored` en `JudgeRelation` (`mem_judge`), `JudgeBySemantic` (solo el modelo: actor y tipo son constantes) y en la relación que llega por un chunk. `engram redact --scan` los cubre (tabla `memory_relations`), con la misma transformación, también idempotente.
+   - **`session_id` de `sessions`, `observations` y `user_prompts` no se toca**: es una clave foránea de `sessions(id)` que tiene que ser estable, y el id de sesión lo genera el agente, no una persona. El de `memory_relations` no es clave (no tiene `FOREIGN KEY` ni se une con nada), así que se trata como texto.
+3. **El exportador de Obsidian crea con permisos privados.** Lo que crea (la bóveda si no existía, sus carpetas, las notas, el archivo de estado y la configuración del grafo) sale `0700` y `0600`; eran `0755` y `0644`. Una carpeta o una nota que ya existía conserva su modo (una bóveda suele compartirse a propósito, por ejemplo sincronizada a otros equipos). Si querés endurecer una bóveda existente: `chmod -R go-rwx <bóveda>`.
+4. **`VACUUM INTO` ya no se puede desviar.** `backupInto` abría `backups/` con `os.Root`, pero `VACUUM INTO` recibe una ruta: si entre la comprobación y la escritura `backups` se cambiaba por un enlace simbólico, la copia iba adonde apuntara.
+   - La copia se escribe a un nombre temporal (`.<nombre>.tmp`, `O_EXCL`, `0600`) creado por la raíz de `backups`, se verifica (archivo común, el mismo que se creó, cabecera `SQLite format 3`) y se renombra dentro de la raíz al nombre reservado (también creado con `O_EXCL`). Si algo falla se borran los dos.
+   - En Linux la ruta que recibe `VACUUM INTO` pasa por el descriptor de la carpeta ya abierta (`/proc/self/fd/<n>/…`): nombra esa carpeta aunque cambie su nombre, así que la copia no puede caer en el destino del enlace (probado cambiando `backups` por un enlace justo antes del `VACUUM`). **Limitación aceptada en otras plataformas:** no hay una ruta equivalente; la verificación rechaza el backup, pero SQLite puede dejar un archivo en el destino del enlace. Hace falta poder escribir en la carpeta de datos, que por defecto es `0700`.
+5. **Limitación aceptada: el plugin de OpenCode no avisa de un `serve` viejo.** No tiene un canal hacia la persona (ver el punto 5 de la 1.22.1). Quien usa Pegasus lo ve en `pegasus doctor`. Quien usa solo el fork con OpenCode puede comprobarlo a mano: `curl -s 127.0.0.1:7437/health` muestra la versión del servidor que tiene el puerto, que se compara con `engram version`; si es más vieja, parar el `engram serve` (`pgrep -af "engram serve"`, `kill <pid>`) y volver a abrir OpenCode.
+6. **El hook `.ps1` se probó con PowerShell para Linux.** `pwsh` 7.6.7 se instala sin permisos de administrador (tarball de las versiones de PowerShell, descomprimido en una carpeta propia), y `plugin/ps1_hook_test.go` corre `user-prompt-submit.ps1` cuando hay `pwsh` en el `PATH` (se omite si no): el envío con unicode y comillas, y que un prompt en blanco, una sesión vacía, un JSON roto, la memoria desactivada o un `engram port` basura no envíen ni impriman nada y salgan con 0. **Limitación aceptada:** no se probó en Windows (resolución de `engram.exe`, codificaciones de la consola).
+7. **Plugins:** Codex 0.2.2 (cambió su script, `.codex-plugin/plugin.json`); Claude Code sigue en 0.3.1 (sus scripts no cambiaron, y su `marketplace.json` tampoco). El de OpenCode no cambió.
+
+Limitaciones aceptadas que se retiran de la lista de la 1.22.1: «Campos de identidad que nunca se tapan» ahora cubre solo `scope`, los IDs de sincronización y el `session_id` de sesiones, observaciones y prompts (claves foráneas).
+
+Para publicarla: igual que la 1.22.1. Después de actualizar, correr `engram redact --scan` (ensayo) y, si corresponde, `engram redact --scan --yes` para tapar los campos de identidad de las relaciones ya guardadas, y mover a mano (o borrar) los `/tmp/engram-codex-*-tools-loaded` viejos.
+
 ### 1.22.1
 
 1. **La carpeta de datos es privada.** `~/.engram` se crea `0700` y `engram.db` (con `-wal` y `-shm`) `0600`; eran `0755` y `0644`.
