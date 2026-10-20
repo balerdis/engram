@@ -161,6 +161,10 @@ func runHook(t *testing.T, script, stdin string, o hookOpts) hookResult {
 		"FAKE_ENGRAM_LOG="+logFile,
 		"ENGRAM_PORT_PROC_TCP6="+filepath.Join(t.TempDir(), "absent-tcp6"),
 		"ENGRAM_NO_PROJECT_MIGRATE=",
+		// Hooks keep per-user state under $XDG_RUNTIME_DIR or $HOME/.engram: a
+		// test never touches the real ones.
+		"HOME="+t.TempDir(),
+		"XDG_RUNTIME_DIR=",
 	)
 	if o.tcp4Builder != nil {
 		p, _ := strconv.Atoi(port)

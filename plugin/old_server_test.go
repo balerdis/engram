@@ -1,7 +1,6 @@
 package plugin_test
 
 import (
-	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -81,9 +80,8 @@ func TestSessionStartDoesNotWarnForAServerItStarted(t *testing.T) {
 // be URL-encoded like in the other scripts (an id with ? or a space arrived cut).
 func TestCodexPromptHookURLEncodesTheSessionID(t *testing.T) {
 	id := "enc?x y-" + strings.ReplaceAll(t.Name(), "/", "_")
-	t.Cleanup(func() { _ = os.Remove("/tmp/engram-codex-" + id + "-tools-loaded") })
 	in := `{"session_id":"` + id + `","prompt":"hello there","cwd":"` + t.TempDir() + `"}`
-	o := hookOpts{plugin: "codex", projectResp: `{"project":"p"}`}
+	o := hookOpts{plugin: "codex", projectResp: `{"project":"p"}`, env: []string{"HOME=" + t.TempDir()}}
 	runHook(t, "user-prompt-submit.sh", in, o) // first message: creates the state file
 	r := runHook(t, "user-prompt-submit.sh", in, o)
 	want := "/sessions/" + id

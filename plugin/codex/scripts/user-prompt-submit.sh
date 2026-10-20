@@ -98,24 +98,55 @@ OUTPUT="{}"
 # FIRST-MESSAGE DETECTION
 #
 # Use a state file per session to determine if this is the first user message.
-# State file lives in /tmp and is keyed by session_id (falls back to project+pid).
+# State file lives in a per-user 0700 directory and is keyed by session_id (falls back to project+pid).
 # ──────────────────────────────────────────────────────────────────────────────
 
-# Build a stable session key — prefer SESSION_ID, fall back to project name
+# Build a stable session key. The session id is free text (it comes from the
+# agent CLI), so it never becomes part of a path as it is: only [A-Za-z0-9._-]
+# survive, capped at 64 characters, plus a checksum of the raw id so two ids that
+# sanitize to the same text keep separate state. The "s-" prefix means a name can
+# never start with "." or "-".
+engram_state_key() {
+  _raw=$1
+  _clean=$(printf '%s' "$_raw" | LC_ALL=C tr -c 'A-Za-z0-9._-' '_' | LC_ALL=C cut -c1-64)
+  _sum=$(printf '%s' "$_raw" | cksum | cut -d ' ' -f 1)
+  printf 's-%s-%s' "$_clean" "$_sum"
+}
+
 if [ -n "$SESSION_ID" ]; then
-  SESSION_KEY="engram-codex-${SESSION_ID}-tools-loaded"
+  SESSION_KEY="$(engram_state_key "$SESSION_ID")"
 else
   # No session ID available — only then detect project for the fallback state key.
   SAFE_PROJECT=$(printf '%s' "$(canonical_project "$(basename "$CWD")")" | tr -cs 'a-zA-Z0-9_-' '_')
-  SESSION_KEY="engram-codex-${SAFE_PROJECT}-$$-tools-loaded"
+  SESSION_KEY="p-${SAFE_PROJECT}-$$"
 fi
 
-STATE_FILE="/tmp/${SESSION_KEY}"
+# Per-user state directory (never a shared /tmp path another user could
+# pre-create or point at a symlink): $XDG_RUNTIME_DIR, else ~/.engram, plus
+# "codex-state", created 0700. Nothing is injected if it cannot be trusted.
+STATE_BASE="${XDG_RUNTIME_DIR:-$HOME/.engram}"
+STATE_DIR="${STATE_BASE}/codex-state"
+( umask 077; mkdir -p "$STATE_DIR" ) 2>/dev/null
+if [ -L "$STATE_DIR" ] || [ ! -d "$STATE_DIR" ] || [ ! -O "$STATE_DIR" ]; then
+  echo "$OUTPUT"
+  exit 0
+fi
+chmod 700 "$STATE_DIR" 2>/dev/null
 
-if [ ! -f "$STATE_FILE" ]; then
+STATE_FILE="${STATE_DIR}/${SESSION_KEY}-tools-loaded"
+
+# A state path that is a symlink or anything but a regular file is never
+# followed or reused.
+if [ -L "$STATE_FILE" ] || { [ -e "$STATE_FILE" ] && [ ! -f "$STATE_FILE" ]; }; then
+  echo "$OUTPUT"
+  exit 0
+fi
+
+if [ ! -e "$STATE_FILE" ]; then
   # ── FIRST MESSAGE ────────────────────────────────────────────────────────────
-  # Create the state file immediately to prevent repeat injections
-  touch "$STATE_FILE" 2>/dev/null || true
+  # Create the state file immediately to prevent repeat injections. noclobber
+  # makes the shell open it with O_EXCL: it fails instead of following a link.
+  ( set -C; umask 077; : > "$STATE_FILE" ) 2>/dev/null || true
 
   # Inject ToolSearch + mem_context instruction.
   print_toolsearch_message
@@ -205,7 +236,9 @@ if [ "$ELAPSED" -gt 900 ]; then
   esac
 
   if [ -z "$LAST_NUDGE_EPOCH" ] || [ "$(( NOW_EPOCH - LAST_NUDGE_EPOCH ))" -ge "$NUDGE_COOLDOWN" ]; then
-    printf '%s' "$NOW_EPOCH" > "$NUDGE_STATE_FILE" 2>/dev/null || true
+    if [ ! -L "$NUDGE_STATE_FILE" ]; then
+      ( umask 077; printf '%s' "$NOW_EPOCH" > "$NUDGE_STATE_FILE" ) 2>/dev/null || true
+    fi
     OUTPUT=$(jq -n \
       '{"systemMessage": "MEMORY REMINDER: It'\''s been over 15 minutes since your last save. If you'\''ve made decisions, discoveries, or completed significant work, call mem_save now."}')
   fi
