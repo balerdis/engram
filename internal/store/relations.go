@@ -553,13 +553,17 @@ func (s *Store) JudgeRelation(p JudgeRelationParams) (*Relation, error) {
 	}
 
 	// Build nullable model string.
+	// Identity fields are free text from the caller: they go through the same
+	// redactor as every other stored text.
+	p.MarkedByActor = sanitizeStored(p.MarkedByActor, 0)
+	p.MarkedByKind = sanitizeStored(p.MarkedByKind, 0)
 	var markedByModel *string
-	if p.MarkedByModel != "" {
-		markedByModel = &p.MarkedByModel
+	if m := sanitizeStored(p.MarkedByModel, 0); m != "" {
+		markedByModel = &m
 	}
 	var sessionID *string
-	if p.SessionID != "" {
-		sessionID = &p.SessionID
+	if sid := sanitizeStored(p.SessionID, 0); sid != "" {
+		sessionID = &sid
 	}
 
 	if err := s.withTx(func(tx *sql.Tx) error {
@@ -692,8 +696,8 @@ func (s *Store) JudgeBySemantic(p JudgeBySemanticParams) (string, error) {
 		p.Reasoning = sanitizeStored(p.Reasoning, 0)
 		confidence := p.Confidence
 		var modelPtr *string
-		if p.Model != "" {
-			modelPtr = &p.Model
+		if m := sanitizeStored(p.Model, 0); m != "" {
+			modelPtr = &m
 		}
 		actor := "engram"
 		kind := "system"

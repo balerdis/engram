@@ -3414,6 +3414,10 @@ func (s *Store) applyRelationUpsertTx(tx *sql.Tx, mutation SyncMutation) error {
 
 	p.Reason = sanitizeStoredPtr(p.Reason, 0)
 	p.Evidence = sanitizeStoredPtr(p.Evidence, 0)
+	p.MarkedByActor = sanitizeStoredPtr(p.MarkedByActor, 0)
+	p.MarkedByKind = sanitizeStoredPtr(p.MarkedByKind, 0)
+	p.MarkedByModel = sanitizeStoredPtr(p.MarkedByModel, 0)
+	p.SessionID = sanitizeStoredPtr(p.SessionID, 0)
 
 	// Step 3: upsert into memory_relations keyed on sync_id (idempotent re-apply).
 	if _, err := s.execHook(tx, `

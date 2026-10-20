@@ -87,7 +87,7 @@ var redactScanTables = []scanTable{
 	{name: "observations", cols: []scanColumn{{"type", scanText}, {"title", scanText}, {"content", scanText}, {"tool_name", scanText}, {"project", scanProject}, {"topic_key", scanTopicKey}}, extra: []string{"scope", "deleted_at"}},
 	{name: "user_prompts", cols: []scanColumn{{"content", scanText}, {"project", scanProject}}},
 	{name: "prompt_tombstones", cols: []scanColumn{{"project", scanProject}}},
-	{name: "memory_relations", cols: []scanColumn{{"reason", scanText}, {"evidence", scanText}}},
+	{name: "memory_relations", cols: []scanColumn{{"reason", scanText}, {"evidence", scanText}, {"marked_by_actor", scanText}, {"marked_by_kind", scanText}, {"marked_by_model", scanText}, {"session_id", scanText}}},
 }
 
 // legacySyncTables are what the removed cloud sync left; reported, not rewritten.
