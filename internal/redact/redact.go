@@ -61,6 +61,12 @@ func RedactWith(text string, token func(name string) string) string {
 type registry struct {
 	valueToName map[string]string
 	used        map[string]bool
+	order       []string       // values in registration order
+	nextSuffix  map[string]int // base name -> the next `_N` to try: every lower one is taken
+}
+
+func newRegistry() *registry {
+	return &registry{valueToName: map[string]string{}, used: map[string]bool{}, nextSuffix: map[string]int{}}
 }
 
 func normalizeName(raw string) string {
@@ -89,14 +95,19 @@ func (g *registry) register(value, base string) string {
 	}
 	name := normalizeName(base)
 	if g.used[name] {
-		n := 2
+		n := g.nextSuffix[name]
+		if n < 2 {
+			n = 2
+		}
 		for g.used[name+"_"+itoa(n)] {
 			n++
 		}
+		g.nextSuffix[name] = n + 1
 		name = name + "_" + itoa(n)
 	}
 	g.used[name] = true
 	g.valueToName[value] = name
+	g.order = append(g.order, value)
 	return name
 }
 
@@ -161,11 +172,11 @@ func matchesCatalogKey(raw string) bool {
 		return false
 	}
 	rawWhole := strings.Join(rp, "")
-	for _, kp := range cat.keys {
-		if rawWhole == strings.Join(kp, "") {
+	for i, kp := range cat.keys {
+		if rawWhole == cat.keyWholes[i] {
 			return true
 		}
-		if len(rp) >= len(kp) && strings.Join(rp[len(rp)-len(kp):], "") == strings.Join(kp, "") {
+		if len(rp) >= len(kp) && strings.Join(rp[len(rp)-len(kp):], "") == cat.keyWholes[i] {
 			return true
 		}
 	}
@@ -252,8 +263,6 @@ func scan(re *regexp.Regexp, s string, lbClass func(rune) bool, fn func(loc []in
 
 // --- detection --------------------------------------------------------------
 
-var reKeySep = pyRE(`([A-Za-z_$][A-Za-z0-9_$-]*)\s*[:=]\s*`, false)
-
 func headerRegexps() []*regexp.Regexp {
 	out := make([]*regexp.Regexp, len(cat.headers))
 	for i, h := range cat.headers {
@@ -265,9 +274,9 @@ func headerRegexps() []*regexp.Regexp {
 			}
 			scheme := ""
 			if len(h.schemes) > 0 {
-				scheme = "(?:" + strings.Join(h.schemes, "|") + `)\s+`
+				scheme = "(?:" + strings.Join(h.schemes, "|") + `)` + cat.ws + `+`
 			}
-			out[i] = pyRE(`(?:`+strings.Join(names, "|")+`)\s*:\s*`+scheme+`([^\s,"']`+min+`)`, true)
+			out[i] = catalogRE(`(?:`+strings.Join(names, "|")+`)`+cat.ws+`*:`+cat.ws+`*`+scheme+`([^`+cat.whitespace+`,"']`+min+`)`, true)
 		} else if len(h.suffixes) > 0 {
 			sfx := make([]string, len(h.suffixes))
 			for j, n := range h.suffixes {
@@ -277,7 +286,7 @@ func headerRegexps() []*regexp.Regexp {
 			if h.digitSeg {
 				digit = `(?:-[0-9]+)?`
 			}
-			out[i] = pyRE(`([A-Za-z][A-Za-z0-9-]*(?:`+strings.Join(sfx, "|")+`)`+digit+`)\s*:\s*([^\s,"']`+min+`)`, true)
+			out[i] = catalogRE(`([A-Za-z][A-Za-z0-9-]*(?:`+strings.Join(sfx, "|")+`)`+digit+`)`+cat.ws+`*:`+cat.ws+`*([^`+cat.whitespace+`,"']`+min+`)`, true)
 		}
 	}
 	return out
@@ -289,7 +298,7 @@ func detectAndReplace(text string, token func(string) string) string {
 	if text == "" {
 		return text
 	}
-	reg := &registry{valueToName: map[string]string{}, used: map[string]bool{}}
+	reg := newRegistry()
 	out := text
 	var v view // folded forms of out, for the prefilters
 
@@ -310,14 +319,26 @@ func detectAndReplace(text string, token func(string) string) string {
 		if !gates.known[i].ok(v.of(out)) {
 			continue
 		}
-		cur := out
+		// requires_literal: the pattern runs only up to the end of the line that
+		// holds the last such literal, and not at all without one (a lazy block
+		// pattern then has nothing to scan). The matches are the same ones.
+		cur, rest := out, ""
+		if f.requiresLiteral != "" {
+			at := strings.LastIndex(out, f.requiresLiteral)
+			if at < 0 {
+				continue
+			}
+			if nl := strings.IndexByte(out[at:], '\n'); nl >= 0 {
+				cur, rest = out[:at+nl], out[at+nl:]
+			}
+		}
 		out = scan(f.pattern, cur, nil, func(m []int) (string, bool) {
 			whole := cur[m[0]:m[1]]
 			if runeLen(whole) < cat.minLen || isPlaceholder(whole) {
 				return "", false
 			}
 			return token(reg.register(whole, f.name)), true
-		})
+		}) + rest
 	}
 
 	// 4. Headers.
@@ -359,10 +380,16 @@ func detectAndReplace(text string, token func(string) string) string {
 	}
 
 	// Passes 6-8 only replace values of catalog keys.
-	if !gates.keys.ok(v.of(out)) {
-		return out
+	if gates.keys.ok(v.of(out)) {
+		out = keyContextPasses(out, reg, token, replaceAt)
 	}
 
+	// 9. Every other occurrence of a value detected in this text.
+	return replaceKnown(out, reg, token)
+}
+
+// keyContextPasses are passes 6-8: JSON pairs, quoted pairs, unquoted pairs.
+func keyContextPasses(out string, reg *registry, token func(string) string, replaceAt func(s string, ms, me, vs, ve int, base string) string) string {
 	// 6. JSON "key": "value".
 	{
 		cur := out
@@ -395,26 +422,20 @@ func detectAndReplace(text string, token func(string) string) string {
 	return unquotedPairs(out, reg, token)
 }
 
-func isUnquotedValueRune(r rune) bool {
-	if isPySpace(r) {
-		return false
-	}
-	switch r {
-	case '"', '\'', '{', '}', '[', ']', ',', ';', ':', '&', '?':
-		return false
-	}
-	return true
-}
-
-// unquotedPairs is pass 8. The value is scanned by hand (the catalog's
-// unquoted_value_pattern is checked at load time) so that candidates sharing
-// one long run (`a=b=c=…`) reuse its end instead of rescanning it.
+// unquotedPairs is pass 8. The key and its separator are found by a regex that
+// never reads the value; the value is read ONCE per run (a stretch of value
+// characters, the catalog's unquoted_value_pattern without its minimum), and
+// every candidate inside a run shares its end, so `a=a=a=…` or `token=f(token=f(…`
+// cost one walk and not one per candidate. A skipped candidate resumes right
+// after its KEY, so a real `key=value` inside a skipped value is still found. A
+// value over maxCheckRunes characters is never code-shaped or a placeholder: it
+// is taken whole (isPlaceholder and skipsAsUnquotedCode already say so).
 func unquotedPairs(s string, reg *registry, token func(string) string) string {
 	var b strings.Builder
 	cursor, pos := 0, 0
 	runStart, runEnd := -1, -1
 	for pos < len(s) {
-		loc := reKeySep.FindStringSubmatchIndex(s[pos:])
+		loc := cat.keySep.FindStringSubmatchIndex(s[pos:])
 		if loc == nil {
 			break
 		}
@@ -429,29 +450,21 @@ func unquotedPairs(s string, reg *registry, token func(string) string) string {
 			continue
 		}
 		if !(v >= runStart && v < runEnd) {
-			e := v
-			for e < len(s) {
-				r, w := utf8.DecodeRuneInString(s[e:])
-				if !isUnquotedValueRune(r) {
-					break
-				}
-				e += w
-			}
-			runStart, runEnd = v, e
+			runStart, runEnd = v, v+cat.valueRun.FindStringIndex(s[v:])[1]
 		}
-		value := s[v:runEnd]
 		key := s[start:keyEnd]
-		if runeLen(s[v:min(runEnd, v+cat.keyMinLen*utf8.UTFMax)]) < cat.keyMinLen {
+		if runeLen(s[v:min(runEnd, v+cat.valueMin*utf8.UTFMax)]) < cat.valueMin || !matchesCatalogKey(key) {
 			pos = keyEnd
 			continue
 		}
-		if matchesCatalogKey(key) && !isPlaceholder(value) && !skipsAsUnquotedCode(value) {
-			b.WriteString(s[cursor:start])
-			b.WriteString(s[start:v] + token(reg.register(value, key)))
-			cursor, pos = runEnd, runEnd
-		} else {
+		value := s[v:runEnd]
+		if isPlaceholder(value) || skipsAsUnquotedCode(value) {
 			pos = keyEnd
+			continue
 		}
+		b.WriteString(s[cursor:v])
+		b.WriteString(token(reg.register(value, key)))
+		cursor, pos = runEnd, runEnd
 	}
 	if cursor == 0 {
 		return s

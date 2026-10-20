@@ -1434,12 +1434,12 @@
     {
       "name": "v791_positional_00",
       "input": "clone https://fakeuser1:fakeuser1@example.com/r.git done",
-      "expected": "clone https://fakeuser1:[REDACTED:URL_PASSWORD]@example.com/r.git done"
+      "expected": "clone https://[REDACTED:URL_PASSWORD]:[REDACTED:URL_PASSWORD]@example.com/r.git done"
     },
     {
       "name": "v791_positional_01",
       "input": "config {\"password\": \"password\", \"name\": \"x\"}",
-      "expected": "config {\"password\": \"[REDACTED:PASSWORD]\", \"name\": \"x\"}"
+      "expected": "config {\"[REDACTED:PASSWORD]\": \"[REDACTED:PASSWORD]\", \"name\": \"x\"}"
     },
     {
       "name": "v791_positional_02",
@@ -1449,12 +1449,12 @@
     {
       "name": "v791_positional_03",
       "input": "Authorization: Bearer Authorization and X-Api-Key: X-Api-Key",
-      "expected": "Authorization: Bearer [REDACTED:AUTHORIZATION] and X-Api-Key: [REDACTED:API_KEY]"
+      "expected": "[REDACTED:AUTHORIZATION]: Bearer [REDACTED:AUTHORIZATION] and [REDACTED:API_KEY]: [REDACTED:API_KEY]"
     },
     {
       "name": "v791_positional_04",
       "input": "X-Token-Signature: X-Token-Signature and password: 'password'",
-      "expected": "X-Token-Signature: [REDACTED:X_TOKEN_SIGNATURE] and password: '[REDACTED:PASSWORD]'"
+      "expected": "[REDACTED:X_TOKEN_SIGNATURE]: [REDACTED:X_TOKEN_SIGNATURE] and [REDACTED:PASSWORD]: '[REDACTED:PASSWORD]'"
     },
     {
       "name": "v791_private_00",
@@ -1509,7 +1509,7 @@
     {
       "name": "v791_private_10",
       "input": "<private>   \r\n  \r\nnot in the span",
-      "expected": "[REDACTED:PRIVATE]\n  \r\nnot in the span"
+      "expected": "[REDACTED]\n  \r\nnot in the span"
     },
     {
       "name": "v791_private_11",
@@ -1544,7 +1544,7 @@
     {
       "name": "v791_private_17",
       "input": "<private>\n\n\n</private>",
-      "expected": "[REDACTED:PRIVATE]"
+      "expected": "[REDACTED]"
     },
     {
       "name": "v791_extra_00",
@@ -1559,7 +1559,7 @@
     {
       "name": "v791_extra_02",
       "input": "clientSecret1=abcd1234 secret2Key=abcd1234 privateKEY=abcd1234 id2Token=abcd1234",
-      "expected": "clientSecret1=abcd1234 secret2Key=abcd1234 privateKEY=[REDACTED:PRIVATEKEY] id2Token=[REDACTED:PRIVATEKEY]"
+      "expected": "clientSecret1=[REDACTED:CLIENTSECRET1] secret2Key=[REDACTED:CLIENTSECRET1] privateKEY=[REDACTED:CLIENTSECRET1] id2Token=[REDACTED:CLIENTSECRET1]"
     },
     {
       "name": "v791_extra_03",
@@ -1579,7 +1579,7 @@
     {
       "name": "v791_extra_06",
       "input": "token: callMe(arg1, arg2) and token: obj.method( and password: passwordpassword and password: Credentials",
-      "expected": "token: callMe(arg1, arg2) and token: obj.method( and password: [REDACTED:PASSWORD] and password: Credentials"
+      "expected": "token: [REDACTED:TOKEN], arg2) and token: obj.method( and password: [REDACTED:PASSWORD] and password: Credentials"
     },
     {
       "name": "v791_extra_07",
@@ -1615,6 +1615,226 @@
       "name": "v791_extra_13",
       "input": "X-Token-Signature: abc123def456\nX-Foo-Signature-256: sha256=abcdef1234567890\nx-api-key: abcdef12345",
       "expected": "X-Token-Signature: [REDACTED:X_TOKEN_SIGNATURE]\nX-Foo-Signature-256: [REDACTED:X_FOO_SIGNATURE_256]\nx-api-key: [REDACTED:API_KEY]"
+    },
+    {
+      "name": "v791_widened_15",
+      "input": "PASSWORD=Passw0rd(2024",
+      "expected": "PASSWORD=[REDACTED:PASSWORD]"
+    },
+    {
+      "name": "v791_widened_16",
+      "input": "password=Summer2024(!x",
+      "expected": "password=[REDACTED:PASSWORD]"
+    },
+    {
+      "name": "v791_widened_17",
+      "input": "DB_PASSWORD=hunter2.abc(de1",
+      "expected": "DB_PASSWORD=[REDACTED:DB_PASSWORD]"
+    },
+    {
+      "name": "v791_widened_18",
+      "input": "pwd=abc(12345678",
+      "expected": "pwd=[REDACTED:PWD]"
+    },
+    {
+      "name": "v791_widened_19",
+      "input": "token=Zx9kQ2mP7(wLr",
+      "expected": "token=[REDACTED:TOKEN]"
+    },
+    {
+      "name": "v791_widened_20",
+      "input": "password=correct.horse(battery",
+      "expected": "password=[REDACTED:PASSWORD]"
+    },
+    {
+      "name": "v791_widened_21",
+      "input": "token2=abcd1234 password1=hunter2hunter2 PASSWORD_V2=abc12345xyz DB_PASSWORD_2=zzzz98765 and \"clientSecret3\": \"qwertyuiop\"",
+      "expected": "token2=[REDACTED:TOKEN2] password1=[REDACTED:PASSWORD1] PASSWORD_V2=[REDACTED:PASSWORD_V2] DB_PASSWORD_2=[REDACTED:DB_PASSWORD_2] and \"clientSecret3\": \"[REDACTED:CLIENTSECRET3]\""
+    },
+    {
+      "name": "v791_widened_22",
+      "input": "api_key=abcdefghij and then abcdefghij again, and not abcdefghijk",
+      "expected": "api_key=[REDACTED:API_KEY] and then [REDACTED:API_KEY] again, and not abcdefghijk"
+    },
+    {
+      "name": "v791_widened_23",
+      "input": "APIKey=`cqj0i8smq9574`﻿passwd = 7aekz95ys86v9576",
+      "expected": "APIKey=[REDACTED:APIKEY]﻿passwd = [REDACTED:PASSWD]"
+    },
+    {
+      "name": "v791_widened_24",
+      "input": "token=\u001cabcd1234 and secret=abcd5678tail1234 and pwd=xyzw9876 x",
+      "expected": "token=[REDACTED:TOKEN] and secret=[REDACTED:SECRET]tail1234 and pwd=[REDACTED:PWD] x"
+    },
+    {
+      "name": "v791_widened_25",
+      "input": "X-Api-Key: abcdef1234567890﻿Authorization: Bearer zyxwvu9876543210",
+      "expected": "X-Api-Key: [REDACTED:API_KEY]﻿Authorization: Bearer [REDACTED:AUTHORIZATION]"
+    },
+    {
+      "name": "v791_widened_26",
+      "input": "hello <private>\n",
+      "expected": "hello [REDACTED]"
+    },
+    {
+      "name": "v791_widened_27",
+      "input": "hello <private>  \n\nworld token=abcd1234",
+      "expected": "hello [REDACTED]\n\nworld token=[REDACTED:TOKEN]"
+    },
+    {
+      "name": "v791_surviving_00",
+      "input": "password = os.environ.get(",
+      "expected": "password = os.environ.get("
+    },
+    {
+      "name": "v791_surviving_01",
+      "input": "token = strings.Trim(",
+      "expected": "token = strings.Trim("
+    },
+    {
+      "name": "v791_surviving_02",
+      "input": "password = lexer.get_token()",
+      "expected": "password = lexer.get_token()"
+    },
+    {
+      "name": "v791_surviving_03",
+      "input": "pwd = os.getcwd()",
+      "expected": "pwd = os.getcwd()"
+    },
+    {
+      "name": "v791_surviving_04",
+      "input": "token = self.get_token()",
+      "expected": "token = self.get_token()"
+    },
+    {
+      "name": "v791_surviving_05",
+      "input": "passwd = getpass.getpass(",
+      "expected": "passwd = getpass.getpass("
+    },
+    {
+      "name": "v791_surviving_06",
+      "input": "signature = inspect.signature(",
+      "expected": "signature = inspect.signature("
+    },
+    {
+      "name": "v791_extra_14",
+      "input": "api_key=abcdefgh1234x then {\"log\":\"login ok\\nabcdefgh1234x\\n\"} and \\tabcdefgh1234x and \\r\\nabcdefgh1234x and \\\"abcdefgh1234x and \"abcdefgh1234x and \\u0041abcdefgh1234x and q=a%20abcdefgh1234x and %0Aabcdefgh1234x and nabcdefgh1234x and %abcdefgh1234x",
+      "expected": "api_key=[REDACTED:API_KEY] then {\"log\":\"login ok\\n[REDACTED:API_KEY]\\n\"} and \\t[REDACTED:API_KEY] and \\r\\n[REDACTED:API_KEY] and \\\"[REDACTED:API_KEY] and \"[REDACTED:API_KEY] and \\u0041[REDACTED:API_KEY] and q=a%20[REDACTED:API_KEY] and %0A[REDACTED:API_KEY] and nabcdefgh1234x and %[REDACTED:API_KEY]"
+    },
+    {
+      "name": "v791_extra_15",
+      "input": "client_secret: Lq7x9mK2pR4vB8nT1wZ5cF and Lq7x9mK2pR4vB8nT1wZ5cF.Lq7x9mK2pR4vB8nT1wZ5cF and Lq7x9mK2pR4vB8nT1wZ5cFLq7x9mK2pR4vB8nT1wZ5cF and Lq7x9mK2pR4vB8nT1wZ5cF.txt and xLq7x9mK2pR4vB8nT1wZ5cFy",
+      "expected": "client_secret: [REDACTED:CLIENT_SECRET] and [REDACTED:CLIENT_SECRET].[REDACTED:CLIENT_SECRET] and [REDACTED:CLIENT_SECRET][REDACTED:CLIENT_SECRET] and [REDACTED:CLIENT_SECRET].txt and x[REDACTED:CLIENT_SECRET]y"
+    },
+    {
+      "name": "v791_extra_16",
+      "input": "token=abc12345 and token_abc12345: x and abc12345.example.com and /tmp/abc12345-backup and www.abc12345 and abc12345. end and see abc12345, ok",
+      "expected": "token=[REDACTED:TOKEN] and token_abc12345: x and abc12345.example.com and /tmp/abc12345-backup and www.abc12345 and [REDACTED:TOKEN]. end and see [REDACTED:TOKEN], ok"
+    },
+    {
+      "name": "v791_extra_17",
+      "input": "password=!x9y8z7w6 and again !x9y8z7w6 and a!x9y8z7w6",
+      "expected": "password=[REDACTED:PASSWORD] and again [REDACTED:PASSWORD] and a[REDACTED:PASSWORD]"
+    },
+    {
+      "name": "v791_extra_18",
+      "input": "token=ab12 ab12 and ab123",
+      "expected": "token=[REDACTED:TOKEN] [REDACTED:TOKEN] and ab123"
+    },
+    {
+      "name": "v791_extra_19",
+      "input": "key sk-ant-api03-AbCdEf_GhIj-KlMnOpQrStUvWxYz0123456789 repeated sk-ant-api03-AbCdEf_GhIj-KlMnOpQrStUvWxYz0123456789 and password=hunter2hunter2 hunter2hunter2.",
+      "expected": "key [REDACTED:SK_ANT_KEY] repeated [REDACTED:SK_ANT_KEY] and password=[REDACTED:PASSWORD] [REDACTED:PASSWORD]."
+    },
+    {
+      "name": "v791_extra_20",
+      "input": "token2=abcd1234 password1=hunter2hunter2 PASSWORD_V2=abc12345xyz DB_PASSWORD_2=zzzz98765 and \"clientSecret3\": \"qwertyuiop\" and token_v3=abcd5678 id_token1: abcd9999",
+      "expected": "token2=[REDACTED:TOKEN2] password1=[REDACTED:PASSWORD1] PASSWORD_V2=[REDACTED:PASSWORD_V2] DB_PASSWORD_2=[REDACTED:DB_PASSWORD_2] and \"clientSecret3\": \"[REDACTED:CLIENTSECRET3]\" and token_v3=[REDACTED:TOKEN_V3] id_token1: [REDACTED:ID_TOKEN1]"
+    },
+    {
+      "name": "v791_extra_21",
+      "input": "version=abcd1234 tokenize=abcd1234 mytoken2=abcd1234 api_key2=abcd1234 apikeyV10=abcd1234 secret_key3=abcd1234 TOKEN_2=abcd1234",
+      "expected": "version=[REDACTED:API_KEY2] tokenize=[REDACTED:API_KEY2] mytoken2=[REDACTED:API_KEY2] api_key2=[REDACTED:API_KEY2] apikeyV10=[REDACTED:API_KEY2] secret_key3=[REDACTED:API_KEY2] TOKEN_2=[REDACTED:API_KEY2]"
+    },
+    {
+      "name": "v791_extra_24",
+      "input": "token=﻿abcd1234 and token= abcd1234 and token= abcd1234 and token=　abcd1234 and token=᠎abcd1234",
+      "expected": "token=﻿[REDACTED:TOKEN] and token= [REDACTED:TOKEN] and token= [REDACTED:TOKEN] and token=　[REDACTED:TOKEN] and token=[REDACTED:TOKEN_2]"
+    },
+    {
+      "name": "v791_extra_26",
+      "input": "authorization :　bearer abcdef1234567890 and x-auth-token: abcdef1234567890",
+      "expected": "authorization :　bearer [REDACTED:AUTHORIZATION] and x-auth-token: [REDACTED:AUTHORIZATION]"
+    },
+    {
+      "name": "v791_extra_27",
+      "input": "\"api_key\"﻿: \"abcdefgh12\" and \"token\"\u001c:\"abcdefgh12\"",
+      "expected": "\"api_key\"﻿: \"[REDACTED:API_KEY]\" and \"token\"\u001c:\"[REDACTED:API_KEY]\""
+    },
+    {
+      "name": "v791_extra_30",
+      "input": "hello <private>   </private> and <private>\t</private> then token=abcd1234",
+      "expected": "hello [REDACTED] and [REDACTED] then token=[REDACTED:TOKEN]"
+    },
+    {
+      "name": "v791_extra_31",
+      "input": "<private>NAME=   </private> tail",
+      "expected": "[REDACTED:PRIVATE] tail"
+    },
+    {
+      "name": "v791_extra_32",
+      "input": "<private>\n</private>\nline one\nline two\n\tindented\n",
+      "expected": "[REDACTED]\nline one\nline two\n\tindented\n"
+    },
+    {
+      "name": "v791_extra_33",
+      "input": "password = os.environ.get(\ntoken = strings.Trim(\npassword = lexer.get_token()\npwd = os.getcwd()\ntoken = self.get_token()\npasswd = getpass.getpass(\nsignature = inspect.signature(",
+      "expected": "password = os.environ.get(\ntoken = strings.Trim(\npassword = lexer.get_token()\npwd = os.getcwd()\ntoken = self.get_token()\npasswd = getpass.getpass(\nsignature = inspect.signature("
+    },
+    {
+      "name": "v791_extra_34",
+      "input": "PASSWORD=Passw0rd(2024 password=Summer2024(!x DB_PASSWORD=hunter2.abc(de1 pwd=abc(12345678 token=Zx9kQ2mP7(wLr password=correct.horse(battery",
+      "expected": "PASSWORD=[REDACTED:PASSWORD] password=[REDACTED:PASSWORD_2] DB_PASSWORD=[REDACTED:DB_PASSWORD] pwd=[REDACTED:PWD] token=[REDACTED:TOKEN] password=[REDACTED:PASSWORD_3]"
+    },
+    {
+      "name": "v791_extra_35",
+      "input": "token=getX(password=hunter2hunter2 token=getX(password=hunter2hunter2 ",
+      "expected": "token=[REDACTED:TOKEN] token=[REDACTED:TOKEN] "
+    },
+    {
+      "name": "v791_extra_36",
+      "input": "-----BEGIN PRIVATE KEY----------BEGIN PRIVATE KEY----------BEGIN PRIVATE KEY----------BEGIN PRIVATE KEY----------BEGIN PRIVATE KEY-----",
+      "expected": "-----BEGIN PRIVATE KEY----------BEGIN PRIVATE KEY----------BEGIN PRIVATE KEY----------BEGIN PRIVATE KEY----------BEGIN PRIVATE KEY-----"
+    },
+    {
+      "name": "v791_extra_37",
+      "input": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcw\n-----END PRIVATE KEY----- tail -----BEGIN PRIVATE KEY-----\nAAAA\n",
+      "expected": "[REDACTED:PRIVATE_KEY_BLOCK] tail -----BEGIN PRIVATE KEY-----\nAAAA\n"
+    },
+    {
+      "name": "v791_extra_38",
+      "input": "-----END PRIVATE KEY----- stray end -----BEGIN PRIVATE KEY-----",
+      "expected": "-----END PRIVATE KEY----- stray end -----BEGIN PRIVATE KEY-----"
+    },
+    {
+      "name": "v791_extra_39",
+      "input": "a                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        =x",
+      "expected": "a                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        =x"
+    },
+    {
+      "name": "v791_extra_40",
+      "input": "token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(token=f(",
+      "expected": "token=[REDACTED:TOKEN]"
+    },
+    {
+      "name": "v791_extra_41",
+      "input": "a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=",
+      "expected": "a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a=a="
+    },
+    {
+      "name": "v791_extra_42",
+      "input": "password=abcdefg1 password=abcdefg2 password=abcdefg3 password=abcdefg1 password=abcdefg2 password=abcdefg3 password=abcdefg1 password=abcdefg2 password=abcdefg3 abcdefg1 abcdefg2 abcdefg3",
+      "expected": "password=[REDACTED:PASSWORD] password=[REDACTED:PASSWORD_2] password=[REDACTED:PASSWORD_3] password=[REDACTED:PASSWORD] password=[REDACTED:PASSWORD_2] password=[REDACTED:PASSWORD_3] password=[REDACTED:PASSWORD] password=[REDACTED:PASSWORD_2] password=[REDACTED:PASSWORD_3] [REDACTED:PASSWORD] [REDACTED:PASSWORD_2] [REDACTED:PASSWORD_3]"
     }
   ]
 }

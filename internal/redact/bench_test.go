@@ -78,6 +78,11 @@ func BenchmarkRedact(b *testing.B) {
 	b.Run("worst_token_chain_256KB", func(b *testing.B) {
 		benchRedact(b, strings.Repeat("token=", MaxDetectBytes()/6))
 	})
+	b.Run("worst_token_call_250KB", func(b *testing.B) { benchRedact(b, strings.Repeat("token=f(", 31000)) })
+	b.Run("worst_begin_no_end_243KB", func(b *testing.B) { benchRedact(b, strings.Repeat("-----BEGIN PRIVATE KEY-----", 9000)) })
+	b.Run("worst_skipped_real_pair_175KB", func(b *testing.B) {
+		benchRedact(b, strings.Repeat("token=getX(password=hunter2hunter2 ", 5000))
+	})
 	b.Run("worst_chain_eq_256KB", func(b *testing.B) {
 		benchRedact(b, strings.Repeat("a=", MaxDetectBytes()/2))
 	})

@@ -236,6 +236,14 @@ func (g *keyGate) ok(v *view) bool {
 				break
 			}
 			j := from + i + len(n)
+			// A trailing version or index (`token2`, `PASSWORD_V2`) is not part of
+			// the key's words: `v?<digits>` may follow the key.
+			if j+1 < len(t) && t[j] == 'v' && t[j+1] >= '0' && t[j+1] <= '9' {
+				j++
+			}
+			for j < len(t) && t[j] >= '0' && t[j] <= '9' {
+				j++
+			}
 			for j < len(t) && gapByte(t[j]) {
 				j++
 			}

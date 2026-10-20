@@ -79,3 +79,23 @@ func TestManyUnclosedPrivateTagsStayLinear(t *testing.T) {
 		t.Fatalf("took %v", d)
 	}
 }
+
+// Linear even when no prefilter helps (they are only an optimisation): the
+// shapes that were quadratic, with the prefilters off.
+func TestQuadraticShapesStayLinearWithoutPrefilters(t *testing.T) {
+	disableGates = true
+	defer func() { disableGates = false }()
+	start := time.Now()
+	for _, in := range []string{
+		strings.Repeat("a=", 125000),
+		strings.Repeat("token=f(", 31000),
+		strings.Repeat("token=getX(password=hunter2hunter2 ", 5000),
+		strings.Repeat("-----BEGIN PRIVATE KEY-----", 9000),
+		"a" + strings.Repeat(" ", 200000) + "=x",
+	} {
+		_ = Redact(in)
+	}
+	if d := time.Since(start); d > 10*time.Second {
+		t.Fatalf("took %v", d)
+	}
+}

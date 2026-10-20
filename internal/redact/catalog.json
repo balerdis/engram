@@ -2,6 +2,8 @@
   "schema": "pegasus/credential-transport-catalog/v1",
   "about": "CLI-agnostic catalog of what counts as a credential value worth substituting before it reaches a model, a brief, a command, session history or memory. Detection is by CONTEXT (a value next to a sensitive key name, an auth header, a URL password, a known token shape) or by the explicit <private> fallback -- never by \"looks random\": a bare hash or a UUID is never flagged on its own, because commits and checksums are pasted constantly and must survive untouched. Every regex is anchored so it only fires on the shape it names; every consumer (an adapter plugin, a test) reads this file rather than retyping the patterns.",
   "min_value_length": 8,
+  "whitespace": "\t\n\u000b\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff",
+  "whitespace_note": "The ONE definition of whitespace, the body of a character class, for every engine: JavaScript, Python and Go disagree about `\\s` (Python matches U+001C to U+001F and U+0085 but not U+FEFF; JavaScript the reverse; RE2 only ASCII), so no pattern uses `\\s` for it. The patterns below carry these characters literally, and so do the consumers that build a pattern in code. The members are written as JSON escapes: the parser turns them into literal characters, so no engine needs a regex-level `\\u`.",
   "max_detect_bytes": 262144,
   "placeholder_patterns": [
     "^\\$PEGASUS_SECRET_[A-Z0-9_]+$",
@@ -40,12 +42,12 @@
     "keys_note": "A key is matched by its WORDS, not its spelling: the text captured from a message is split on `_`, `-` and camelCase boundaries (a lowercase letter or digit followed by an uppercase one, or an uppercase one followed by an uppercase and a lowercase one), so `dbPassword`, `DB_PASSWORD` and `db-password` are all [db, password]. It names a sensitive key when its WORDS equal a catalog key's words or END with them (`JWT_SECRET_KEY` and `AWS_SECRET_ACCESS_KEY` end with `secret_key` and `secret_access_key`; `clientSecret` ends with `secret`). `secret_key` and `secret_access_key` are listed as keys of their own because `key`/`access_key` alone are not sensitive words.",
     "min_value_length": 4,
     "forms": [
-      "\"{key}\"\\s*:\\s*\"({quoted_value})\"",
-      "\\b{key}\\s*[:=]\\s*\"({quoted_value})\"",
-      "\\b{key}\\s*[:=]\\s*'({quoted_value})'",
-      "\\b{key}\\s*[:=]\\s*({unquoted_value})"
+      "\"{key}\"[\t\n\u000b\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*:[\t\n\u000b\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*\"({quoted_value})\"",
+      "\\b{key}[\t\n\u000b\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*[:=][\t\n\u000b\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*\"({quoted_value})\"",
+      "\\b{key}[\t\n\u000b\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*[:=][\t\n\u000b\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*'({quoted_value})'",
+      "\\b{key}[\t\n\u000b\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*[:=][\t\n\u000b\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*({unquoted_value})"
     ],
-    "unquoted_value_pattern": "[^\\s\"'{}\\[\\],;:&?]{4,}",
+    "unquoted_value_pattern": "[^\t\n\u000b\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff\"'{}\\[\\],;:&?]{4,}",
     "quoted_value_double_body": "(?:[^\"\\\\]|\\\\[\\s\\S])",
     "quoted_value_single_body": "(?:[^'\\\\]|\\\\[\\s\\S])",
     "quoted_value_note": "One unit of a quoted value: any character that is not the quote or a backslash, or a backslash and the character it escapes. A quoted value is `quote + body{min,} + quote`, so an escaped quote (`\\\"`) never closes the value early and leaves its tail in clear. The two alternatives start with different characters, so there is nothing to backtrack into.",
@@ -71,13 +73,18 @@
     "skip_unquoted_if": [
       {
         "name": "function_call",
-        "pattern": "^[A-Za-z_$][A-Za-z0-9_$]*\\s*\\([\\s\\S]*\\)$",
+        "pattern": "^[A-Za-z_$][A-Za-z0-9_$]*[\t\n\u000b\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*\\([\\s\\S]*\\)$",
         "note": "a value shaped like `getToken()` is a call, not a credential -- pasted code must survive."
       },
       {
-        "name": "call_prefix",
-        "pattern": "^[A-Za-z_$][A-Za-z0-9_$.]*\\(",
-        "note": "`unknownText.includes(` -- an unquoted value stops at the first quote or space, so a method call with arguments reaches the scan cut after its open parenthesis and `function_call` (which wants the closing one) cannot see it. A dotted name followed by `(` is a call, not a credential."
+        "name": "call_open",
+        "pattern": "^[A-Za-z_$][A-Za-z0-9_$.]*\\($",
+        "note": "`os.environ.get(`, `strings.Trim(` -- an unquoted value stops at the first quote or space, so a method call with arguments reaches the scan cut right after its open parenthesis, and `function_call` (which wants the closing one) cannot see it. Only a value that ENDS at the `(` is skipped: `Passw0rd(2024`, `abc(12345678` and `correct.horse(battery` go on after the parenthesis and are still detected."
+      },
+      {
+        "name": "dotted_call_empty",
+        "pattern": "^[A-Za-z_$][A-Za-z0-9_$]*(?:\\.[A-Za-z_$][A-Za-z0-9_$]*)+\\(\\)$",
+        "note": "`lexer.get_token()`, `os.getcwd()` -- a dotted name called with no arguments. At least one dot and empty parentheses: it is a method call, and nothing a person types as a password."
       },
       {
         "name": "dotted_path",
@@ -119,7 +126,7 @@
     }
   },
   "url_credentials": {
-    "pattern": "(?<![A-Za-z0-9+.-])[a-zA-Z][a-zA-Z0-9+.-]*://[^\\s/@:]+:([^\\s/@]{8,})@",
+    "pattern": "(?<![A-Za-z0-9+.-])[a-zA-Z][a-zA-Z0-9+.-]*://[^\t\n\u000b\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff/@:]+:([^\t\n\u000b\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff/@]{8,})@",
     "name": "url_password",
     "note": "The leading lookbehind anchors where a match may START: without it, a long run of scheme-class characters with no `://` anywhere (no scheme at all) makes the engine retry the same expensive backtrack at every position in the run -- O(n^2) on a large paste. Anchoring means that backtrack happens at most once per run, not once per character in it."
   },
@@ -167,7 +174,9 @@
     {
       "name": "private_key_block",
       "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY(?: BLOCK)?-----[\\s\\S]+?-----END [A-Z ]*PRIVATE KEY(?: BLOCK)?-----",
-      "whole_block": true
+      "whole_block": true,
+      "requires_literal": "-----END ",
+      "note": "The lazy `[\\s\\S]+?` rescans to the end of the text from every BEGIN that has no END after it, which is quadratic on a paste of many BEGIN lines. A match ends at an END line, so the pattern runs only on the text up to the end of the line holding the LAST occurrence of `requires_literal`, and not at all when there is none. The matches are the same ones."
     },
     {
       "name": "private_key_unterminated",

@@ -62,7 +62,7 @@ func TestPrefiltersKeepOutput(t *testing.T) {
 		"=", ":", " = ", ": ", "\"", "'", "\n", "  ", " ", "_", "-", "://", "user:", "pw12345678", "@h/", "sk-", "ghp_",
 		"AKIA", "xoxb-", "eyJ", ".", "-----BEGIN PRIVATE KEY-----", "-----END PRIVATE KEY-----", "abcdefghijklmnopqrstu",
 		"Authorization", "Bearer ", "Basic ", "x-api-key", "X-Auth-Token", "-token", "-signature-256", "<private>",
-		"</PRIVATE>", "<private>A=", "[REDACTED:TOKEN]", "[REDACTED]", "dbPassword", "myAPIKey", "secret_key", "AWS_SECRET_ACCESS_KEY", "sk-ant-", "sk-proj-", "glpat-", "AIza", "npm_", "\\\"", "\\'", "`<private>`", "-----BEGIN PGP PRIVATE KEY BLOCK-----", "MIIEvQIBADANBgkqhkiG9w0BAQEFAAS", "\r\n", "\n\n", "1234", "null", "${X}", "<x>", "foo(", ")", "é", "K", "ſ"}
+		"</PRIVATE>", "<private>A=", "[REDACTED:TOKEN]", "[REDACTED]", "dbPassword", "myAPIKey", "token2", "PASSWORD_V2", "DB_PASSWORD_2", "password1", "\\n", "\\t", "%0A", "%20", "\u0041", "\ufeff", "\u0085", "\x1c", "\u2028", "\u00a0", "abcdefgh1234x", "Lq7x9mK2pR4vB8nT1wZ5cF", "os.environ.get(", "lexer.get_token()", "Passw0rd(2024", "<private>\n", "<private>   ", "-----BEGIN PRIVATE KEY-----\n", "-----END PRIVATE KEY-----", "hunter2hunter2", "secret_key", "AWS_SECRET_ACCESS_KEY", "sk-ant-", "sk-proj-", "glpat-", "AIza", "npm_", "\\\"", "\\'", "`<private>`", "-----BEGIN PGP PRIVATE KEY BLOCK-----", "MIIEvQIBADANBgkqhkiG9w0BAQEFAAS", "\r\n", "\n\n", "1234", "null", "${X}", "<x>", "foo(", ")", "é", "K", "ſ"}
 	rng := rand.New(rand.NewSource(1))
 	for i := 0; i < 3000; i++ {
 		var b strings.Builder

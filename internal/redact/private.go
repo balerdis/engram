@@ -82,7 +82,7 @@ func (b *blankBreaks) find() {
 // unclosedEnd is where an open tag with no close (whose tag ends at start) ends.
 func unclosedEnd(text string, start int, blanks *blankBreaks) int {
 	eol := blanks.nextNewline(start)
-	if strings.Trim(text[start:eol], " \t\r") != "" {
+	if nonBlank(text, start, eol) {
 		if eol > 0 && text[eol-1] == '\r' {
 			return eol - 1
 		}
@@ -96,6 +96,17 @@ func unclosedEnd(text string, start int, blanks *blankBreaks) int {
 		return blanks.pos[blanks.cursor]
 	}
 	return len(text)
+}
+
+// nonBlank reports whether text[from:to] holds a character other than a space,
+// a tab or a carriage return. It stops at the first one and copies nothing.
+func nonBlank(text string, from, to int) bool {
+	for i := from; i < to; i++ {
+		if c := text[i]; c != ' ' && c != '\t' && c != '\r' {
+			return true
+		}
+	}
+	return false
 }
 
 type privSpan struct {
@@ -207,7 +218,7 @@ func replacePrivateSpans(text string, reg *registry, token func(string) string) 
 	}
 	repl := map[int]string{}
 	for _, sp := range spans {
-		if m := cat.namedPrivate.FindStringSubmatch("<private>" + sp.inner + "</private>"); m != nil && m[2] != "" {
+		if m := cat.namedPrivate.FindStringSubmatch("<private>" + sp.inner + "</private>"); m != nil && m[2] != "" && !cat.wsSet.only(m[2]) {
 			repl[sp.start] = token(reg.register(m[2], m[1]))
 		}
 	}
@@ -215,8 +226,14 @@ func replacePrivateSpans(text string, reg *registry, token func(string) string) 
 		if _, done := repl[sp.start]; done {
 			continue
 		}
+		// A span of nothing but whitespace is not a value: it is replaced by
+		// [REDACTED], what the fallback would write, and never registered.
 		if m := cat.barePrivate.FindStringSubmatch("<private>" + sp.inner + "</private>"); m != nil && m[1] != "" {
-			repl[sp.start] = token(reg.register(m[1], cat.bareName))
+			if cat.wsSet.only(m[1]) {
+				repl[sp.start] = "[REDACTED]"
+			} else {
+				repl[sp.start] = token(reg.register(m[1], cat.bareName))
+			}
 		}
 	}
 	if len(repl) == 0 {

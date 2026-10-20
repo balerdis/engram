@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -35,8 +36,9 @@ type headerRule struct {
 }
 
 type knownFormat struct {
-	name    string
-	pattern *regexp.Regexp
+	name            string
+	pattern         *regexp.Regexp
+	requiresLiteral string // the pattern runs only up to the end of the line of the last such literal
 }
 
 type catalogT struct {
@@ -47,7 +49,14 @@ type catalogT struct {
 	fillers      map[string]bool
 	fillerPats   []*regexp.Regexp
 	skipUnquoted []*regexp.Regexp
-	keys         [][]string // components of each catalog key
+	whitespace   string // body of a character class
+	ws           string // [whitespace]
+	wsSet        wsSet
+	keys         [][]string     // components of each catalog key
+	keyWholes    []string       // the components of each key, joined
+	valueMin     int            // minimum run length of an unquoted value
+	valueRun     *regexp.Regexp // ^<unquoted value class>*
+	keySep       *regexp.Regexp // the key and its separator, never the value
 	headers      []headerRule
 	urlPattern   *regexp.Regexp
 	urlName      string
@@ -59,59 +68,55 @@ type catalogT struct {
 	bareName     string
 }
 
-// pySpace is Python's `str` whitespace (what `\s` matches there). RE2's `\s`
-// is ASCII-only, so every catalog pattern is translated before compiling.
-const pySpace = `\t\n\v\f\r\x{1c}-\x{20}\x{85}\x{a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}`
+// catalogRE compiles a catalog pattern with RE2, case-insensitively when ci.
+// No catalog pattern uses `\s` for whitespace (engines disagree about it): the
+// patterns carry the characters of the catalog's `whitespace` field literally,
+// and `[\s\S]` (any character) is the one use left, which is the same in all.
+func catalogRE(pattern string, ci bool) *regexp.Regexp {
+	if ci {
+		pattern = "(?i)" + pattern
+	}
+	return regexp.MustCompile(pattern)
+}
 
-func isPySpace(r rune) bool {
-	switch {
-	case r >= 9 && r <= 13, r >= 0x1c && r <= 0x20, r == 0x85, r == 0xa0, r == 0x1680,
-		r >= 0x2000 && r <= 0x200a, r == 0x2028, r == 0x2029, r == 0x202f, r == 0x205f, r == 0x3000:
-		return true
+// wsSet is the catalog's whitespace as a predicate: the body of a character
+// class, with ranges written `a-b`.
+type wsSet struct{ ranges [][2]rune }
+
+func parseWhitespace(body string) wsSet {
+	rs := []rune(body)
+	var set wsSet
+	for i := 0; i < len(rs); i++ {
+		if i+2 < len(rs) && rs[i+1] == '-' {
+			set.ranges = append(set.ranges, [2]rune{rs[i], rs[i+2]})
+			i += 2
+			continue
+		}
+		set.ranges = append(set.ranges, [2]rune{rs[i], rs[i]})
+	}
+	return set
+}
+
+func (w wsSet) has(r rune) bool {
+	for _, rg := range w.ranges {
+		if r >= rg[0] && r <= rg[1] {
+			return true
+		}
 	}
 	return false
 }
 
-// pyRE rewrites `\s` (inside and outside character classes) to the Unicode
-// whitespace set and compiles with RE2.
-func pyRE(pattern string, ci bool) *regexp.Regexp {
-	var b strings.Builder
-	if ci {
-		b.WriteString("(?i)")
-	}
-	inClass := false
-	for i := 0; i < len(pattern); i++ {
-		c := pattern[i]
-		switch {
-		case c == '\\' && i+1 < len(pattern):
-			if pattern[i+1] == 's' {
-				if inClass {
-					b.WriteString(pySpace)
-				} else {
-					b.WriteString("[" + pySpace + "]")
-				}
-			} else {
-				b.WriteByte(c)
-				b.WriteByte(pattern[i+1])
-			}
-			i++
-		case c == '[' && !inClass:
-			inClass = true
-			b.WriteByte(c)
-		case c == ']' && inClass:
-			inClass = false
-			b.WriteByte(c)
-		default:
-			b.WriteByte(c)
+// only reports whether s is made of whitespace (an empty s is).
+func (w wsSet) only(s string) bool {
+	for _, r := range s {
+		if !w.has(r) {
+			return false
 		}
 	}
-	return regexp.MustCompile(b.String())
+	return true
 }
 
-const (
-	expectedUnquoted = `[^\s"'{}\[\],;:&?]{4,}`
-	urlLookbehind    = `(?<![A-Za-z0-9+.-])`
-)
+const urlLookbehind = `(?<![A-Za-z0-9+.-])`
 
 var cat = mustLoadCatalog()
 
@@ -125,6 +130,7 @@ func mustLoadCatalog() *catalogT {
 
 func loadCatalog(data []byte) (*catalogT, error) {
 	var raw struct {
+		Whitespace   string   `json:"whitespace"`
 		MinLen       int      `json:"min_value_length"`
 		MaxDetect    int      `json:"max_detect_bytes"`
 		Placeholders []string `json:"placeholder_patterns"`
@@ -146,8 +152,9 @@ func loadCatalog(data []byte) (*catalogT, error) {
 			Name    string `json:"name"`
 		} `json:"url_credentials"`
 		Known []struct {
-			Name    string `json:"name"`
-			Pattern string `json:"pattern"`
+			Name            string `json:"name"`
+			Pattern         string `json:"pattern"`
+			RequiresLiteral string `json:"requires_literal"`
 		} `json:"known_formats"`
 		Explicit struct {
 			Nesting struct {
@@ -166,8 +173,16 @@ func loadCatalog(data []byte) (*catalogT, error) {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, err
 	}
-	if raw.KeyContext.Unquoted != expectedUnquoted {
-		return nil, fmt.Errorf("unquoted_value_pattern changed; the manual value scan must be updated")
+	if raw.Whitespace == "" {
+		return nil, fmt.Errorf("catalog lacks the whitespace field")
+	}
+	// The unquoted value is a class (everything but whitespace and the listed
+	// punctuation) repeated at least N times: it is read once per run, by hand.
+	const unquotedTail = `"'{}\[\],;:&?`
+	wantUnquoted := "[^" + raw.Whitespace + unquotedTail + "]"
+	m := regexp.MustCompile(`(?s)^(.*)\{(\d+),\}$`).FindStringSubmatch(raw.KeyContext.Unquoted)
+	if m == nil || m[1] != wantUnquoted {
+		return nil, fmt.Errorf("unquoted_value_pattern changed; the value scan must be updated")
 	}
 	if !strings.HasPrefix(raw.URL.Pattern, urlLookbehind) {
 		return nil, fmt.Errorf("url_credentials.pattern lost its lookbehind; the previous-character check must be updated")
@@ -179,18 +194,24 @@ func loadCatalog(data []byte) (*catalogT, error) {
 		return nil, fmt.Errorf("explicit.nesting changed; the <private> scanner must be updated")
 	}
 	c := &catalogT{
-		minLen:    raw.MinLen,
-		maxDetect: raw.MaxDetect,
-		keyMinLen: raw.KeyContext.MinLen,
-		fillers:   map[string]bool{},
-		urlName:   raw.URL.Name,
-		bareName:  raw.Explicit.Bare.Name,
+		whitespace: raw.Whitespace,
+		ws:         "[" + raw.Whitespace + "]",
+		wsSet:      parseWhitespace(raw.Whitespace),
+		minLen:     raw.MinLen,
+		maxDetect:  raw.MaxDetect,
+		keyMinLen:  raw.KeyContext.MinLen,
+		fillers:    map[string]bool{},
+		urlName:    raw.URL.Name,
+		bareName:   raw.Explicit.Bare.Name,
 	}
 	if c.keyMinLen == 0 {
 		c.keyMinLen = c.minLen
 	}
+	c.valueMin, _ = strconv.Atoi(m[2])
+	c.valueRun = regexp.MustCompile(`^` + wantUnquoted + `*`)
+	c.keySep = regexp.MustCompile(`([A-Za-z_$][A-Za-z0-9_$-]*)` + c.ws + `*[:=]` + c.ws + `*`)
 	for _, p := range raw.Placeholders {
-		c.placeholders = append(c.placeholders, pyRE(p, false))
+		c.placeholders = append(c.placeholders, catalogRE(p, false))
 	}
 	// Idempotence: engram's own token is a placeholder too.
 	c.placeholders = append(c.placeholders, regexp.MustCompile(`^\[REDACTED:[A-Z0-9_]+\]$`))
@@ -198,13 +219,15 @@ func loadCatalog(data []byte) (*catalogT, error) {
 		c.fillers[strings.ToLower(f)] = true
 	}
 	for _, p := range raw.KeyContext.FillPats {
-		c.fillerPats = append(c.fillerPats, pyRE(p, false))
+		c.fillerPats = append(c.fillerPats, catalogRE(p, false))
 	}
 	for _, r := range raw.KeyContext.Skip {
-		c.skipUnquoted = append(c.skipUnquoted, pyRE(r.Pattern, false))
+		c.skipUnquoted = append(c.skipUnquoted, catalogRE(r.Pattern, false))
 	}
 	for _, k := range raw.KeyContext.Keys {
-		c.keys = append(c.keys, components(k))
+		kp := components(k)
+		c.keys = append(c.keys, kp)
+		c.keyWholes = append(c.keyWholes, strings.Join(kp, ""))
 	}
 	// headers is an object whose order matters: decode it in document order.
 	dec := json.NewDecoder(bytes.NewReader(raw.Headers))
@@ -228,19 +251,19 @@ func loadCatalog(data []byte) (*catalogT, error) {
 		}
 		c.headers = append(c.headers, headerRule{h.Names, h.Schemes, h.Suffixes, h.Name, h.DeriveName, h.DigitSeg})
 	}
-	c.urlPattern = pyRE(strings.TrimPrefix(raw.URL.Pattern, urlLookbehind), false)
+	c.urlPattern = catalogRE(strings.TrimPrefix(raw.URL.Pattern, urlLookbehind), false)
 	for _, k := range raw.Known {
-		c.known = append(c.known, knownFormat{k.Name, pyRE(k.Pattern, false)})
+		c.known = append(c.known, knownFormat{k.Name, catalogRE(k.Pattern, false), k.RequiresLiteral})
 	}
 	// The two catalog patterns are applied ANCHORED to a whole flat span.
-	c.namedPrivate = pyRE(`^(?:`+raw.Explicit.Named.Pattern+`)$`, false)
-	c.barePrivate = pyRE(`^(?:`+raw.Explicit.Bare.Pattern+`)$`, false)
+	c.namedPrivate = catalogRE(`^(?:`+raw.Explicit.Named.Pattern+`)$`, false)
+	c.barePrivate = catalogRE(`^(?:`+raw.Explicit.Bare.Pattern+`)$`, false)
 	// Quoted values: quote + body{min,} + quote, where a body unit is a
 	// character that is not the quote or a backslash, or a backslash and the
 	// character it escapes (so an escaped quote never closes the value early).
 	min := "{" + itoa(c.keyMinLen) + ",}"
-	c.jsonPair = pyRE(`"([A-Za-z_$][A-Za-z0-9_$-]*)"\s*:\s*"(`+raw.KeyContext.DQBody+min+`)"`, false)
-	c.quoted = pyRE(`([A-Za-z_$][A-Za-z0-9_$-]*)\s*[:=]\s*(?:"(`+raw.KeyContext.DQBody+min+`)"|'(`+raw.KeyContext.SQBody+min+`)')`, false)
+	c.jsonPair = catalogRE(`"([A-Za-z_$][A-Za-z0-9_$-]*)"`+c.ws+`*:`+c.ws+`*"(`+raw.KeyContext.DQBody+min+`)"`, false)
+	c.quoted = catalogRE(`([A-Za-z_$][A-Za-z0-9_$-]*)`+c.ws+`*[:=]`+c.ws+`*(?:"(`+raw.KeyContext.DQBody+min+`)"|'(`+raw.KeyContext.SQBody+min+`)')`, false)
 	return c, nil
 }
 
@@ -248,6 +271,11 @@ func loadCatalog(data []byte) (*catalogT, error) {
 // camelCase boundaries (a lowercase letter or digit followed by an uppercase
 // one, or an uppercase one followed by an uppercase and a lowercase one):
 // `dbPassword`, `DB_PASSWORD` and `db-password` are all [db, password].
+//
+// A version or index suffix is not a word: on the LAST component only, one that
+// is just `v?<digits>` is dropped (when there is more than one component), and
+// otherwise the digits glued to its end are stripped, so `token2`, `password1`,
+// `PASSWORD_V2` and `DB_PASSWORD_2` match.
 func components(raw string) []string {
 	var out []string
 	for _, part := range strings.FieldsFunc(raw, func(r rune) bool { return r == '_' || r == '-' }) {
@@ -263,7 +291,29 @@ func components(raw string) []string {
 		}
 		out = append(out, strings.ToLower(part[start:]))
 	}
+	if n := len(out); n > 0 {
+		last := out[n-1]
+		if n > 1 && isVersionWord(last) {
+			out = out[:n-1]
+		} else if t := strings.TrimRight(last, "0123456789"); t != "" {
+			out[n-1] = t
+		}
+	}
 	return out
+}
+
+// isVersionWord reports whether w is `v?<digits>` (digits required).
+func isVersionWord(w string) bool {
+	w = strings.TrimPrefix(w, "v")
+	if w == "" {
+		return false
+	}
+	for i := 0; i < len(w); i++ {
+		if w[i] < '0' || w[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func isUpper(c byte) bool        { return c >= 'A' && c <= 'Z' }
