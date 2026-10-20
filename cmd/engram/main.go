@@ -875,6 +875,11 @@ func cmdExport(cfg store.Config) {
 	if err := os.WriteFile(outFile, out, 0600); err != nil {
 		fatal(err)
 	}
+	// WriteFile keeps the mode of a file that already exists: make the dump
+	// owner-only whatever was there.
+	if err := os.Chmod(outFile, 0o600); err != nil {
+		fmt.Fprintf(os.Stderr, "engram: warning: cannot restrict %s to 0600: %v\n", outFile, err)
+	}
 
 	fmt.Printf("Exported to %s\n", outFile)
 	fmt.Printf("  Sessions:     %d\n", len(data.Sessions))

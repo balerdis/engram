@@ -1743,3 +1743,24 @@ func TestCmdDeleteSubCommandsInUsage(t *testing.T) {
 		}
 	}
 }
+
+// WriteFile keeps the mode of an existing file: the dump must still end up 0600.
+func TestCmdExportRestrictsAnExistingFileTo0600(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permissions")
+	}
+	cfg := testConfig(t)
+	mustSeedObservation(t, cfg, "s-exp", "proj-exp", "pattern", "exported", "export me", "project")
+	out := filepath.Join(t.TempDir(), "memories.json")
+	if err := os.WriteFile(out, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(out, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	withArgs(t, "engram", "export", out)
+	captureOutput(t, func() { cmdExport(cfg) })
+	if fi, err := os.Stat(out); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("export over a 0644 file left mode %v (%v)", fi, err)
+	}
+}
