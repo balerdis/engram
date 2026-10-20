@@ -26,7 +26,8 @@ canonical_project() {
 
 # Project name as it is interpolated into text the model reads: printed
 # VERBATIM only when it is a SINGLE token of 1-64 ASCII letters, digits and
-# . _ - (no spaces: a sentence must never pass as a name); otherwise nothing is
+# . _ - with at least one letter or digit (`...`, `--` and `__` are not names;
+# no spaces: a sentence must never pass as a name); otherwise nothing is
 # printed and the function returns 1, so the caller omits the whole project
 # clause instead of showing an altered name that does not exist. bash cannot
 # match Unicode letters reliably: a name with any non-ASCII character omits the
@@ -37,6 +38,7 @@ safe_project_text() {
   local n="$1"
   local LC_ALL=C
   [[ "$n" =~ ^[A-Za-z0-9._-]{1,64}$ ]] || return 1
+  [[ "$n" =~ [A-Za-z0-9] ]] || return 1
   printf '%s' "$n"
 }
 
