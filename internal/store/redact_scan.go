@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/Gentleman-Programming/engram/internal/redact"
 )
@@ -45,8 +46,12 @@ type RedactScanResult struct {
 	// behind. The scan does not rewrite them: `engram purge --sync-leftovers`
 	// deletes them.
 	LegacySyncRows map[string]int `json:"legacy_sync_rows,omitempty"`
-	BackupPath     string         `json:"backup_path,omitempty"`
-	Warnings       []string       `json:"warnings,omitempty"`
+	// OldValuesRemain is true when the WAL could not be truncated (another
+	// connection holds a read transaction): engram.db and engram.db-wal may still
+	// hold the old values until those readers close.
+	OldValuesRemain bool     `json:"old_values_remain,omitempty"`
+	BackupPath      string   `json:"backup_path,omitempty"`
+	Warnings        []string `json:"warnings,omitempty"`
 }
 
 type scanColumn struct {
@@ -390,10 +395,42 @@ func (s *Store) RedactScan(apply bool) (*RedactScanResult, error) {
 	if _, err := s.execHook(s.db, `VACUUM`); err != nil {
 		res.Warnings = append(res.Warnings, "VACUUM failed, so old values may remain in the free pages of engram.db (stop engram serve and engram mcp and run the scan again, or VACUUM it yourself): "+err.Error())
 	}
-	if _, err := s.execHook(s.db, `PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+	if busy, err := s.truncateWAL(); err != nil {
 		res.Warnings = append(res.Warnings, "WAL checkpoint failed, so old values may remain in engram.db-wal: "+err.Error())
+		res.OldValuesRemain = true
+	} else if busy {
+		res.OldValuesRemain = true
+		res.Warnings = append(res.Warnings, "THE OLD VALUES ARE STILL IN THE DATABASE FILES: the WAL could not be truncated because another process holds the database open for reading (engram serve, engram mcp or another reader). Stop it and run `engram redact --scan --yes` again (or checkpoint the WAL yourself) before treating the data as clean.")
 	}
 	return res, nil
+}
+
+// walRetry is how long truncateWAL keeps retrying a busy checkpoint; tests shorten it.
+var walRetry = 5 * time.Second
+
+// truncateWAL runs PRAGMA wal_checkpoint(TRUNCATE) and reads its result row
+// (busy, log, checkpointed): busy=1 means a reader kept it from finishing and the
+// WAL still holds the pages, with no error. It retries with a short backoff for
+// walRetry and reports whether it was still busy.
+func (s *Store) truncateWAL() (busy bool, err error) {
+	deadline := time.Now().Add(walRetry)
+	wait := 25 * time.Millisecond
+	for {
+		var b, logFrames, done int
+		if err := s.db.QueryRow(`PRAGMA wal_checkpoint(TRUNCATE)`).Scan(&b, &logFrames, &done); err != nil {
+			return false, err
+		}
+		if b == 0 {
+			return false, nil
+		}
+		if time.Now().After(deadline) {
+			return true, nil
+		}
+		time.Sleep(wait)
+		if wait < 400*time.Millisecond {
+			wait *= 2
+		}
+	}
 }
 
 // FieldNames returns the changed field names of a table in a stable order.

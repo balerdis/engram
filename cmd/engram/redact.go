@@ -131,6 +131,11 @@ func cmdRedactScan(cfg store.Config, args []string) {
 		return
 	}
 	printRedactScan(res, yes)
+	if res.OldValuesRemain {
+		// The rewrite happened but the privacy guarantee did not: exit non-zero so
+		// a script cannot take the run as clean.
+		exitFunc(1)
+	}
 }
 
 func printRedactScan(res *store.RedactScanResult, yes bool) {

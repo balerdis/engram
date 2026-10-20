@@ -2,10 +2,12 @@ package store
 
 import (
 	"bytes"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // seedLegacyRows writes rows the way a version before the redactor did: raw
@@ -221,5 +223,56 @@ func TestRedactScanReportsLegacySyncRowsAndCollisions(t *testing.T) {
 	s.db.QueryRow(`SELECT count(*) FROM observations`).Scan(&n)
 	if n != 2 {
 		t.Fatalf("rows merged: %d", n)
+	}
+}
+
+// A reader holding a transaction keeps the WAL checkpoint from finishing: the
+// pragma then answers busy=1 WITHOUT an error. The scan must say so, not report
+// a clean run, and a later checkpoint without readers succeeds.
+func TestRedactScanSaysWhenTheWALCouldNotBeTruncated(t *testing.T) {
+	oldRetry := walRetry
+	walRetry = 300 * time.Millisecond
+	t.Cleanup(func() { walRetry = oldRetry })
+
+	s := newTestStore(t)
+	seedLegacyRows(t, s)
+
+	reader, err := sql.Open("sqlite", filepath.Join(s.cfg.DataDir, "engram.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	tx, err := reader.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := tx.QueryRow(`SELECT count(*) FROM observations`).Scan(&n); err != nil { // opens the read snapshot
+		t.Fatal(err)
+	}
+
+	res, err := s.RedactScan(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Applied || !res.OldValuesRemain {
+		t.Fatalf("a busy checkpoint must be reported: %+v", res)
+	}
+	var warned bool
+	for _, w := range res.Warnings {
+		if strings.Contains(w, "STILL IN THE DATABASE FILES") {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Fatalf("no unmistakable warning: %v", res.Warnings)
+	}
+
+	// Once the reader is gone the checkpoint completes.
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if busy, err := s.truncateWAL(); err != nil || busy {
+		t.Fatalf("truncateWAL after the reader closed: busy=%v err=%v", busy, err)
 	}
 }
