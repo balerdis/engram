@@ -2,6 +2,7 @@ package plugin_test
 
 import (
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -120,6 +121,25 @@ func TestSessionStartNeverEchoesHostileHealthText(t *testing.T) {
 		r := runHook(t, "session-start.sh", in, hookOpts{plugin: dir, engram: fakeEngramVersion("1.22.0"), healthBody: `{"service":"engram","version":"1.21.0-rc.1+b_2"}`})
 		if !strings.Contains(r.stdout, "version 1.21.0-rc.1+b_2 ") {
 			t.Fatalf("%s: well-formed prerelease did not warn: %q", dir, r.stdout)
+		}
+	}
+}
+
+// The version checks must not follow the user's locale: in a UTF-8 locale
+// `[0-9A-Za-z]` also accepts accented letters and non-ASCII digits.
+func TestSessionStartVersionCheckIgnoresTheUsersLocale(t *testing.T) {
+	probe := "LC_ALL=en_US.utf8 bash -c '[[ \"0.\u0660.\u0661\" =~ ^[0-9A-Za-z.+_-]{1,32}$ ]]'"
+	if out, err := exec.Command("bash", "-c", probe).CombinedOutput(); err != nil {
+		t.Skipf("en_US.utf8 is not available here (or does not widen the classes): %v %s", err, out)
+	}
+	for _, dir := range pluginDirs {
+		for _, v := range []string{"0.\u0660.\u0661", "1.2.\u00e9", "\u2167", "\uff11.\uff12"} {
+			in := hookInput(t, map[string]string{"session_id": "s1", "cwd": t.TempDir()})
+			body := `{"service":"engram","version":"` + v + `"}`
+			r := runHook(t, "session-start.sh", in, hookOpts{plugin: dir, engram: fakeEngramVersion("1.22.0"), healthBody: body, env: []string{"LC_ALL=en_US.utf8", "LANG=en_US.utf8"}})
+			if strings.Contains(r.stdout, "WARNING (engram)") || strings.Contains(r.stderr, "WARNING (engram)") || strings.Contains(r.stdout, v) {
+				t.Fatalf("%s: version %q was accepted in a UTF-8 locale: %q", dir, v, r.stdout)
+			}
 		}
 	}
 }

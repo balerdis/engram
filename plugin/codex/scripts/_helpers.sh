@@ -190,6 +190,7 @@ resolve_engram_url() {
 # either is not a plain numeric dotted version (an optional "v" and any
 # -pre/+build suffix are ignored).
 _engram_version_lt() {
+  local LC_ALL=C
   local a="${1#v}" b="${2#v}" i x y
   a="${a%%[-+]*}"
   b="${b%%[-+]*}"
@@ -207,6 +208,7 @@ _engram_version_lt() {
 }
 
 engram_server_version_warning() {
+  local LC_ALL=C # the version checks below must not follow the user's locale (é, Arabic-Indic digits…)
   local body server_ver bin_ver
   [ -n "${ENGRAM_URL:-}" ] || return 0
   body=$(LC_ALL=C curl -sf --max-time 1 --max-filesize 4096 "${ENGRAM_URL}/health" 2>/dev/null | head -c 4096)
