@@ -1904,7 +1904,7 @@
     {
       "name": "v791_widened_41",
       "input": "password=Summer2024( and password=Zx9kQ2mP7(wLr) and secret=Zx9kQ2mP7wLr() and token=Passw0rd()",
-      "expected": "password=[REDACTED:PASSWORD] and password=[REDACTED:PASSWORD_2] and secret=[REDACTED:SECRET] and token=Passw0rd()"
+      "expected": "password=Summer2024( and password=Zx9kQ2mP7(wLr) and secret=Zx9kQ2mP7wLr() and token=Passw0rd()"
     },
     {
       "name": "v791_widened_42",
@@ -2249,17 +2249,17 @@
     {
       "name": "v792_corpus_80",
       "input": "password=Summer2024(",
-      "expected": "password=[REDACTED:PASSWORD]"
+      "expected": "password=Summer2024("
     },
     {
       "name": "v792_corpus_81",
       "input": "password=Zx9kQ2mP7(wLr)",
-      "expected": "password=[REDACTED:PASSWORD]"
+      "expected": "password=Zx9kQ2mP7(wLr)"
     },
     {
       "name": "v792_corpus_82",
       "input": "secret=Zx9kQ2mP7wLr()",
-      "expected": "secret=[REDACTED:SECRET]"
+      "expected": "secret=Zx9kQ2mP7wLr()"
     },
     {
       "name": "v792_corpus_83",
@@ -2424,7 +2424,7 @@
     {
       "name": "v792_extra_33",
       "input": "password=Summer2024( password=Zx9kQ2mP7(wLr) secret=Zx9kQ2mP7wLr() token=Passw0rd() password = sha256(x) token = MD5(abc) pwd = getPassword(User1) secret = utf8( pwd = hmacSHA256( password=summer2024( password=Abc1Def_2(x)",
-      "expected": "password=[REDACTED:PASSWORD] password=[REDACTED:PASSWORD_2] secret=[REDACTED:SECRET] token=Passw0rd() password = sha256(x) token = MD5(abc) pwd = getPassword(User1) secret = utf8( pwd = hmacSHA256( password=summer2024( password=Abc1Def_2(x)"
+      "expected": "password=Summer2024( password=Zx9kQ2mP7(wLr) secret=Zx9kQ2mP7wLr() token=Passw0rd() password = sha256(x) token = MD5(abc) pwd = getPassword(User1) secret = utf8( pwd = hmacSHA256( password=summer2024( password=Abc1Def_2(x)"
     },
     {
       "name": "v792_extra_34",
@@ -2484,12 +2484,12 @@
     {
       "name": "v791_widened_50",
       "input": "{'password': 'Zq8xK2mPw7Lr'} {\"token\": 'Wp5uG9lMt4Io'} 'secret': Vo4tF8kLs3Hn 'api_key' = 'Un3sE7jKr2Gm' \"dbPassword\" = 'Tm2rD6iJq1Fl'",
-      "expected": "{'password': '[REDACTED:PASSWORD]'} {\"token\": '[REDACTED:TOKEN]'} 'secret': [REDACTED:SECRET] 'api_key' = '[REDACTED:API_KEY]' \"dbPassword\" = '[REDACTED:DBPASSWORD]'"
+      "expected": "{'password': 'Zq8xK2mPw7Lr'} {\"token\": 'Wp5uG9lMt4Io'} 'secret': Vo4tF8kLs3Hn 'api_key' = 'Un3sE7jKr2Gm' \"dbPassword\" = 'Tm2rD6iJq1Fl'"
     },
     {
       "name": "v791_widened_51",
       "input": "{\"password\": 123456789, \"token\": null, \"name\": \"bob\", 'tokenizer': 'wordpiece', d['token']: x}",
-      "expected": "{\"password\": [REDACTED:PASSWORD], \"token\": null, \"name\": \"bob\", 'tokenizer': 'wordpiece', d['token']: x}"
+      "expected": "{\"password\": 123456789, \"token\": null, \"name\": \"bob\", 'tokenizer': 'wordpiece', d['token']: x}"
     },
     {
       "name": "v791_widened_52",
@@ -2504,7 +2504,7 @@
     {
       "name": "v791_widened_54",
       "input": "password=Summer2024( and password=Zx9kQ2mP7(wLr) and secret=Zx9kQ2mP7wLr() and pwd=Hunter2Hunter2(x)",
-      "expected": "password=[REDACTED:PASSWORD] and password=[REDACTED:PASSWORD_2] and secret=[REDACTED:SECRET] and pwd=[REDACTED:PWD]"
+      "expected": "password=Summer2024( and password=Zx9kQ2mP7(wLr) and secret=Zx9kQ2mP7wLr() and pwd=Hunter2Hunter2(x)"
     },
     {
       "name": "v791_surviving_19",
@@ -2544,32 +2544,32 @@
     {
       "name": "v792_corpus_91",
       "input": "{'password': 'Zq8xK2mPw7Lr'}",
-      "expected": "{'password': '[REDACTED:PASSWORD]'}"
+      "expected": "{'password': 'Zq8xK2mPw7Lr'}"
     },
     {
       "name": "v792_corpus_92",
       "input": "{\"password\": 'Zq8xK2mPw7Lr'}",
-      "expected": "{\"password\": '[REDACTED:PASSWORD]'}"
+      "expected": "{\"password\": 'Zq8xK2mPw7Lr'}"
     },
     {
       "name": "v792_corpus_93",
       "input": "'password': Zq8xK2mPw7Lr",
-      "expected": "'password': [REDACTED:PASSWORD]"
+      "expected": "'password': Zq8xK2mPw7Lr"
     },
     {
       "name": "v792_corpus_94",
       "input": "'password' = 'Zq8xK2mPw7Lr'",
-      "expected": "'password' = '[REDACTED:PASSWORD]'"
+      "expected": "'password' = 'Zq8xK2mPw7Lr'"
     },
     {
       "name": "v792_corpus_95",
       "input": "\"password\" = 'Zq8xK2mPw7Lr'",
-      "expected": "\"password\" = '[REDACTED:PASSWORD]'"
+      "expected": "\"password\" = 'Zq8xK2mPw7Lr'"
     },
     {
       "name": "v792_corpus_96",
       "input": "{\"password\": 987654321, \"user\": \"x\"}",
-      "expected": "{\"password\": [REDACTED:PASSWORD], \"user\": \"x\"}"
+      "expected": "{\"password\": 987654321, \"user\": \"x\"}"
     },
     {
       "name": "v792_corpus_97",
@@ -2614,12 +2614,12 @@
     {
       "name": "v792b_extra_03",
       "input": "{'password': 'Zq8xK2mPw7Lr'} {\"password\": 'Zq8xK2mPw7Lr'} 'password': Zq8xK2mPw7Lr 'password' = 'Zq8xK2mPw7Lr' \"password\" = 'Zq8xK2mPw7Lr'",
-      "expected": "{'password': '[REDACTED:PASSWORD]'} {\"password\": '[REDACTED:PASSWORD]'} 'password': [REDACTED:PASSWORD] 'password' = '[REDACTED:PASSWORD]' \"password\" = '[REDACTED:PASSWORD]'"
+      "expected": "{'password': 'Zq8xK2mPw7Lr'} {\"password\": 'Zq8xK2mPw7Lr'} 'password': Zq8xK2mPw7Lr 'password' = 'Zq8xK2mPw7Lr' \"password\" = 'Zq8xK2mPw7Lr'"
     },
     {
       "name": "v792b_extra_04",
       "input": "\"password\": 123456789 \"token\": null `\"token\": null` \"api_key\": false`) x\"password\"='abcdefgh12'",
-      "expected": "\"password\": [REDACTED:PASSWORD_2] \"token\": null `\"token\": null` \"api_key\": false`) x\"password\"='[REDACTED:PASSWORD]'"
+      "expected": "\"password\": 123456789 \"token\": null `\"token\": null` \"api_key\": false`) x\"password\"='abcdefgh12'"
     },
     {
       "name": "v792b_extra_05",
@@ -2639,7 +2639,7 @@
     {
       "name": "v792b_extra_08",
       "input": "password=Summer2024( password=Welcome2024( password=Hunter2Hunter2( password=Passw0rd( password=Sha256Hex( token=Oauth2Client( secret=Zx9kQ2mP7wLr()",
-      "expected": "password=[REDACTED:PASSWORD] password=[REDACTED:PASSWORD_2] password=[REDACTED:PASSWORD_3] password=Passw0rd( password=Sha256Hex( token=Oauth2Client( secret=[REDACTED:SECRET]"
+      "expected": "password=Summer2024( password=Welcome2024( password=Hunter2Hunter2( password=Passw0rd( password=Sha256Hex( token=Oauth2Client( secret=Zx9kQ2mP7wLr()"
     },
     {
       "name": "v792b_extra_09",
@@ -2665,6 +2665,31 @@
       "name": "v792b_matcher_suffixes",
       "input": "token=\"abcd1234\" token=\"xabcd1234\" token=\"yxabcd1234\" yxabcd1234 xabcd1234 abcd1234 yxabcd1234 xabcd1234 abcd1234 yxabcd1234 xabcd1234 abcd1234 yxabcd1234 xabcd1234 abcd1234 yxabcd1234 xabcd1234 abcd1234 ",
       "expected": "token=\"[REDACTED:TOKEN]\" token=\"[REDACTED:TOKEN_2]\" token=\"[REDACTED:TOKEN_3]\" [REDACTED:TOKEN_3] [REDACTED:TOKEN_2] [REDACTED:TOKEN] [REDACTED:TOKEN_3] [REDACTED:TOKEN_2] [REDACTED:TOKEN] [REDACTED:TOKEN_3] [REDACTED:TOKEN_2] [REDACTED:TOKEN] [REDACTED:TOKEN_3] [REDACTED:TOKEN_2] [REDACTED:TOKEN] [REDACTED:TOKEN_3] [REDACTED:TOKEN_2] [REDACTED:TOKEN] "
+    },
+    {
+      "name": "v791_widened_41",
+      "input": "{\"msg\":\"login with token=\"Hunter2Hunter2\" failed\"} {\"cmd\":\"mysql -u root password=\"Yq7wJ1nOv6Kq\" db\"} {\"a\":\"api_key=\"Xp6vH0mNu5Jp\"}",
+      "expected": "{\"msg\":\"login with token=\"[REDACTED:TOKEN]\" failed\"} {\"cmd\":\"mysql -u root password=\"[REDACTED:PASSWORD]\" db\"} {\"a\":\"api_key=\"[REDACTED:API_KEY]\"}"
+    },
+    {
+      "name": "v792_corpus_103",
+      "input": "{\"msg\":\"login with token=\"Hunter2Hunter2\" failed\"}",
+      "expected": "{\"msg\":\"login with token=\"[REDACTED:TOKEN]\" failed\"}"
+    },
+    {
+      "name": "v792_corpus_104",
+      "input": "{\"cmd\":\"mysql -u root password=\"Hunter2Hunter2\" db\"}",
+      "expected": "{\"cmd\":\"mysql -u root password=\"[REDACTED:PASSWORD]\" db\"}"
+    },
+    {
+      "name": "v792_corpus_105",
+      "input": "{\"a\":\"password=\"Hunter2Hunter2\"}",
+      "expected": "{\"a\":\"password=\"[REDACTED:PASSWORD]\"}"
+    },
+    {
+      "name": "v792_corpus_106",
+      "input": "password=\"password=\"Hunter2Hunter2\"",
+      "expected": "[REDACTED:PASSWORD]\"[REDACTED:PASSWORD]\"Hunter2Hunter2\""
     }
   ]
 }

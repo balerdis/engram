@@ -76,23 +76,18 @@
       "secret"
     ],
     "filler_skip_patterns": [
-      "^\\*+$",
-      "^(?:[Nn]ull|[Nn]one|[Nn]il|[Tt]rue|[Ff]alse|[Uu]ndefined|NULL|NONE|NIL|TRUE|FALSE|UNDEFINED)[`)]+$"
+      "^\\*+$"
     ],
-    "filler_skip_patterns_note": "The second pattern is a filler word that something closes right after it, a backtick or a parenthesis: `\"token\": null` inside a template literal or a code span is not a value. Since 7.9.2 a quoted key (`\"token\": null`) is read by the unquoted pass too, and it reads the closing backtick as part of the value.",
-    "skip_unquoted_if_note": "A rule skips a value when its `pattern` matches it, unless the rule has `unless_callee`: then the CALLEE, the part of the value before its first `(`, is looked at too. `unless_callee` is a list of alternatives; the value is NOT skipped when the callee fully matches the `callee` of ANY alternative AND every pattern of that alternative's `all` finds something in it. The catalog uses it for the two call rules, with two alternatives: (1) an undotted identifier of 8 characters or more that starts with a capital letter, has a lowercase letter and at least TWO separate digit runs (`Zx9kQ2mP7`, `Hunter2Hunter2`: digit, letters, digit); (2) a capitalized word of 6 letters or more followed by exactly four digits at the end, the shape of a year (`Summer2024`, `Welcome2024`). Everything else stays code: `getToken`, `get_cache_token`, `os.environ.get`, `strings.Trim`, `sha256`, `md5`, `SHA256`, `hmacSHA256`, `Sha256Hex`, `Fernet128Key`, `Oauth2Client`, `Oauth2Token`, `Jwt2Token`, `Md5Sum`, `Password1`, `Sha256`, `Base64`, `Uint8Array`, `Int32`, `Float64`, `Vec3`, `Aes256`, and every dotted, snake_case or `$` name. Measured on this repository, the engram fork and the Python 3.12 standard library: no call-shaped value of those corpora has a callee that qualifies, so nothing new is detected there. Accepted false negatives: a lowercase-first password (`summer2024(`), an all-capitals one, one with an underscore, a `$` or a dot, `Passw0rd(` (one digit run in the middle, the shape of `Oauth2Client`), and `Password1(`.",
     "skip_unquoted_if": [
       {
         "name": "function_call",
         "pattern": "^[A-Za-z_$][A-Za-z0-9_$]*[\t\n\u000b\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*\\([\\s\\S]*\\)$",
-        "unless_callee": [{"callee": "^[A-Z][A-Za-z0-9]{7,}$", "all": ["[a-z]", "[0-9][A-Za-z]+[0-9]"]}, {"callee": "^[A-Z][A-Za-z]{5,}[0-9]{4}$", "all": ["[a-z]"]}],
-        "note": "a value shaped like `getToken()` is a call, not a credential -- pasted code must survive. Not when the callee reads like a password (`unless_callee`, see `skip_unquoted_if_note`): `password=Zx9kQ2mP7(wLr)` and `secret=Zx9kQ2mP7wLr()` are detected."
+        "note": "a value shaped like `getToken()` is a call, not a credential -- pasted code must survive."
       },
       {
         "name": "call_open",
         "pattern": "^[A-Za-z_$][A-Za-z0-9_$.]*\\($",
-        "unless_callee": [{"callee": "^[A-Z][A-Za-z0-9]{7,}$", "all": ["[a-z]", "[0-9][A-Za-z]+[0-9]"]}, {"callee": "^[A-Z][A-Za-z]{5,}[0-9]{4}$", "all": ["[a-z]"]}],
-        "note": "`os.environ.get(`, `strings.Trim(` -- an unquoted value stops at the first quote or space, so a method call with arguments reaches the scan cut right after its open parenthesis, and `function_call` (which wants the closing one) cannot see it. Only a value that ENDS at the `(` is skipped: `Passw0rd(2024`, `abc(12345678` and `correct.horse(battery` go on after the parenthesis and are still detected. Also not skipped when the callee reads like a password (`unless_callee`, see `skip_unquoted_if_note`): `password=Summer2024(`."
+        "note": "`os.environ.get(`, `strings.Trim(` -- an unquoted value stops at the first quote or space, so a method call with arguments reaches the scan cut right after its open parenthesis, and `function_call` (which wants the closing one) cannot see it. Only a value that ENDS at the `(` is skipped: `Passw0rd(2024`, `abc(12345678` and `correct.horse(battery` go on after the parenthesis and are still detected."
       },
       {
         "name": "dotted_call_empty",

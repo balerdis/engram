@@ -3,7 +3,7 @@ package redact
 import "testing"
 
 // pinnedCatalogSHA256 changes only with a conscious re-vendor (make sync-catalog).
-const pinnedCatalogSHA256 = "0b5d630bf9286616e6ec0d3ec0e29464c79d73d0f21a5eec8f8c4eaf456136a9"
+const pinnedCatalogSHA256 = "103802a42d09ffa48970714af54953e287ef81daec6467873140e01dcbc6cd68"
 
 func TestCatalogIsPinned(t *testing.T) {
 	if got := CatalogSHA256(); got != pinnedCatalogSHA256 {

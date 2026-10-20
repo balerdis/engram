@@ -37,20 +37,6 @@ type headerRule struct {
 	digitSeg   bool
 }
 
-// skipRule is a skip_unquoted_if rule: a value that matches pattern is code,
-// unless the rule has unless_callee (a list of alternatives) and the callee of
-// the value (what stands before its first "(") matches the callee of one of them
-// entirely and every pattern of that one's all finds something in it.
-type skipRule struct {
-	pattern *regexp.Regexp
-	unless  []calleeAlt
-}
-
-type calleeAlt struct {
-	callee *regexp.Regexp
-	all    []*regexp.Regexp
-}
-
 type knownFormat struct {
 	name            string
 	pattern         *regexp.Regexp
@@ -64,7 +50,7 @@ type catalogT struct {
 	placeholders []*regexp.Regexp
 	fillers      map[string]bool
 	fillerPats   []*regexp.Regexp
-	skipUnquoted []skipRule
+	skipUnquoted []*regexp.Regexp
 	whitespace   string // body of a character class
 	ws           string // [whitespace]
 	wsSet        wsSet
@@ -216,11 +202,7 @@ func loadCatalog(data []byte) (*catalogT, error) {
 			Fillers  []string `json:"filler_skip_values"`
 			FillPats []string `json:"filler_skip_patterns"`
 			Skip     []struct {
-				Pattern      string `json:"pattern"`
-				UnlessCallee []struct {
-					Callee string   `json:"callee"`
-					All    []string `json:"all"`
-				} `json:"unless_callee"`
+				Pattern string `json:"pattern"`
 			} `json:"skip_unquoted_if"`
 		} `json:"key_context"`
 		Headers      json.RawMessage `json:"headers"`
@@ -289,7 +271,7 @@ func loadCatalog(data []byte) (*catalogT, error) {
 	}
 	c.valueMin, _ = strconv.Atoi(m[2])
 	c.valueRun = regexp.MustCompile(`^` + wantUnquoted + `*`)
-	c.keySep = regexp.MustCompile(`["']?([A-Za-z_$][A-Za-z0-9_$-]*)["']?` + c.ws + `*[:=]` + c.ws + `*`)
+	c.keySep = regexp.MustCompile(`([A-Za-z_$][A-Za-z0-9_$-]*)` + c.ws + `*[:=]` + c.ws + `*`)
 	for _, p := range raw.Placeholders {
 		c.placeholders = append(c.placeholders, catalogRE(p, false))
 	}
@@ -302,15 +284,7 @@ func loadCatalog(data []byte) (*catalogT, error) {
 		c.fillerPats = append(c.fillerPats, catalogRE(p, false))
 	}
 	for _, r := range raw.KeyContext.Skip {
-		rule := skipRule{pattern: catalogRE(r.Pattern, false)}
-		for _, u := range r.UnlessCallee {
-			alt := calleeAlt{callee: catalogRE(u.Callee, false)}
-			for _, a := range u.All {
-				alt.all = append(alt.all, catalogRE(a, false))
-			}
-			rule.unless = append(rule.unless, alt)
-		}
-		c.skipUnquoted = append(c.skipUnquoted, rule)
+		c.skipUnquoted = append(c.skipUnquoted, catalogRE(r.Pattern, false))
 	}
 	for _, k := range raw.KeyContext.Keys {
 		kp := components(k)
@@ -380,7 +354,7 @@ func loadCatalog(data []byte) (*catalogT, error) {
 		c.jsonPairEsc = append(c.jsonPairEsc, catalogRE(d.Quote+`([A-Za-z_$][A-Za-z0-9_$-]*)`+d.Quote+c.ws+`*:`+c.ws+`*`+d.Quote+`(`+d.Body+esc+`)`+d.Quote, false))
 		c.quotedEsc = append(c.quotedEsc, catalogRE(`([A-Za-z_$][A-Za-z0-9_$-]*)`+c.ws+`*[:=]`+c.ws+`*`+d.Quote+`(`+d.Body+esc+`)`+d.Quote, false))
 	}
-	c.quoted = catalogRE(`["']?([A-Za-z_$][A-Za-z0-9_$-]*)["']?`+c.ws+`*[:=]`+c.ws+`*(?:"(`+raw.KeyContext.DQBody+min+`)"|'(`+raw.KeyContext.SQBody+min+`)')`, false)
+	c.quoted = catalogRE(`([A-Za-z_$][A-Za-z0-9_$-]*)`+c.ws+`*[:=]`+c.ws+`*(?:"(`+raw.KeyContext.DQBody+min+`)"|'(`+raw.KeyContext.SQBody+min+`)')`, false)
 	return c, nil
 }
 

@@ -220,7 +220,7 @@ func newKeyGate(keys [][]string) *keyGate {
 }
 
 func gapByte(c byte) bool {
-	return c == '"' || c == '\'' || c == '\\' || c >= 0x80 || c >= 9 && c <= 13 || c >= 0x1c && c <= 0x20
+	return c == '"' || c == '\\' || c >= 0x80 || c >= 9 && c <= 13 || c >= 0x1c && c <= 0x20
 }
 
 func (g *keyGate) ok(v *view) bool {

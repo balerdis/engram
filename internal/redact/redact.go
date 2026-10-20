@@ -158,37 +158,10 @@ func skipsAsUnquotedCode(v string) bool {
 	if tooLong(v) {
 		return false
 	}
-	for _, r := range cat.skipUnquoted {
-		if r.pattern.MatchString(v) && !r.rescued(v) {
+	for _, p := range cat.skipUnquoted {
+		if p.MatchString(v) {
 			return true
 		}
-	}
-	return false
-}
-
-// rescued reports whether a value that matched the rule is not code after all
-// (unless_callee): the callee, the part before the first "(" (empty when there
-// is none), matches the rule's callee pattern entirely and every pattern of
-// `all` finds something in it.
-func (r skipRule) rescued(v string) bool {
-	if len(r.unless) == 0 {
-		return false
-	}
-	callee := ""
-	if i := strings.IndexByte(v, '('); i > 0 {
-		callee = v[:i]
-	}
-next:
-	for _, alt := range r.unless {
-		if !alt.callee.MatchString(callee) {
-			continue
-		}
-		for _, a := range alt.all {
-			if !a.MatchString(callee) {
-				continue next
-			}
-		}
-		return true
 	}
 	return false
 }
@@ -504,7 +477,6 @@ func unquotedPairs(s string, reg *registry, token func(string) string) string {
 			}
 		}
 		start, keyEnd, v := loc[0], loc[3], loc[1]
-		keyStart := loc[2]
 		if prevInClass(s, start, inIdent) {
 			pos = rejectedSkip(s, start, inIdent)
 			continue
@@ -512,7 +484,7 @@ func unquotedPairs(s string, reg *registry, token func(string) string) string {
 		if !(v >= runStart && v < runEnd) {
 			runStart, runEnd = v, v+cat.valueRun.FindStringIndex(s[v:])[1]
 		}
-		key := s[keyStart:keyEnd]
+		key := s[start:keyEnd]
 		if runeLen(s[v:min(runEnd, v+cat.valueMin*utf8.UTFMax)]) < cat.valueMin || !matchesCatalogKey(key) {
 			pos = keyEnd
 			continue
