@@ -212,13 +212,14 @@ func stripPrivate(text string) string {
 // StripPrivate is stripPrivate for callers outside the package.
 func StripPrivate(text string) string { return stripPrivate(text) }
 
-// padding splits inner into its leading whitespace, the rest trimmed and its
-// trailing whitespace, by the catalog's whitespace set. Linear.
+// padding splits inner into its leading padding, the rest trimmed and its
+// trailing padding, by the catalog's whitespace set plus explicit.trim_extra
+// (invisible characters; used here and nowhere else). Linear.
 func padding(inner string) (lead, core, trail string) {
 	start := 0
 	for start < len(inner) {
 		r, w := utf8.DecodeRuneInString(inner[start:])
-		if !cat.wsSet.has(r) {
+		if !cat.trimSet.has(r) {
 			break
 		}
 		start += w
@@ -226,7 +227,7 @@ func padding(inner string) (lead, core, trail string) {
 	end := len(inner)
 	for end > start {
 		r, w := utf8.DecodeLastRuneInString(inner[:end])
-		if !cat.wsSet.has(r) {
+		if !cat.trimSet.has(r) {
 			break
 		}
 		end -= w

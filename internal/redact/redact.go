@@ -171,22 +171,26 @@ func skipsAsUnquotedCode(v string) bool {
 // is none), matches the rule's callee pattern entirely and every pattern of
 // `all` finds something in it.
 func (r skipRule) rescued(v string) bool {
-	if r.callee == nil {
+	if len(r.unless) == 0 {
 		return false
 	}
 	callee := ""
 	if i := strings.IndexByte(v, '('); i > 0 {
 		callee = v[:i]
 	}
-	if !r.callee.MatchString(callee) {
-		return false
-	}
-	for _, a := range r.all {
-		if !a.MatchString(callee) {
-			return false
+next:
+	for _, alt := range r.unless {
+		if !alt.callee.MatchString(callee) {
+			continue
 		}
+		for _, a := range alt.all {
+			if !a.MatchString(callee) {
+				continue next
+			}
+		}
+		return true
 	}
-	return true
+	return false
 }
 
 func matchesCatalogKey(raw string) bool {
@@ -214,7 +218,8 @@ func inURLScheme(r rune) bool {
 	return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '+' || r == '.' || r == '-'
 }
 func inHeaderName(r rune) bool {
-	return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-'
+	// U+0130 and U+0131: the reference's case-insensitive [A-Za-z0-9-] holds them.
+	return r == 0x130 || r == 0x131 || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-'
 }
 func inIdent(r rune) bool {
 	return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '$' || r == '-'
@@ -429,14 +434,16 @@ func keyContextPasses(out string, reg *registry, token func(string) string, repl
 
 	// 6b. The same inside a JSON string: \"key\":\"value\", the quotes escaped.
 	if gates.jsonEsc.ok(v.of(out)) {
-		cur := out
-		out = scan(cat.jsonPairEsc, cur, nil, func(m []int) (string, bool) {
-			key, value := cur[m[2]:m[3]], cur[m[4]:m[5]]
-			if !matchesCatalogKey(key) || isPlaceholder(value) {
-				return "", false
-			}
-			return replaceAt(cur, m[0], m[1], m[4], m[5], key), true
-		})
+		for _, re := range cat.jsonPairEsc {
+			cur := out
+			out = scan(re, cur, nil, func(m []int) (string, bool) {
+				key, value := cur[m[2]:m[3]], cur[m[4]:m[5]]
+				if !matchesCatalogKey(key) || isPlaceholder(value) {
+					return "", false
+				}
+				return replaceAt(cur, m[0], m[1], m[4], m[5], key), true
+			})
+		}
 	}
 
 	// 7. key = "value" / key: 'value'.
@@ -458,14 +465,16 @@ func keyContextPasses(out string, reg *registry, token func(string) string, repl
 	// 7b. key=\"value\" / key: \"value\": the quotes are escaped because the text
 	// is itself inside a JSON string; the escaped quote delimits the value.
 	if gates.quotedEsc.ok(v.of(out)) {
-		cur := out
-		out = scan(cat.quotedEsc, cur, inIdent, func(m []int) (string, bool) {
-			key, value := cur[m[2]:m[3]], cur[m[4]:m[5]]
-			if !matchesCatalogKey(key) || isPlaceholder(value) {
-				return "", false
-			}
-			return replaceAt(cur, m[0], m[1], m[4], m[5], key), true
-		})
+		for _, re := range cat.quotedEsc {
+			cur := out
+			out = scan(re, cur, inIdent, func(m []int) (string, bool) {
+				key, value := cur[m[2]:m[3]], cur[m[4]:m[5]]
+				if !matchesCatalogKey(key) || isPlaceholder(value) {
+					return "", false
+				}
+				return replaceAt(cur, m[0], m[1], m[4], m[5], key), true
+			})
+		}
 	}
 
 	// 8. key=value / key: value, unquoted.
@@ -495,6 +504,7 @@ func unquotedPairs(s string, reg *registry, token func(string) string) string {
 			}
 		}
 		start, keyEnd, v := loc[0], loc[3], loc[1]
+		keyStart := loc[2]
 		if prevInClass(s, start, inIdent) {
 			pos = rejectedSkip(s, start, inIdent)
 			continue
@@ -502,7 +512,7 @@ func unquotedPairs(s string, reg *registry, token func(string) string) string {
 		if !(v >= runStart && v < runEnd) {
 			runStart, runEnd = v, v+cat.valueRun.FindStringIndex(s[v:])[1]
 		}
-		key := s[start:keyEnd]
+		key := s[keyStart:keyEnd]
 		if runeLen(s[v:min(runEnd, v+cat.valueMin*utf8.UTFMax)]) < cat.valueMin || !matchesCatalogKey(key) {
 			pos = keyEnd
 			continue

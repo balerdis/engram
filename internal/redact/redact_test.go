@@ -234,3 +234,54 @@ func TestManyRegisteredValues(t *testing.T) {
 		}
 	}
 }
+
+// The matcher shapes a review used against the first version of pass 9 (a slice
+// and a hash per distinct length at every position that starts like a value).
+// With the automaton each is linear. Bounds are generous: they fail on a
+// quadratic matcher, not on a loaded machine.
+func TestKnownValuesMatcherAdversarialShapes(t *testing.T) {
+	shapes := map[string]func() string{
+		// password="a{L-1}b" for L = 4..400, then 150k a.
+		"nested_a": func() string {
+			var b strings.Builder
+			for l := 4; l <= 400; l++ {
+				fmt.Fprintf(&b, "password=\"%sb\" ", strings.Repeat("a", l-1))
+			}
+			return b.String() + strings.Repeat("a", 150000)
+		},
+		// N values "Aa1x" + b*(i+1) + "Z", then "Aa1x" * 50000.
+		"prefix_family": func() string {
+			var b strings.Builder
+			for i := 0; i < 400; i++ {
+				fmt.Fprintf(&b, "password=\"Aa1x%sZ\" ", strings.Repeat("b", i+1))
+			}
+			return b.String() + strings.Repeat("Aa1x", 50000)
+		},
+		// 400 values made only of a, then a long run of a.
+		"all_a_values": func() string {
+			var b strings.Builder
+			for l := 8; l < 408; l++ {
+				fmt.Fprintf(&b, "token=\"%s\" ", strings.Repeat("a", l))
+			}
+			return b.String() + strings.Repeat("a", 200000)
+		},
+	}
+	for name, mk := range shapes {
+		in := mk()
+		start := time.Now()
+		_ = Redact(in)
+		if d := time.Since(start); d > 5*time.Second {
+			t.Errorf("%s: %d bytes took %v", name, len(in), d)
+		}
+	}
+}
+
+// A `.` before a value that does not join it to a word must not hide the check
+// of what follows it (the boundary rules are independent checks, not a switch).
+func TestKnownValueBoundaryChecksAreIndependent(t *testing.T) {
+	in := `password="ba..1.a" password=".bbba.bb" x..ba..1.a.bbba.bb1`
+	got := Redact(in)
+	if !strings.Contains(got, "ba..1.a.bbba.bb1") {
+		t.Fatalf("a value followed by a `.` that joins a word was replaced: %q", got)
+	}
+}

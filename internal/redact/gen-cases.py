@@ -108,6 +108,25 @@ for i, case in enumerate([
     "password = md5($input) token = toBase64(x) pwd = readUInt8(buf) secret = decodeBase64(s) password=Vec3(1,2) token=Sha256(abc)",
 ]):
     new.append((f"v792_extra_{i:02d}", case))
+for i, case in enumerate([
+    # second round of 7.9.2: depths 2 and 3, quoted keys, invisible padding, Turkish i.
+    '{"out":"{\\"args\\":\\"{\\\\\\"password\\\\\\":\\\\\\"Zq8xK2mPw7Lr\\\\\\"}\\"}"}',
+    'password=\\\\\\"Zq8xK2mPw7Lr\\\\\\" and password=\\\\\\\\\\\\\\\"Ab12cd34Ef\\\\\\\\\\\\\\\" tail',
+    'password=\\\\\\\\\\\\\\\" token: \\\\\\"x\\\\\\"',
+    "{'password': 'Zq8xK2mPw7Lr'} {\"password\": 'Zq8xK2mPw7Lr'} 'password': Zq8xK2mPw7Lr 'password' = 'Zq8xK2mPw7Lr' \"password\" = 'Zq8xK2mPw7Lr'",
+    '"password": 123456789 "token": null `"token": null` "api_key": false`) x"password"=\'abcdefgh12\'',
+    "<private>\u200bINVIS1234\u200b</private> and INVIS1234 <private>\ufeff\u00adNUL12345\x00</private> <private>\u2060\u200b</private> NUL12345",
+    "x <private>\x1cA=B1234567\x1f</private> <private>\u180e NAME = VAL98765 \u200f</private> VAL98765",
+    "<pr\u0131vate>TURK1234</pr\u0131vate> Author\u0131zat\u0131on-signature-256: abcdefgh1234 X-Tok\u0130n-signature: zzzzzzzz1234 DB_PASSWORD_2Author\u0131zat\u0131on-signature-256:\u2003token2",
+    "password=Summer2024( password=Welcome2024( password=Hunter2Hunter2( password=Passw0rd( password=Sha256Hex( token=Oauth2Client( secret=Zx9kQ2mP7wLr()",
+    "password=\\\\\\\\\\ token=\\ x=\\\\\\\\\\\\\\\\\\ ",
+]):
+    new.append((f"v792b_extra_{i:02d}", case))
+# matcher shapes of the reviewers, at small sizes
+new.append(("v792b_matcher_a", " ".join('password="%s"' % ("a" * (L - 1) + "b") for L in range(4, 40)) + " " + "a" * 400))
+new.append(("v792b_matcher_b", " ".join('password="Aa1x%sZ"' % ("b" * (i + 1)) for i in range(30)) + " " + "Aa1x" * 100))
+new.append(("v792b_matcher_c", " ".join('token="%s"' % ("a" * L) for L in range(8, 30)) + " " + "a" * 300))
+new.append(("v792b_matcher_suffixes", 'token="abcd1234" token="xabcd1234" token="yxabcd1234" ' + "yxabcd1234 xabcd1234 abcd1234 " * 5))
 import random
 rng = random.Random(7)
 vals = ["val%05dX" % n for n in range(300)]

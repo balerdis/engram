@@ -95,6 +95,28 @@ func BenchmarkRedact(b *testing.B) {
 	b.Run("escaped_json_256KB", func(b *testing.B) {
 		benchRedact(b, fill(`{"log":"login ok password=\"Hunter2Hunter2\" \"token\":\"abcdefgh1234\" done"}`+"\n", MaxDetectBytes()))
 	})
+	// The shapes of a review of the repeated-values matcher.
+	b.Run("matcher_nested_a_150k", func(b *testing.B) {
+		var sb strings.Builder
+		for l := 4; l <= 400; l++ {
+			fmt.Fprintf(&sb, "password=\"%sb\" ", strings.Repeat("a", l-1))
+		}
+		benchRedact(b, sb.String()+strings.Repeat("a", 150000))
+	})
+	b.Run("matcher_prefix_family_200k", func(b *testing.B) {
+		var sb strings.Builder
+		for i := 0; i < 400; i++ {
+			fmt.Fprintf(&sb, "password=\"Aa1x%sZ\" ", strings.Repeat("b", i+1))
+		}
+		benchRedact(b, sb.String()+strings.Repeat("Aa1x", 50000))
+	})
+	b.Run("matcher_all_a_values_200k", func(b *testing.B) {
+		var sb strings.Builder
+		for l := 8; l < 408; l++ {
+			fmt.Fprintf(&sb, "token=\"%s\" ", strings.Repeat("a", l))
+		}
+		benchRedact(b, sb.String()+strings.Repeat("a", 200000))
+	})
 	b.Run("worst_chain_eq_256KB", func(b *testing.B) {
 		benchRedact(b, strings.Repeat("a=", MaxDetectBytes()/2))
 	})

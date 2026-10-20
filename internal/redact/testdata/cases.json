@@ -1904,7 +1904,7 @@
     {
       "name": "v791_widened_41",
       "input": "password=Summer2024( and password=Zx9kQ2mP7(wLr) and secret=Zx9kQ2mP7wLr() and token=Passw0rd()",
-      "expected": "password=[REDACTED:PASSWORD] and password=[REDACTED:PASSWORD_2] and secret=[REDACTED:SECRET] and token=[REDACTED:TOKEN]"
+      "expected": "password=[REDACTED:PASSWORD] and password=[REDACTED:PASSWORD_2] and secret=[REDACTED:SECRET] and token=Passw0rd()"
     },
     {
       "name": "v791_widened_42",
@@ -2424,12 +2424,12 @@
     {
       "name": "v792_extra_33",
       "input": "password=Summer2024( password=Zx9kQ2mP7(wLr) secret=Zx9kQ2mP7wLr() token=Passw0rd() password = sha256(x) token = MD5(abc) pwd = getPassword(User1) secret = utf8( pwd = hmacSHA256( password=summer2024( password=Abc1Def_2(x)",
-      "expected": "password=[REDACTED:PASSWORD] password=[REDACTED:PASSWORD_2] secret=[REDACTED:SECRET] token=[REDACTED:TOKEN] password = sha256(x) token = MD5(abc) pwd = getPassword(User1) secret = utf8( pwd = hmacSHA256( password=summer2024( password=Abc1Def_2(x)"
+      "expected": "password=[REDACTED:PASSWORD] password=[REDACTED:PASSWORD_2] secret=[REDACTED:SECRET] token=Passw0rd() password = sha256(x) token = MD5(abc) pwd = getPassword(User1) secret = utf8( pwd = hmacSHA256( password=summer2024( password=Abc1Def_2(x)"
     },
     {
       "name": "v792_extra_34",
       "input": "password = md5($input) token = toBase64(x) pwd = readUInt8(buf) secret = decodeBase64(s) password=Vec3(1,2) token=Sha256(abc)",
-      "expected": "password = md5($input) token = toBase64(x) pwd = readUInt8(buf) secret = decodeBase64(s) password=[REDACTED:PASSWORD],2) token=[REDACTED:TOKEN]"
+      "expected": "password = md5($input) token = toBase64(x) pwd = readUInt8(buf) secret = decodeBase64(s) password=[REDACTED:PASSWORD],2) token=Sha256(abc)"
     },
     {
       "name": "v792_many_values",
@@ -2455,6 +2455,216 @@
       "name": "v792_prefix_values",
       "input": "token=abcdefg1 token=abcdefg1ijkl x abcdefg1ijklm abcdefg1.abcdefg1ijkl abcdefg1ijkl abcdefg1ijklmnopqrstuvwxyz1 token=abcdefg1ijklmnopqrstuvwxyz1",
       "expected": "token=[REDACTED:TOKEN] token=[REDACTED:TOKEN_2] x abcdefg1ijklm abcdefg1.abcdefg1ijkl [REDACTED:TOKEN_2] [REDACTED:TOKEN_3] token=[REDACTED:TOKEN_3]"
+    },
+    {
+      "name": "v791_widened_45",
+      "input": "{\"out\":\"{\\\"args\\\":\\\"{\\\\\\\"password\\\\\\\":\\\\\\\"Zq8xK2mPw7Lr\\\\\\\"}\\\"}\"}",
+      "expected": "{\"out\":\"{\\\"args\\\":\\\"{\\\\\\\"password\\\\\\\":\\\\\\\"[REDACTED:PASSWORD]\\\\\\\"}\\\"}\"}"
+    },
+    {
+      "name": "v791_widened_46",
+      "input": "log: \\\\\\\\\\\\\\\"password\\\\\\\\\\\\\\\": \\\\\\\\\\\\\\\"Zq8xK2mPw7Lr\\\\\\\\\\\\\\\", more",
+      "expected": "log: \\\\\\\\\\\\\\\"password\\\\\\\\\\\\\\\": \\\\\\\\\\\\\\\"[REDACTED:PASSWORD]\\\\\\\\\\\\\\\", more"
+    },
+    {
+      "name": "v791_widened_47",
+      "input": "password=\\\\\\\"Zq8xK2mPw7Lr\\\\\\\" and export DB_PASSWORD=\\\\\\\\\\\\\\\"Yq7wJ1nOv6Kq\\\\\\\\\\\\\\\" and\ndb:\n  api_key: \\\\\\\"Xp6vH0mNu5Jp\\\\\\\"",
+      "expected": "password=\\\\\\\"[REDACTED:PASSWORD]\\\\\\\" and export DB_PASSWORD=\\\\\\\\\\\\\\\"[REDACTED:DB_PASSWORD]\\\\\\\\\\\\\\\" and\ndb:\n  api_key: \\\\\\\"[REDACTED:API_KEY]\\\\\\\""
+    },
+    {
+      "name": "v791_widened_48",
+      "input": "password=\\\\\\\"ab\\\\\\\\\\\\\\\"cdefgh1\\\\\\\" tail",
+      "expected": "password=\\\\\\\"[REDACTED:PASSWORD]\\\\\\\" tail"
+    },
+    {
+      "name": "v791_widened_49",
+      "input": "password=\\\\\\\"Zq8xK2mPw7Lr\\\" tail",
+      "expected": "password=\\\\\\\"Zq8xK2mPw7Lr\\\" tail"
+    },
+    {
+      "name": "v791_widened_50",
+      "input": "{'password': 'Zq8xK2mPw7Lr'} {\"token\": 'Wp5uG9lMt4Io'} 'secret': Vo4tF8kLs3Hn 'api_key' = 'Un3sE7jKr2Gm' \"dbPassword\" = 'Tm2rD6iJq1Fl'",
+      "expected": "{'password': '[REDACTED:PASSWORD]'} {\"token\": '[REDACTED:TOKEN]'} 'secret': [REDACTED:SECRET] 'api_key' = '[REDACTED:API_KEY]' \"dbPassword\" = '[REDACTED:DBPASSWORD]'"
+    },
+    {
+      "name": "v791_widened_51",
+      "input": "{\"password\": 123456789, \"token\": null, \"name\": \"bob\", 'tokenizer': 'wordpiece', d['token']: x}",
+      "expected": "{\"password\": [REDACTED:PASSWORD], \"token\": null, \"name\": \"bob\", 'tokenizer': 'wordpiece', d['token']: x}"
+    },
+    {
+      "name": "v791_widened_52",
+      "input": "<private>​﻿ Hunter2Hunter2 ‍\u0000\u001c</private> then Hunter2Hunter2 here <private>⁠­‌</private>",
+      "expected": "​﻿ [REDACTED:PRIVATE] ‍\u0000\u001c then [REDACTED:PRIVATE] here [REDACTED]"
+    },
+    {
+      "name": "v791_widened_53",
+      "input": "<prıvate>turkishsecret99</prıvate> <PRİVATE>second1234</PRİVATE> Authorızatıon: Bearer Passw0rd2024xx x-apı-key: abcdefgh12345678 Authorızatıon-signature-256: abcdef1234567890",
+      "expected": "[REDACTED:PRIVATE] [REDACTED:PRIVATE_2] Authorızatıon: Bearer [REDACTED:AUTHORIZATION] x-apı-key: [REDACTED:API_KEY] Authorızatıon-signature-256: [REDACTED:AUTHORIZATION_SIGNATURE_256]"
+    },
+    {
+      "name": "v791_widened_54",
+      "input": "password=Summer2024( and password=Zx9kQ2mP7(wLr) and secret=Zx9kQ2mP7wLr() and pwd=Hunter2Hunter2(x)",
+      "expected": "password=[REDACTED:PASSWORD] and password=[REDACTED:PASSWORD_2] and secret=[REDACTED:SECRET] and pwd=[REDACTED:PWD]"
+    },
+    {
+      "name": "v791_surviving_19",
+      "input": "token = Sha256Hex(data); password = Password1(user); secret = Oauth2Client(id); token = Oauth2Token(request)",
+      "expected": "token = Sha256Hex(data); password = Password1(user); secret = Oauth2Client(id); token = Oauth2Token(request)"
+    },
+    {
+      "name": "v791_surviving_20",
+      "input": "pwd = Md5Sum(x); key_token = Fernet128Key(; secret = Jwt2Token(claims); pwd = Sha256(x); token = Base64(",
+      "expected": "pwd = Md5Sum(x); key_token = Fernet128Key(; secret = Jwt2Token(claims); pwd = Sha256(x); token = Base64("
+    },
+    {
+      "name": "v791_surviving_21",
+      "input": "pwd = Uint8Array(; secret = Int32(; token = Float64(; pwd = Vec3(; secret = Aes256(",
+      "expected": "pwd = Uint8Array(; secret = Int32(; token = Float64(; pwd = Vec3(; secret = Aes256("
+    },
+    {
+      "name": "v791_surviving_22",
+      "input": "{'name': 'bob', 'tokenizer': 'wordpiece', 'limit': 4096} d['token'] = value {\"token\": null}",
+      "expected": "{'name': 'bob', 'tokenizer': 'wordpiece', 'limit': 4096} d['token'] = value {\"token\": null}"
+    },
+    {
+      "name": "v792_corpus_88",
+      "input": "password=\\\\\\\"Zq8xK2mPw7Lr\\\\\\\" end",
+      "expected": "password=\\\\\\\"[REDACTED:PASSWORD]\\\\\\\" end"
+    },
+    {
+      "name": "v792_corpus_89",
+      "input": "export DB_PASSWORD=\\\\\\\\\\\\\\\"Yq7wJ1nOv6Kq\\\\\\\\\\\\\\\"",
+      "expected": "export DB_PASSWORD=\\\\\\\\\\\\\\\"[REDACTED:DB_PASSWORD]\\\\\\\\\\\\\\\""
+    },
+    {
+      "name": "v792_corpus_90",
+      "input": "db:\n  api_key: \\\\\\\"Xp6vH0mNu5Jp\\\\\\\"",
+      "expected": "db:\n  api_key: \\\\\\\"[REDACTED:API_KEY]\\\\\\\""
+    },
+    {
+      "name": "v792_corpus_91",
+      "input": "{'password': 'Zq8xK2mPw7Lr'}",
+      "expected": "{'password': '[REDACTED:PASSWORD]'}"
+    },
+    {
+      "name": "v792_corpus_92",
+      "input": "{\"password\": 'Zq8xK2mPw7Lr'}",
+      "expected": "{\"password\": '[REDACTED:PASSWORD]'}"
+    },
+    {
+      "name": "v792_corpus_93",
+      "input": "'password': Zq8xK2mPw7Lr",
+      "expected": "'password': [REDACTED:PASSWORD]"
+    },
+    {
+      "name": "v792_corpus_94",
+      "input": "'password' = 'Zq8xK2mPw7Lr'",
+      "expected": "'password' = '[REDACTED:PASSWORD]'"
+    },
+    {
+      "name": "v792_corpus_95",
+      "input": "\"password\" = 'Zq8xK2mPw7Lr'",
+      "expected": "\"password\" = '[REDACTED:PASSWORD]'"
+    },
+    {
+      "name": "v792_corpus_96",
+      "input": "{\"password\": 987654321, \"user\": \"x\"}",
+      "expected": "{\"password\": [REDACTED:PASSWORD], \"user\": \"x\"}"
+    },
+    {
+      "name": "v792_corpus_97",
+      "input": "<private>​﻿ Hunter2Hunter2 ‍\u0000\u001c</private>\nlater: Hunter2Hunter2",
+      "expected": "​﻿ [REDACTED:PRIVATE] ‍\u0000\u001c\nlater: [REDACTED:PRIVATE]"
+    },
+    {
+      "name": "v792_corpus_98",
+      "input": "<prıvate>turkishsecret99</prıvate>",
+      "expected": "[REDACTED:PRIVATE]"
+    },
+    {
+      "name": "v792_corpus_99",
+      "input": "Authorızatıon: Bearer Passw0rd2024xx",
+      "expected": "Authorızatıon: Bearer [REDACTED:AUTHORIZATION]"
+    },
+    {
+      "name": "v792_corpus_100",
+      "input": "password=Passw0rd(",
+      "expected": "password=Passw0rd("
+    },
+    {
+      "name": "v792_corpus_101",
+      "input": "{\"log\":\"password=&quot;Hunter2Hunter2&quot; x\"}",
+      "expected": "{\"log\":\"password=&quot;Hunter2Hunter2&quot; x\"}"
+    },
+    {
+      "name": "v792_corpus_102",
+      "input": "{\\\"password\": \"Hunter2Hunter2\"}",
+      "expected": "{\\\"password\": \"[REDACTED:PASSWORD]\"}"
+    },
+    {
+      "name": "v792b_extra_01",
+      "input": "password=\\\\\\\"Zq8xK2mPw7Lr\\\\\\\" and password=\\\\\\\\\\\\\\\"Ab12cd34Ef\\\\\\\\\\\\\\\" tail",
+      "expected": "password=\\\\\\\"[REDACTED:PASSWORD]\\\\\\\" and password=\\\\\\\\\\\\\\\"[REDACTED:PASSWORD_2]\\\\\\\\\\\\\\\" tail"
+    },
+    {
+      "name": "v792b_extra_02",
+      "input": "password=\\\\\\\\\\\\\\\" token: \\\\\\\"x\\\\\\\"",
+      "expected": "password=\\\\\\\\\\\\\\\" token: \\\\\\\"x\\\\\\\""
+    },
+    {
+      "name": "v792b_extra_03",
+      "input": "{'password': 'Zq8xK2mPw7Lr'} {\"password\": 'Zq8xK2mPw7Lr'} 'password': Zq8xK2mPw7Lr 'password' = 'Zq8xK2mPw7Lr' \"password\" = 'Zq8xK2mPw7Lr'",
+      "expected": "{'password': '[REDACTED:PASSWORD]'} {\"password\": '[REDACTED:PASSWORD]'} 'password': [REDACTED:PASSWORD] 'password' = '[REDACTED:PASSWORD]' \"password\" = '[REDACTED:PASSWORD]'"
+    },
+    {
+      "name": "v792b_extra_04",
+      "input": "\"password\": 123456789 \"token\": null `\"token\": null` \"api_key\": false`) x\"password\"='abcdefgh12'",
+      "expected": "\"password\": [REDACTED:PASSWORD_2] \"token\": null `\"token\": null` \"api_key\": false`) x\"password\"='[REDACTED:PASSWORD]'"
+    },
+    {
+      "name": "v792b_extra_05",
+      "input": "<private>​INVIS1234​</private> and INVIS1234 <private>﻿­NUL12345\u0000</private> <private>⁠​</private> NUL12345",
+      "expected": "​[REDACTED:PRIVATE]​ and [REDACTED:PRIVATE] ﻿­[REDACTED:PRIVATE_2]\u0000 [REDACTED] [REDACTED:PRIVATE_2]"
+    },
+    {
+      "name": "v792b_extra_06",
+      "input": "x <private>\u001cA=B1234567\u001f</private> <private>᠎ NAME = VAL98765 ‏</private> VAL98765",
+      "expected": "x \u001c[REDACTED:A]\u001f ᠎ [REDACTED:NAME] ‏ [REDACTED:NAME]"
+    },
+    {
+      "name": "v792b_extra_07",
+      "input": "<prıvate>TURK1234</prıvate> Authorızatıon-signature-256: abcdefgh1234 X-Tokİn-signature: zzzzzzzz1234 DB_PASSWORD_2Authorızatıon-signature-256: token2",
+      "expected": "[REDACTED:PRIVATE] Authorızatıon-signature-256: [REDACTED:AUTHORIZATION_SIGNATURE_256] X-Tokİn-signature: [REDACTED:X_TOK_N_SIGNATURE] DB_PASSWORD_2Authorızatıon-signature-256: [REDACTED:ON_SIGNATURE_256]"
+    },
+    {
+      "name": "v792b_extra_08",
+      "input": "password=Summer2024( password=Welcome2024( password=Hunter2Hunter2( password=Passw0rd( password=Sha256Hex( token=Oauth2Client( secret=Zx9kQ2mP7wLr()",
+      "expected": "password=[REDACTED:PASSWORD] password=[REDACTED:PASSWORD_2] password=[REDACTED:PASSWORD_3] password=Passw0rd( password=Sha256Hex( token=Oauth2Client( secret=[REDACTED:SECRET]"
+    },
+    {
+      "name": "v792b_extra_09",
+      "input": "password=\\\\\\\\\\ token=\\ x=\\\\\\\\\\\\\\\\\\ ",
+      "expected": "password=\\\\\\\\\\ token=\\ x=\\\\\\\\\\\\\\\\\\ "
+    },
+    {
+      "name": "v792b_matcher_a",
+      "input": "password=\"aaab\" password=\"aaaab\" password=\"aaaaab\" password=\"aaaaaab\" password=\"aaaaaaab\" password=\"aaaaaaaab\" password=\"aaaaaaaaab\" password=\"aaaaaaaaaab\" password=\"aaaaaaaaaaab\" password=\"aaaaaaaaaaaab\" password=\"aaaaaaaaaaaaab\" password=\"aaaaaaaaaaaaaab\" password=\"aaaaaaaaaaaaaaab\" password=\"aaaaaaaaaaaaaaaab\" password=\"aaaaaaaaaaaaaaaaab\" password=\"aaaaaaaaaaaaaaaaaab\" password=\"aaaaaaaaaaaaaaaaaaab\" password=\"aaaaaaaaaaaaaaaaaaaab\" password=\"aaaaaaaaaaaaaaaaaaaaab\" password=\"aaaaaaaaaaaaaaaaaaaaaab\" password=\"aaaaaaaaaaaaaaaaaaaaaaab\" password=\"aaaaaaaaaaaaaaaaaaaaaaaab\" password=\"aaaaaaaaaaaaaaaaaaaaaaaaab\" password=\"aaaaaaaaaaaaaaaaaaaaaaaaaab\" password=\"aaaaaaaaaaaaaaaaaaaaaaaaaaab\" password=\"aaaaaaaaaaaaaaaaaaaaaaaaaaaab\" password=\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaab\" password=\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaab\" password=\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab\" password=\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab\" password=\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab\" password=\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab\" password=\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab\" password=\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab\" password=\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab\" password=\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab\" aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected": "password=\"[REDACTED:PASSWORD]\" password=\"[REDACTED:PASSWORD_2]\" password=\"[REDACTED:PASSWORD_3]\" password=\"[REDACTED:PASSWORD_4]\" password=\"[REDACTED:PASSWORD_5]\" password=\"[REDACTED:PASSWORD_6]\" password=\"[REDACTED:PASSWORD_7]\" password=\"[REDACTED:PASSWORD_8]\" password=\"[REDACTED:PASSWORD_9]\" password=\"[REDACTED:PASSWORD_10]\" password=\"[REDACTED:PASSWORD_11]\" password=\"[REDACTED:PASSWORD_12]\" password=\"[REDACTED:PASSWORD_13]\" password=\"[REDACTED:PASSWORD_14]\" password=\"[REDACTED:PASSWORD_15]\" password=\"[REDACTED:PASSWORD_16]\" password=\"[REDACTED:PASSWORD_17]\" password=\"[REDACTED:PASSWORD_18]\" password=\"[REDACTED:PASSWORD_19]\" password=\"[REDACTED:PASSWORD_20]\" password=\"[REDACTED:PASSWORD_21]\" password=\"[REDACTED:PASSWORD_22]\" password=\"[REDACTED:PASSWORD_23]\" password=\"[REDACTED:PASSWORD_24]\" password=\"[REDACTED:PASSWORD_25]\" password=\"[REDACTED:PASSWORD_26]\" password=\"[REDACTED:PASSWORD_27]\" password=\"[REDACTED:PASSWORD_28]\" password=\"[REDACTED:PASSWORD_29]\" password=\"[REDACTED:PASSWORD_30]\" password=\"[REDACTED:PASSWORD_31]\" password=\"[REDACTED:PASSWORD_32]\" password=\"[REDACTED:PASSWORD_33]\" password=\"[REDACTED:PASSWORD_34]\" password=\"[REDACTED:PASSWORD_35]\" password=\"[REDACTED:PASSWORD_36]\" aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "name": "v792b_matcher_b",
+      "input": "password=\"Aa1xbZ\" password=\"Aa1xbbZ\" password=\"Aa1xbbbZ\" password=\"Aa1xbbbbZ\" password=\"Aa1xbbbbbZ\" password=\"Aa1xbbbbbbZ\" password=\"Aa1xbbbbbbbZ\" password=\"Aa1xbbbbbbbbZ\" password=\"Aa1xbbbbbbbbbZ\" password=\"Aa1xbbbbbbbbbbZ\" password=\"Aa1xbbbbbbbbbbbZ\" password=\"Aa1xbbbbbbbbbbbbZ\" password=\"Aa1xbbbbbbbbbbbbbZ\" password=\"Aa1xbbbbbbbbbbbbbbZ\" password=\"Aa1xbbbbbbbbbbbbbbbZ\" password=\"Aa1xbbbbbbbbbbbbbbbbZ\" password=\"Aa1xbbbbbbbbbbbbbbbbbZ\" password=\"Aa1xbbbbbbbbbbbbbbbbbbZ\" password=\"Aa1xbbbbbbbbbbbbbbbbbbbZ\" password=\"Aa1xbbbbbbbbbbbbbbbbbbbbZ\" password=\"Aa1xbbbbbbbbbbbbbbbbbbbbbZ\" password=\"Aa1xbbbbbbbbbbbbbbbbbbbbbbZ\" password=\"Aa1xbbbbbbbbbbbbbbbbbbbbbbbZ\" password=\"Aa1xbbbbbbbbbbbbbbbbbbbbbbbbZ\" password=\"Aa1xbbbbbbbbbbbbbbbbbbbbbbbbbZ\" password=\"Aa1xbbbbbbbbbbbbbbbbbbbbbbbbbbZ\" password=\"Aa1xbbbbbbbbbbbbbbbbbbbbbbbbbbbZ\" password=\"Aa1xbbbbbbbbbbbbbbbbbbbbbbbbbbbbZ\" password=\"Aa1xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbZ\" password=\"Aa1xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbZ\" Aa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1x",
+      "expected": "password=\"[REDACTED:PASSWORD]\" password=\"[REDACTED:PASSWORD_2]\" password=\"[REDACTED:PASSWORD_3]\" password=\"[REDACTED:PASSWORD_4]\" password=\"[REDACTED:PASSWORD_5]\" password=\"[REDACTED:PASSWORD_6]\" password=\"[REDACTED:PASSWORD_7]\" password=\"[REDACTED:PASSWORD_8]\" password=\"[REDACTED:PASSWORD_9]\" password=\"[REDACTED:PASSWORD_10]\" password=\"[REDACTED:PASSWORD_11]\" password=\"[REDACTED:PASSWORD_12]\" password=\"[REDACTED:PASSWORD_13]\" password=\"[REDACTED:PASSWORD_14]\" password=\"[REDACTED:PASSWORD_15]\" password=\"[REDACTED:PASSWORD_16]\" password=\"[REDACTED:PASSWORD_17]\" password=\"[REDACTED:PASSWORD_18]\" password=\"[REDACTED:PASSWORD_19]\" password=\"[REDACTED:PASSWORD_20]\" password=\"[REDACTED:PASSWORD_21]\" password=\"[REDACTED:PASSWORD_22]\" password=\"[REDACTED:PASSWORD_23]\" password=\"[REDACTED:PASSWORD_24]\" password=\"[REDACTED:PASSWORD_25]\" password=\"[REDACTED:PASSWORD_26]\" password=\"[REDACTED:PASSWORD_27]\" password=\"[REDACTED:PASSWORD_28]\" password=\"[REDACTED:PASSWORD_29]\" password=\"[REDACTED:PASSWORD_30]\" Aa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1xAa1x"
+    },
+    {
+      "name": "v792b_matcher_c",
+      "input": "token=\"aaaaaaaa\" token=\"aaaaaaaaa\" token=\"aaaaaaaaaa\" token=\"aaaaaaaaaaa\" token=\"aaaaaaaaaaaa\" token=\"aaaaaaaaaaaaa\" token=\"aaaaaaaaaaaaaa\" token=\"aaaaaaaaaaaaaaa\" token=\"aaaaaaaaaaaaaaaa\" token=\"aaaaaaaaaaaaaaaaa\" token=\"aaaaaaaaaaaaaaaaaa\" token=\"aaaaaaaaaaaaaaaaaaa\" token=\"aaaaaaaaaaaaaaaaaaaa\" token=\"aaaaaaaaaaaaaaaaaaaaa\" token=\"aaaaaaaaaaaaaaaaaaaaaa\" token=\"aaaaaaaaaaaaaaaaaaaaaaa\" token=\"aaaaaaaaaaaaaaaaaaaaaaaa\" token=\"aaaaaaaaaaaaaaaaaaaaaaaaa\" token=\"aaaaaaaaaaaaaaaaaaaaaaaaaa\" token=\"aaaaaaaaaaaaaaaaaaaaaaaaaaa\" token=\"aaaaaaaaaaaaaaaaaaaaaaaaaaaa\" token=\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\" aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected": "token=\"[REDACTED:TOKEN]\" token=\"[REDACTED:TOKEN_2]\" token=\"[REDACTED:TOKEN_3]\" token=\"[REDACTED:TOKEN_4]\" token=\"[REDACTED:TOKEN_5]\" token=\"[REDACTED:TOKEN_6]\" token=\"[REDACTED:TOKEN_7]\" token=\"[REDACTED:TOKEN_8]\" token=\"[REDACTED:TOKEN_9]\" token=\"[REDACTED:TOKEN_10]\" token=\"[REDACTED:TOKEN_11]\" token=\"[REDACTED:TOKEN_12]\" token=\"[REDACTED:TOKEN_13]\" token=\"[REDACTED:TOKEN_14]\" token=\"[REDACTED:TOKEN_15]\" token=\"[REDACTED:TOKEN_16]\" token=\"[REDACTED:TOKEN_17]\" token=\"[REDACTED:TOKEN_18]\" token=\"[REDACTED:TOKEN_19]\" token=\"[REDACTED:TOKEN_20]\" token=\"[REDACTED:TOKEN_21]\" token=\"[REDACTED:TOKEN_22]\" [REDACTED:TOKEN_22][REDACTED:TOKEN_22][REDACTED:TOKEN_22][REDACTED:TOKEN_22][REDACTED:TOKEN_22][REDACTED:TOKEN_22][REDACTED:TOKEN_22][REDACTED:TOKEN_22][REDACTED:TOKEN_22][REDACTED:TOKEN_22]aaaaaaaaaa"
+    },
+    {
+      "name": "v792b_matcher_suffixes",
+      "input": "token=\"abcd1234\" token=\"xabcd1234\" token=\"yxabcd1234\" yxabcd1234 xabcd1234 abcd1234 yxabcd1234 xabcd1234 abcd1234 yxabcd1234 xabcd1234 abcd1234 yxabcd1234 xabcd1234 abcd1234 yxabcd1234 xabcd1234 abcd1234 ",
+      "expected": "token=\"[REDACTED:TOKEN]\" token=\"[REDACTED:TOKEN_2]\" token=\"[REDACTED:TOKEN_3]\" [REDACTED:TOKEN_3] [REDACTED:TOKEN_2] [REDACTED:TOKEN] [REDACTED:TOKEN_3] [REDACTED:TOKEN_2] [REDACTED:TOKEN] [REDACTED:TOKEN_3] [REDACTED:TOKEN_2] [REDACTED:TOKEN] [REDACTED:TOKEN_3] [REDACTED:TOKEN_2] [REDACTED:TOKEN] [REDACTED:TOKEN_3] [REDACTED:TOKEN_2] [REDACTED:TOKEN] "
     }
   ]
 }

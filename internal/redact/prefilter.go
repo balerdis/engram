@@ -220,7 +220,7 @@ func newKeyGate(keys [][]string) *keyGate {
 }
 
 func gapByte(c byte) bool {
-	return c == '"' || c == '\\' || c >= 0x80 || c >= 9 && c <= 13 || c >= 0x1c && c <= 0x20
+	return c == '"' || c == '\'' || c == '\\' || c >= 0x80 || c >= 9 && c <= 13 || c >= 0x1c && c <= 0x20
 }
 
 func (g *keyGate) ok(v *view) bool {
@@ -271,9 +271,11 @@ type passGates struct {
 
 func buildGates() *passGates {
 	g := &passGates{
-		url:       literalGate(cat.urlPattern),
-		jsonEsc:   literalGate(cat.jsonPairEsc),
-		quotedEsc: literalGate(cat.quotedEsc),
+		url: literalGate(cat.urlPattern),
+		// Every depth's delimiter (2^k-1 backslashes and a quote) contains the
+		// depth-1 one, so its literal gates all of them.
+		jsonEsc:   literalGate(cat.jsonPairEsc[0]),
+		quotedEsc: literalGate(cat.quotedEsc[0]),
 		privOpen:  literalGate(rePrivTag),
 		keys:      newKeyGate(cat.keys),
 	}

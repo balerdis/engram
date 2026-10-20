@@ -38,12 +38,17 @@ type headerRule struct {
 }
 
 // skipRule is a skip_unquoted_if rule: a value that matches pattern is code,
-// unless the rule has unless_callee and the callee of the value (what stands
-// before its first "(") matches callee entirely and every pattern of all.
+// unless the rule has unless_callee (a list of alternatives) and the callee of
+// the value (what stands before its first "(") matches the callee of one of them
+// entirely and every pattern of that one's all finds something in it.
 type skipRule struct {
 	pattern *regexp.Regexp
-	callee  *regexp.Regexp   // nil: no unless_callee
-	all     []*regexp.Regexp // each must find something in the callee
+	unless  []calleeAlt
+}
+
+type calleeAlt struct {
+	callee *regexp.Regexp
+	all    []*regexp.Regexp
 }
 
 type knownFormat struct {
@@ -63,6 +68,7 @@ type catalogT struct {
 	whitespace   string // body of a character class
 	ws           string // [whitespace]
 	wsSet        wsSet
+	trimSet      wsSet          // whitespace plus explicit.trim_extra: trims <private> padding, nothing else
 	keys         [][]string     // components of each catalog key
 	keyWholes    []string       // the components of each key, joined
 	valueMin     int            // minimum run length of an unquoted value
@@ -73,9 +79,9 @@ type catalogT struct {
 	urlName      string
 	known        []knownFormat
 	jsonPair     *regexp.Regexp
-	jsonPairEsc  *regexp.Regexp // pass 6b: \"key\":\"value\"
+	jsonPairEsc  []*regexp.Regexp // pass 6b, one per escaped_quote_depths entry
 	quoted       *regexp.Regexp
-	quotedEsc    *regexp.Regexp // pass 7b: key=\"value\"
+	quotedEsc    []*regexp.Regexp // pass 7b, one per depth
 	namedPrivate *regexp.Regexp
 	barePrivate  *regexp.Regexp
 	bareName     string
@@ -201,13 +207,17 @@ func loadCatalog(data []byte) (*catalogT, error) {
 			MinLen   int      `json:"min_value_length"`
 			Unquoted string   `json:"unquoted_value_pattern"`
 			DQBody   string   `json:"quoted_value_double_body"`
-			EscBody  string   `json:"quoted_value_escaped_body"`
+			Depths   []struct {
+				Depth int    `json:"depth"`
+				Quote string `json:"quote"`
+				Body  string `json:"body"`
+			} `json:"escaped_quote_depths"`
 			SQBody   string   `json:"quoted_value_single_body"`
 			Fillers  []string `json:"filler_skip_values"`
 			FillPats []string `json:"filler_skip_patterns"`
 			Skip     []struct {
 				Pattern      string `json:"pattern"`
-				UnlessCallee *struct {
+				UnlessCallee []struct {
 					Callee string   `json:"callee"`
 					All    []string `json:"all"`
 				} `json:"unless_callee"`
@@ -229,7 +239,8 @@ func loadCatalog(data []byte) (*catalogT, error) {
 				Open  string `json:"open"`
 				Close string `json:"close"`
 			} `json:"nesting"`
-			Named struct {
+			TrimExtra string `json:"trim_extra"`
+			Named     struct {
 				Pattern string `json:"pattern"`
 			} `json:"named"`
 			Bare struct {
@@ -255,8 +266,8 @@ func loadCatalog(data []byte) (*catalogT, error) {
 	if !strings.HasPrefix(raw.URL.Pattern, urlLookbehind) {
 		return nil, fmt.Errorf("url_credentials.pattern lost its lookbehind; the previous-character check must be updated")
 	}
-	if raw.KeyContext.DQBody == "" || raw.KeyContext.SQBody == "" || raw.KeyContext.EscBody == "" {
-		return nil, fmt.Errorf("catalog lacks quoted_value_double_body/quoted_value_single_body/quoted_value_escaped_body")
+	if raw.KeyContext.DQBody == "" || raw.KeyContext.SQBody == "" || len(raw.KeyContext.Depths) == 0 {
+		return nil, fmt.Errorf("catalog lacks quoted_value_double_body/quoted_value_single_body/escaped_quote_depths")
 	}
 	if raw.Explicit.Nesting.Open != "<private>" || raw.Explicit.Nesting.Close != "</private>" {
 		return nil, fmt.Errorf("explicit.nesting changed; the <private> scanner must be updated")
@@ -265,6 +276,7 @@ func loadCatalog(data []byte) (*catalogT, error) {
 		whitespace: raw.Whitespace,
 		ws:         "[" + raw.Whitespace + "]",
 		wsSet:      parseWhitespace(raw.Whitespace),
+		trimSet:    parseWhitespace(raw.Whitespace + raw.Explicit.TrimExtra),
 		minLen:     raw.MinLen,
 		maxDetect:  raw.MaxDetect,
 		keyMinLen:  raw.KeyContext.MinLen,
@@ -277,7 +289,7 @@ func loadCatalog(data []byte) (*catalogT, error) {
 	}
 	c.valueMin, _ = strconv.Atoi(m[2])
 	c.valueRun = regexp.MustCompile(`^` + wantUnquoted + `*`)
-	c.keySep = regexp.MustCompile(`([A-Za-z_$][A-Za-z0-9_$-]*)` + c.ws + `*[:=]` + c.ws + `*`)
+	c.keySep = regexp.MustCompile(`["']?([A-Za-z_$][A-Za-z0-9_$-]*)["']?` + c.ws + `*[:=]` + c.ws + `*`)
 	for _, p := range raw.Placeholders {
 		c.placeholders = append(c.placeholders, catalogRE(p, false))
 	}
@@ -291,11 +303,12 @@ func loadCatalog(data []byte) (*catalogT, error) {
 	}
 	for _, r := range raw.KeyContext.Skip {
 		rule := skipRule{pattern: catalogRE(r.Pattern, false)}
-		if u := r.UnlessCallee; u != nil {
-			rule.callee = catalogRE(u.Callee, false)
+		for _, u := range r.UnlessCallee {
+			alt := calleeAlt{callee: catalogRE(u.Callee, false)}
 			for _, a := range u.All {
-				rule.all = append(rule.all, catalogRE(a, false))
+				alt.all = append(alt.all, catalogRE(a, false))
 			}
+			rule.unless = append(rule.unless, alt)
 		}
 		c.skipUnquoted = append(c.skipUnquoted, rule)
 	}
@@ -360,10 +373,14 @@ func loadCatalog(data []byte) (*catalogT, error) {
 	// character it escapes (so an escaped quote never closes the value early).
 	min := "{" + itoa(c.keyMinLen) + ",}"
 	c.jsonPair = catalogRE(`"([A-Za-z_$][A-Za-z0-9_$-]*)"`+c.ws+`*:`+c.ws+`*"(`+raw.KeyContext.DQBody+min+`)"`, false)
+	// Passes 6b and 7b, once per depth of escaped quotes: the depth's own quote
+	// delimits the value and its own body reads it.
 	esc := "{" + itoa(c.keyMinLen) + ",}"
-	c.jsonPairEsc = catalogRE(`\\"([A-Za-z_$][A-Za-z0-9_$-]*)\\"`+c.ws+`*:`+c.ws+`*\\"(`+raw.KeyContext.EscBody+esc+`)\\"`, false)
-	c.quotedEsc = catalogRE(`([A-Za-z_$][A-Za-z0-9_$-]*)`+c.ws+`*[:=]`+c.ws+`*\\"(`+raw.KeyContext.EscBody+esc+`)\\"`, false)
-	c.quoted = catalogRE(`([A-Za-z_$][A-Za-z0-9_$-]*)`+c.ws+`*[:=]`+c.ws+`*(?:"(`+raw.KeyContext.DQBody+min+`)"|'(`+raw.KeyContext.SQBody+min+`)')`, false)
+	for _, d := range raw.KeyContext.Depths {
+		c.jsonPairEsc = append(c.jsonPairEsc, catalogRE(d.Quote+`([A-Za-z_$][A-Za-z0-9_$-]*)`+d.Quote+c.ws+`*:`+c.ws+`*`+d.Quote+`(`+d.Body+esc+`)`+d.Quote, false))
+		c.quotedEsc = append(c.quotedEsc, catalogRE(`([A-Za-z_$][A-Za-z0-9_$-]*)`+c.ws+`*[:=]`+c.ws+`*`+d.Quote+`(`+d.Body+esc+`)`+d.Quote, false))
+	}
+	c.quoted = catalogRE(`["']?([A-Za-z_$][A-Za-z0-9_$-]*)["']?`+c.ws+`*[:=]`+c.ws+`*(?:"(`+raw.KeyContext.DQBody+min+`)"|'(`+raw.KeyContext.SQBody+min+`)')`, false)
 	return c, nil
 }
 
