@@ -61,7 +61,7 @@ Varios engram comparten la misma `~/.engram/engram.db`, por ejemplo el de OpenCo
 
 Desde la 1.20.1, ningún flujo del binario ni del instalador lleva al original. Lo que queda:
 
-- Los demás destinos de `engram setup` (por ejemplo `gemini-cli` o `codex`) todavía copian archivos o configuraciones heredadas del original. Se revisan uno por uno cuando alguien los use.
+- Los demás destinos de `engram setup` (por ejemplo `gemini-cli` o `codex`) copian archivos o configuraciones heredadas del original, que viven en el fork. Ninguno apunta al original: Claude Code y Codex se instalan desde el marketplace `balerdis/engram` (revisado en la 1.22.3).
 - El README y los `.md` heredados: unos 50 archivos mencionan el original.
   - Desde la 1.21.0, el README y la documentación ya no prometen Homebrew, la imagen ghcr ni el marketplace del original. Lo que queda son menciones históricas o créditos.
   - Desde la 1.22.0 no existe `docs/engram-cloud/` ni el resto de lo de la nube, así que ya no queda ninguna referencia a la imagen Docker del original.
@@ -75,15 +75,49 @@ El fork tiene los issues y las discusiones deshabilitados, así que las plantill
 
 Las ideas se acumulan acá y se toman por release.
 
-- **Prompts muy largos.** El plugin arma el envío con argumentos de shell, así que un prompt de más de unos 128 KB no se guarda, sin aviso.
 - **Una herramienta para agentes que solo muestre qué borraría `purge`**, sin borrar nunca, por si hace falta que un agente ayude a encontrar lo que sobra.
-- **Restos de la nube.** Quedan la tabla `sync_apply_deferred` (solo lectura, y un `DELETE FROM sync_apply_deferred` en `applyRelationUpsertTx` que ya no tiene qué borrar), `CountDeferredAndDead` en las estadísticas de conflictos y los errores `ErrRelationFKMissing` y `ErrApplyDead`. Se pueden quitar sin tocar el esquema.
-- **Otros destinos de `engram setup` que todavía apuntan al original** (ver la sección anterior).
-- **Costo de leer `/proc` en cada conexión.** La guarda de uid lee `/proc/net/tcp` (y `tcp6`) al aceptar cada conexión nueva; una conexión keep-alive lo paga una sola vez. Si molesta, se puede cachear.
-- **`StartSession` no toca `started_at`.** Una sesión vieja que se retoma pierde frente a una sesión abierta más nueva en `MostRecentActiveSession`.
-- **Prueba inestable de `internal/obsidian`** (`TestWatcherRunsImmediatelyThenTicks`, con una ventana de menos de 5 ms): falla a veces con la máquina cargada. Ya estaba antes de la 1.22.0.- **Filas heredadas con un nombre de proyecto no canónico.** Hay que fusionarlas a mano con `mem_merge_projects` (`MergeProjects`). `/projects/migrate` ya no las mueve si el destino tiene filas.
+- **Prueba inestable de `internal/obsidian`** (`TestWatcherRunsImmediatelyThenTicks`, con una ventana de menos de 5 ms): falla a veces con la máquina cargada. Ya estaba antes de la 1.22.0.
 
 ## Releases
+
+### 1.22.3
+
+Toma cinco ideas de la lista y resuelve del lado del servidor una deuda de Pegasus, la doble captura de prompts. No cambia el esquema de la base ni el catálogo de credenciales.
+
+1. **Un prompt que llega dos veces se guarda una.** Quien tiene en Claude Code los hooks de engram de Pegasus y además el plugin de hooks del fork manda cada prompt dos veces a `POST /prompts`: una ya tapada por el hook de Pegasus y otra cruda del plugin, que el servidor tapa al guardar con el mismo catálogo.
+   - `AddPrompt` mira, dentro de la misma transacción y con el índice `idx_prompts_session`, el último prompt de la sesión. Si es del mismo proyecto, tiene exactamente el mismo contenido guardado y se creó hace 30 segundos o menos, devuelve su id sin insertar.
+   - **Se acepta:** un prompt idéntico escrito dos veces en menos de 30 s en la misma sesión queda una sola vez. Si las dos copias no quedan iguales después de tapar, siguen siendo dos, como antes.
+   - El mensaje final de un subagente (`POST /observations/passive`) también llega de los dos y ya se deduplicaba: `PassiveCapture` tapa el texto y compara el hash normalizado antes de insertar, así que la segunda copia cuenta como duplicada y no se guarda. Ahora lo fija una prueba.
+2. **Una sesión retomada vuelve a ser la más reciente.** `StartSession` (los arranques explícitos: `POST /sessions` y `mem_session_start`) sobre una sesión que ya existe pone `started_at` en el momento actual, además de reabrirla. Antes conservaba el inicio viejo y `MostRecentActiveSession` prefería cualquier sesión abierta más nueva. `CreateSession` y los caminos implícitos no cambian.
+   - **Efectos aceptados:**
+     - Los filtros por antigüedad de `purge` miran `started_at`, así que una sesión retomada cuenta como nueva.
+     - Los listados y los chunks exportados muestran como inicio el último arranque explícito.
+     - El recordatorio del hook de Codex, que espera a que la sesión tenga 5 minutos, vuelve a esperarlos después de retomarla.
+3. **Restos de la nube.** Se quitan el `DELETE FROM sync_apply_deferred` de `applyRelationUpsertTx` y el error `ErrApplyDead`, que nadie comprobaba. Quedan porque se siguen usando:
+   - la tabla, que cuentan y vacían `purge` y `redact --scan`;
+   - `ErrRelationFKMissing`, que usa `engram sync` al importar chunks;
+   - `CountDeferredAndDead`, porque las estadísticas de conflictos todavía muestran los contadores heredados.
+4. **La guarda de uid ya no frena el accept.** La lectura de `/proc/net/tcp` y `tcp6` corría en `ConnContext`, que `http.Server` llama dentro del bucle de accept: cada conexión nueva esperaba la lectura completa, y las demás esperaban detrás.
+   - Ahora la lectura arranca en una goroutine propia apenas se acepta la conexión, y la guarda espera su resultado en el primer pedido. Una conexión keep-alive lo reutiliza.
+   - No espera al primer pedido para arrancar: un cliente que manda y cierra enseguida dejaría solo una fila `FIN_WAIT` o `TIME_WAIT`.
+   - `ConnUID` recorre la tabla línea por línea y se detiene en la primera fila `ESTABLISHED` del cliente hacia el servidor.
+   - Las decisiones no cambian: 403 `foreign_uid` si `/proc` se puede leer y no hay fila, y abierto solo sin `/proc`, con `ENGRAM_ALLOW_OTHER_USERS=1` o con un cliente que no es de loopback.
+   - Costo medido: alrededor de 1 ms por conexión con una tabla de 2 000 filas y la fila buscada al final, que es el peor caso. En la máquina de prueba las tablas tienen 36 y 29 filas. No hay caché: un puerto reutilizado podría ser de otro usuario.
+5. **Prompts de más de 128 KB.** Linux limita cada argumento de un proceso a 128 KiB, y los hooks pasaban el prompt como un argumento de `jq`, así que uno más largo no se guardaba, sin aviso.
+   - `user-prompt-submit.sh` y `subagent-stop.sh` (Claude Code y Codex) arman ahora el cuerpo con `jq` leyendo la entrada del hook por una tubería, y lo mandan con `curl --data-binary @-`. Probado con 300 KB.
+   - El servidor guarda el prompt recortado a `MaxObservationLength` (50 000 por defecto).
+   - El `.ps1` no tenía el problema.
+6. **La importación de chunks dice por qué no corrió.** `session-start.sh` (Claude Code y Codex) se saltea la importación si la carpeta del candado (`$XDG_RUNTIME_DIR` o `~/.engram`) no existe o no es de este usuario. Ahora lo avisa en una línea por stderr (`engram: chunk import skipped: <dir> is missing` o `is not owned by this user`), nunca en el contexto del modelo.
+   - La línea sale por un descriptor aparte (3), que se cierra apenas pasan los chequeos. Si quedara abierto, la importación en segundo plano retendría el stderr del hook y quien lo lanzó esperaría a que terminara. Lo fija una prueba con una importación de 3 s.
+7. **`/projects/migrate` en cada arranque.** Los hooks no llaman si el nombre viejo, en forma canónica, es igual al nuevo. Ya era así; ahora lo fija una prueba.
+   - **Se acepta:** cuando el nombre que da el servidor (por ejemplo, el del remoto de git) difiere del nombre de la carpeta, la llamada se repite en cada arranque.
+   - Evitarlo pedía un archivo de estado, y la llamada es barata: si el destino ya tiene filas, responde `skipped`.
+8. **Revisado sin cambios de código.**
+   - Ningún destino de `engram setup` apunta al original (sección «Lo que todavía apunta al original»).
+   - La base real del usuario no tiene ninguna fila con un nombre de proyecto no canónico. Se buscaron mayúsculas, espacios, `--` y `__` en observaciones, sesiones y prompts. Si aparece alguna, se fusiona con `mem_merge_projects`.
+9. **Plugins:** Claude Code 0.3.2 y Codex 0.2.3, porque cambiaron sus scripts. El de OpenCode no cambió.
+
+Para publicarla: igual que la 1.22.2, sin catálogo nuevo (el sha sigue siendo el de la 7.9.2 de Pegasus). No hace falta correr `redact --scan`.
 
 ### 1.22.2
 
