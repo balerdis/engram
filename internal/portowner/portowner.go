@@ -312,25 +312,11 @@ func ConnUID(client, server netip.AddrPort, p Paths) (int, error) {
 	probes = append(probes, probe{p.TCP6, procEndpoint6(client), procEndpoint6(server)})
 	var scanErr error
 	for _, pr := range probes {
-		lines, err := readLines(pr.path)
+		uid, found, err := scanEstablished(pr.path, pr.local, pr.remote)
 		if err != nil {
 			scanErr = err
 		}
-		if len(lines) == 0 {
-			continue
-		}
-		for _, line := range lines[1:] {
-			f := strings.Fields(line)
-			if len(f) < 8 || !strings.EqualFold(f[1], pr.local) || !strings.EqualFold(f[2], pr.remote) || f[3] != stateEstablished {
-				continue
-			}
-			if !uidText.MatchString(f[7]) {
-				continue
-			}
-			uid, err := strconv.Atoi(f[7])
-			if err != nil {
-				continue
-			}
+		if found {
 			return uid, nil
 		}
 	}
@@ -338,4 +324,31 @@ func ConnUID(client, server netip.AddrPort, p Paths) (int, error) {
 		return -1, fmt.Errorf("%w for %s -> %s (read error: %v)", ErrNoRow, client, server, scanErr)
 	}
 	return -1, fmt.Errorf("%w for %s -> %s", ErrNoRow, client, server)
+}
+
+// scanEstablished streams a table and stops at the first ESTABLISHED row going
+// from local to remote, so a match early in the table does not pay for the rest.
+// An unopenable file counts as an empty table; a read error mid-file is returned.
+func scanEstablished(path, local, remote string) (uid int, found bool, err error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, false, nil
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	sc.Scan() // header
+	for sc.Scan() {
+		f := strings.Fields(sc.Text())
+		if len(f) < 8 || !strings.EqualFold(f[1], local) || !strings.EqualFold(f[2], remote) || f[3] != stateEstablished {
+			continue
+		}
+		if !uidText.MatchString(f[7]) {
+			continue
+		}
+		if n, convErr := strconv.Atoi(f[7]); convErr == nil {
+			return n, true, nil
+		}
+	}
+	return 0, false, sc.Err()
 }

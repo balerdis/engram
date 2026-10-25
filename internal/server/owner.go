@@ -34,18 +34,24 @@ const envAllowOtherUsers = "ENGRAM_ALLOW_OTHER_USERS"
 type ctxKey struct{}
 
 // connOwner holds the uid behind the client socket, resolved once per connection.
+// The lookup runs in its own goroutine; resolve waits for it.
 type connOwner struct {
-	client, server netip.AddrPort
-	uid            int
-	err            error
+	done chan struct{}
+	uid  int
+	err  error
 }
 
-func (c *connOwner) resolve() (int, error) { return c.uid, c.err }
+func (c *connOwner) resolve() (int, error) {
+	<-c.done
+	return c.uid, c.err
+}
 
-// connContext is the http.Server.ConnContext hook. It runs right after Accept, while
-// the client's socket is still ESTABLISHED, and resolves the owner there: a client
-// that sends a request and closes at once would otherwise leave a FIN_WAIT/TIME_WAIT
-// row (uid 0) or none by the time the first request is read. The answer is cached
+// connContext is the http.Server.ConnContext hook. It runs inside the accept loop,
+// right after Accept, while the client's socket is still ESTABLISHED, and starts the
+// owner lookup there: a client that sends a request and closes at once would
+// otherwise leave a FIN_WAIT/TIME_WAIT row (uid 0) or none by the time the first
+// request is read. The lookup itself runs in a goroutine so a slow /proc read never
+// delays other connections; the first request waits for it. The answer is cached
 // for the lifetime of a keep-alive connection.
 func (s *Server) connContext(ctx context.Context, c net.Conn) context.Context {
 	client, ok1 := addrPort(c.RemoteAddr())
@@ -53,8 +59,12 @@ func (s *Server) connContext(ctx context.Context, c net.Conn) context.Context {
 	if !ok1 || !ok2 || !client.Addr().IsLoopback() {
 		return ctx
 	}
-	o := &connOwner{client: client, server: server}
-	o.uid, o.err = portowner.ConnUID(client, server, s.procPaths())
+	o := &connOwner{done: make(chan struct{})}
+	paths := s.procPaths()
+	go func() {
+		defer close(o.done)
+		o.uid, o.err = portowner.ConnUID(client, server, paths)
+	}()
 	return context.WithValue(ctx, ctxKey{}, o)
 }
 
