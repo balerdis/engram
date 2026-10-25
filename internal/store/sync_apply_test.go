@@ -48,19 +48,6 @@ func countRelationRows(t *testing.T, s *Store, syncID string) int {
 	return n
 }
 
-// countDeferredRows returns the count of rows in sync_apply_deferred for the
-// given sync_id.
-func countDeferredRows(t *testing.T, s *Store, syncID string) int {
-	t.Helper()
-	var n int
-	if err := s.db.QueryRow(
-		`SELECT count(*) FROM sync_apply_deferred WHERE sync_id = ?`, syncID,
-	).Scan(&n); err != nil {
-		t.Fatalf("countDeferredRows: %v", err)
-	}
-	return n
-}
-
 // setupSyncApplyStore creates a fresh store with two sessions and two
 // observations suitable for relation apply tests.
 func setupSyncApplyStore(t *testing.T) (s *Store, syncObsA, syncObsB string) {
@@ -102,16 +89,11 @@ func TestApplyPulledRelation_InsertsWhenObsExist(t *testing.T) {
 		t.Errorf("expected 1 row in memory_relations for sync_id=%q; got %d", relSyncID, n)
 	}
 
-	// Verify the deferred table is empty for this sync_id.
-	d := countDeferredRows(t, s, relSyncID)
-	if d != 0 {
-		t.Errorf("expected 0 deferred rows after successful apply; got %d", d)
-	}
 }
 
-// C.3b — ApplyPulledRelation_DefersOnFKMiss: target observation absent →
-// row written to sync_apply_deferred; no halt; seq is ACK-able.
-func TestApplyPulledRelation_DefersOnFKMiss(t *testing.T) {
+// C.3b — ApplyPulledRelation_FKMiss: target observation absent →
+// ErrRelationFKMissing and no memory_relations row.
+func TestApplyPulledRelation_FKMiss(t *testing.T) {
 	s, syncA, _ := setupSyncApplyStore(t)
 
 	// Target does NOT exist locally.
@@ -138,40 +120,10 @@ func TestApplyPulledRelation_DefersOnFKMiss(t *testing.T) {
 		t.Errorf("expected ErrRelationFKMissing; got %v", err)
 	}
 
-	// Caller writes to sync_apply_deferred on ErrRelationFKMissing.
-	// The test simulates the caller: write deferred row and verify.
-	if _, werr := s.db.Exec(`
-		INSERT INTO sync_apply_deferred (sync_id, entity, payload, apply_status, retry_count, first_seen_at)
-		VALUES (?, 'relation', ?, 'deferred', 0, datetime('now'))
-		ON CONFLICT(sync_id) DO UPDATE SET payload=excluded.payload, last_attempted_at=datetime('now')
-	`, relSyncID, m.Payload); werr != nil {
-		t.Fatalf("write deferred row: %v", werr)
-	}
-
-	d := countDeferredRows(t, s, relSyncID)
-	if d != 1 {
-		t.Errorf("expected 1 deferred row; got %d", d)
-	}
-
-	// Verify apply_status and retry_count.
-	var applyStatus string
-	var retryCount int
-	if err2 := s.db.QueryRow(
-		`SELECT apply_status, retry_count FROM sync_apply_deferred WHERE sync_id = ?`, relSyncID,
-	).Scan(&applyStatus, &retryCount); err2 != nil {
-		t.Fatalf("scan deferred row: %v", err2)
-	}
-	if applyStatus != "deferred" {
-		t.Errorf("apply_status: want %q, got %q", "deferred", applyStatus)
-	}
-	if retryCount != 0 {
-		t.Errorf("retry_count: want 0, got %d", retryCount)
-	}
-
 	// memory_relations must NOT have a row for this sync_id.
 	r := countRelationRows(t, s, relSyncID)
 	if r != 0 {
-		t.Errorf("expected 0 rows in memory_relations for deferred relation; got %d", r)
+		t.Errorf("expected 0 rows in memory_relations for relation with missing endpoint; got %d", r)
 	}
 }
 

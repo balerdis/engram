@@ -58,8 +58,7 @@ var (
 var (
 	// ErrRelationFKMissing is returned by applyRelationUpsertTx when one or
 	// both observations referenced by the relation payload do not exist locally
-	// yet. The caller must write the mutation to sync_apply_deferred and ACK
-	// the sequence so the cursor does not stall.
+	// yet. The chunk importer skips or retries the relation.
 	ErrRelationFKMissing = errors.New("relation FK precondition not met: referenced observation missing")
 
 	// ErrCrossProjectRelation is returned by JudgeRelation when the source and
@@ -67,12 +66,6 @@ var (
 	// entirely; no memory_relations row is created and no sync mutation is
 	// enqueued.
 	ErrCrossProjectRelation = errors.New("relation rejected: source and target observations are in different projects")
-
-	// ErrApplyDead is returned when a deferred relation payload cannot be
-	// decoded or fails a hard validation. The row is written to
-	// sync_apply_deferred with apply_status='dead' and is never retried
-	// automatically; Phase 3 adds a republish CLI.
-	ErrApplyDead = errors.New("relation apply permanently failed: payload invalid or undecodable")
 )
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -1052,7 +1045,8 @@ func (s *Store) CreateSession(id, project, directory string) error {
 // StartSession is the explicit-start variant of CreateSession: it upserts the
 // session and, when the session was already ended, reopens it (ended_at = NULL)
 // so a resumed session is found again by MostRecentActiveSession. The stored
-// summary is kept. Only explicit starts (HTTP POST /sessions, mem_session_start)
+// summary is kept and started_at is refreshed, so the resumed session is the most recent
+// one. Only explicit starts (HTTP POST /sessions, mem_session_start)
 // may use it; implicit paths must keep CreateSession so a closed session stays closed.
 func (s *Store) StartSession(id, project, directory string) error {
 	project, _ = NormalizeProject(project)
@@ -1063,7 +1057,7 @@ func (s *Store) StartSession(id, project, directory string) error {
 			return err
 		}
 		_, err := s.execHook(tx,
-			`UPDATE sessions SET ended_at = NULL WHERE id = ? AND ended_at IS NOT NULL`, id)
+			`UPDATE sessions SET started_at = datetime('now'), ended_at = NULL WHERE id = ?`, id)
 		return err
 	})
 }
@@ -1557,6 +1551,9 @@ func (s *Store) MarkReviewed(id int64) error {
 
 // ─── User Prompts ────────────────────────────────────────────────────────────
 
+// promptDedupeWindow is how long an identical latest prompt of a session absorbs a repeat.
+const promptDedupeWindow = 30 * time.Second
+
 func (s *Store) AddPrompt(p AddPromptParams) (int64, error) {
 	// Normalize project name before storing
 	p.Project, _ = NormalizeProject(p.Project)
@@ -1565,6 +1562,25 @@ func (s *Store) AddPrompt(p AddPromptParams) (int64, error) {
 
 	var promptID int64
 	err := s.withTx(func(tx *sql.Tx) error {
+		// Two clients can capture the same prompt; the latest prompt of the session,
+		// if identical and recent, is the one already stored.
+		var lastProject string
+		var lastContent string
+		var recent bool
+		err := tx.QueryRow(
+			`SELECT id, ifnull(project, ''), content, created_at >= datetime('now', ?)
+			 FROM user_prompts WHERE session_id = ? ORDER BY id DESC LIMIT 1`,
+			fmt.Sprintf("-%d seconds", int(promptDedupeWindow/time.Second)), p.SessionID,
+		).Scan(&promptID, &lastProject, &lastContent, &recent)
+		if err == nil {
+			if recent && lastProject == p.Project && lastContent == content {
+				return nil
+			}
+			promptID = 0
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+
 		syncID := newSyncID("prompt")
 		res, err := s.execHook(tx,
 			`INSERT INTO user_prompts (sync_id, session_id, content, project) VALUES (?, ?, ?, ?)`,
@@ -3379,25 +3395,23 @@ func (s *Store) applyPulledMutationTx(tx *sql.Tx, mutation SyncMutation) error {
 // op='upsert'. It implements the pull-side behavior for Phase 2:
 //
 //  1. JSON-decode the payload into syncRelationPayload. Decode errors return
-//     ErrApplyDead (non-retryable).
+//     a plain error (non-retryable).
 //  2. Verify both source and target observations exist locally by sync_id.
 //     If either is missing, return ErrRelationFKMissing. ApplyPulledChunk
 //     skips and counts such a relation; nothing is deferred.
 //  3. INSERT INTO memory_relations with ON CONFLICT(sync_id) DO UPDATE
 //     (last-write-wins, preserving the original created_at).
-//  4. On successful apply, DELETE any pre-existing deferred row for this sync_id
-//     so it is not retried unnecessarily.
 func (s *Store) applyRelationUpsertTx(tx *sql.Tx, mutation SyncMutation) error {
 	// Step 1: decode payload.
 	var p syncRelationPayload
 	if err := decodeSyncPayload([]byte(mutation.Payload), &p); err != nil {
-		return fmt.Errorf("%w: decode relation payload: %v", ErrApplyDead, err)
+		return fmt.Errorf("decode relation payload: %w", err)
 	}
 
 	// Step 1b: required field validation — missing source_id or target_id is not
-	// a retryable FK miss; it is a permanent payload defect (ErrApplyDead).
+	// a retryable FK miss; it is a permanent payload defect.
 	if strings.TrimSpace(p.SourceID) == "" || strings.TrimSpace(p.TargetID) == "" {
-		return fmt.Errorf("%w: relation payload missing required source_id or target_id", ErrApplyDead)
+		return errors.New("relation payload missing required source_id or target_id")
 	}
 
 	// Step 2: FK precondition — both observations must exist locally (by sync_id).
@@ -3446,13 +3460,6 @@ func (s *Store) applyRelationUpsertTx(tx *sql.Tx, mutation SyncMutation) error {
 		p.SessionID, p.CreatedAt, p.UpdatedAt,
 	); err != nil {
 		return fmt.Errorf("applyRelationUpsertTx: upsert: %w", err)
-	}
-
-	// Step 4: clean up deferred row if one exists (resolves any prior FK-miss deferral).
-	if _, err := s.execHook(tx,
-		`DELETE FROM sync_apply_deferred WHERE sync_id = ?`, p.SyncID,
-	); err != nil {
-		return fmt.Errorf("applyRelationUpsertTx: clear deferred: %w", err)
 	}
 
 	return nil
