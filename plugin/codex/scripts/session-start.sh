@@ -74,7 +74,16 @@ if [ -f "${CWD}/.engram/manifest.json" ]; then
     # could pre-create): $XDG_RUNTIME_DIR, else ~/.engram.
     LOCK_BASE="${XDG_RUNTIME_DIR:-$HOME/.engram}"
     ( umask 077; mkdir -p "$LOCK_BASE" ) 2>/dev/null
-    [ -d "$LOCK_BASE" ] && [ -O "$LOCK_BASE" ] || exit 0
+    if [ ! -d "$LOCK_BASE" ]; then
+      echo "engram: chunk import skipped: ${LOCK_BASE} is missing" >&3
+      exit 0
+    elif [ ! -O "$LOCK_BASE" ]; then
+      echo "engram: chunk import skipped: ${LOCK_BASE} is not owned by this user" >&3
+      exit 0
+    fi
+    # The import below runs for a while: no child may keep the hook's stderr
+    # pipe open, or the caller waits for it.
+    exec 3>&-
     chmod 700 "$LOCK_BASE" 2>/dev/null
     IMPORT_LOCK="${LOCK_BASE}/engram-sync-import-$(printf '%s' "$CWD" | cksum | cut -d ' ' -f 1).lock"
     write_import_lock_info() {
@@ -153,7 +162,7 @@ if [ -f "${CWD}/.engram/manifest.json" ]; then
       wait "$IMPORT_PID" 2>/dev/null || true
       kill "$WAITER_PID" 2>/dev/null || true
     fi
-  ) >/dev/null 2>&1 &
+  ) 3>&2 >/dev/null 2>&1 &
 fi
 
 # Fetch memory context

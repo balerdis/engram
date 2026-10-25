@@ -47,10 +47,12 @@ if [ -n "$PROMPT" ] && [ -n "$SESSION_ID" ]; then
     resolve_project "$CWD"
     _PROMPT_PROJECT=""
     [ "$PROJECT_FROM_SERVER" = "1" ] && _PROMPT_PROJECT="$PROJECT"
-    curl -sf -X POST "${ENGRAM_URL}/prompts" --max-time 2 \
-      -H 'Content-Type: application/json' \
-      -d "$(jq -n --arg s "$SESSION_ID" --arg p "${_PROMPT_PROJECT:-}" --arg c "$PROMPT" \
-            '{session_id:$s, project:$p, content:$c}')" >/dev/null 2>&1 || true
+    # The body travels through a pipe: one argv string is capped at 128 KiB on
+    # Linux, so a long prompt must never be a command-line argument.
+    printf '%s' "$INPUT" | jq -c --arg p "${_PROMPT_PROJECT:-}" \
+      '{session_id:.session_id, project:$p, content:.prompt}' 2>/dev/null \
+      | curl -sf -X POST "${ENGRAM_URL}/prompts" --max-time 2 \
+          -H 'Content-Type: application/json' --data-binary @- >/dev/null 2>&1 || true
   ) &
 fi
 

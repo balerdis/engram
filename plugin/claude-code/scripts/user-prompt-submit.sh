@@ -16,10 +16,11 @@ SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)
 PROMPT=$(echo "$INPUT" | jq -r '.prompt // empty' 2>/dev/null)
 
 if [ -n "$PROMPT" ] && [ -n "$SESSION_ID" ] && resolve_engram_url; then
-  curl -sf -X POST "${ENGRAM_URL}/prompts" --max-time 2 \
-    -H 'Content-Type: application/json' \
-    -d "$(jq -n --arg s "$SESSION_ID" --arg c "$PROMPT" \
-          '{session_id:$s, content:$c}')" >/dev/null 2>&1 || true
+  # The body travels through a pipe: one argv string is capped at 128 KiB on
+  # Linux, so a long prompt must never be a command-line argument.
+  printf '%s' "$INPUT" | jq -c '{session_id:.session_id, content:.prompt}' 2>/dev/null \
+    | curl -sf -X POST "${ENGRAM_URL}/prompts" --max-time 2 \
+        -H 'Content-Type: application/json' --data-binary @- >/dev/null 2>&1 || true
 fi
 
 exit 0

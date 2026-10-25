@@ -34,12 +34,10 @@ curl -sf "${ENGRAM_URL}/observations/passive" \
   -X POST \
   -H "Content-Type: application/json" \
   --max-time 9 \
-  -d "$(jq -n \
-    --arg sid "$SESSION_ID" \
-    --arg content "$OUTPUT" \
+  --data-binary @- \
+  > /dev/null 2>&1 < <(printf '%s' "$INPUT" | jq -c \
     --arg project "$PROJECT" \
     --arg source "subagent-stop" \
-    '{session_id: $sid, content: $content, project: $project, source: $source}')" \
-  > /dev/null 2>&1
+    '{session_id: .session_id, content: (.last_assistant_message // .stdout), project: $project, source: $source}')
 
 exit 0
