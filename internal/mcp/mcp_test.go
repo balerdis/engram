@@ -7583,12 +7583,65 @@ func TestMemPurgePreviewShowsPlanAndNeverWrites(t *testing.T) {
 		t.Fatalf("plan missing: %q", text)
 	}
 	lines := strings.Split(strings.TrimSpace(text), "\n")
-	want := "Nothing was deleted. Deleting is the person's step, from a terminal: engram purge --project 'lab' --since '2020-01-01' --yes"
+	want := "Nothing was deleted. Deleting is the person's step, from a terminal: engram purge --project='lab' --since='2020-01-01' --yes"
 	if lines[len(lines)-1] != want {
 		t.Fatalf("last line = %q, want %q", lines[len(lines)-1], want)
 	}
 	after := [3]int{count(`SELECT COUNT(*) FROM sessions`), count(`SELECT COUNT(*) FROM observations`), count(`SELECT COUNT(*) FROM sync_mutations`)}
 	if before != after {
 		t.Fatalf("row counts changed: %v -> %v", before, after)
+	}
+}
+
+func TestMemPurgePreviewClosingLineEdgeCases(t *testing.T) {
+	s := newMCPTestStore(t)
+	if err := s.CreateSession("-x", "-proj", "/w"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddObservation(store.AddObservationParams{SessionID: "-x", Type: "decision", Title: "dash", Content: "c", Project: "-proj", Scope: "project"}); err != nil {
+		t.Fatal(err)
+	}
+	ctl := "a\x1b[31mb"
+	if err := s.CreateSession(ctl, "-proj", "/w"); err != nil {
+		t.Fatal(err)
+	}
+	h := PurgePreviewToolHandler(s)
+	call := func(args map[string]any) (string, bool) {
+		res, err := h(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: args}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return callResultText(t, res), res.IsError
+	}
+	last := func(text string) string {
+		lines := strings.Split(strings.TrimSpace(text), "\n")
+		return lines[len(lines)-1]
+	}
+
+	text, isErr := call(map[string]any{"session": "-x"})
+	if isErr || !strings.HasSuffix(last(text), "engram purge --session='-x' --yes") {
+		t.Fatalf("leading dash: err=%v %q", isErr, text)
+	}
+
+	text, isErr = call(map[string]any{"session": ctl})
+	if isErr || strings.Contains(last(text), "\x1b") || strings.Contains(last(text), "engram purge --project") ||
+		!strings.Contains(last(text), "person's step") {
+		t.Fatalf("control chars: err=%v %q", isErr, text)
+	}
+
+	text, isErr = call(map[string]any{"project": "ghost"})
+	if isErr || strings.Contains(text, "--yes") || last(text) != "Nothing was deleted." {
+		t.Fatalf("nothing matched: err=%v %q", isErr, text)
+	}
+
+	for _, args := range []map[string]any{
+		{"project": 5},
+		{"project": "ok", "since": true},
+		{"project": "ok", "include_pinned": "yes"},
+	} {
+		text, isErr = call(args)
+		if !isErr || !strings.Contains(text, "must be a") {
+			t.Fatalf("args %v: err=%v %q", args, isErr, text)
+		}
 	}
 }

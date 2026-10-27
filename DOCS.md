@@ -14,7 +14,7 @@ This is the complete technical reference for Engram. For getting started, see th
 | --------------------------------------------------------- | ------------------------------------------------------------ |
 | [Database Schema](#database-schema)                       | Tables, FTS5, SQLite config                                  |
 | [HTTP API](#http-api-endpoints)                           | All REST endpoints with request/response details             |
-| [MCP Tools](#mcp-tools-20-tools)                          | Detailed reference for all 20 memory tools                   |
+| [MCP Tools](#mcp-tools)                                     | Detailed reference for all memory tools                      |
 | [MCP Project Resolution](#mcp-project-resolution)         | Auto-detection algorithm, response envelope, tool categories |
 | [Memory Protocol](#memory-protocol)                       | When/how agents should use the tools                         |
 | [Project Name Normalization](#project-name-normalization) | Auto-detection, normalization, similar-project warnings      |
@@ -480,7 +480,7 @@ Returns success even when cwd is ambiguous — empty `project` + non-empty `avai
 
 ---
 
-## MCP Tools (20 tools)
+## MCP Tools
 
 ### mem_search
 

@@ -508,7 +508,7 @@ func TestPurgePreviewToolMatchesCLIDryRun(t *testing.T) {
 		t.Fatalf("tool plan differs from the CLI dry-run\ntool: %q\ncli:  %q", text, cli)
 	}
 	rest := strings.TrimPrefix(text, cli)
-	if rest != "Nothing was deleted. Deleting is the person's step, from a terminal: engram purge --project 'LAB' --yes" {
+	if rest != "Nothing was deleted. Deleting is the person's step, from a terminal: engram purge --project='LAB' --yes" {
 		t.Fatalf("closing line = %q", rest)
 	}
 	if !strings.Contains(cliJSON, `"observations": 1`) || !strings.Contains(text, "observations") {
@@ -562,5 +562,30 @@ func TestPurgePreviewToolLeavesDatabaseAndBackupsUntouched(t *testing.T) {
 	}
 	if entries, err := os.ReadDir(filepath.Join(cfg.DataDir, "backups")); err == nil && len(entries) > 0 {
 		t.Fatalf("preview wrote backups: %v", entries)
+	}
+}
+
+func TestPurgePreviewClosingLineIsAcceptedByCLIParser(t *testing.T) {
+	cfg := testConfig(t)
+	mustSeedSession(t, cfg, "-s", "-p")
+	mustSeedObservation(t, cfg, "-s", "-p", "decision", "dash note", "c", "project")
+	text, isErr := callPurgePreview(t, cfg, map[string]any{"session": "-s", "project": "-p"})
+	if isErr {
+		t.Fatalf("error: %q", text)
+	}
+	lines := strings.Split(strings.TrimSpace(text), "\n")
+	cmdLine := lines[len(lines)-1][strings.Index(lines[len(lines)-1], "engram purge"):]
+	if cmdLine != "engram purge --project='-p' --session='-s' --yes" {
+		t.Fatalf("command line = %q", cmdLine)
+	}
+	// The CLI must accept the printed selectors (dry-run: drop --yes).
+	exited := 0
+	old := exitFunc
+	exitFunc = func(code int) { exited = code }
+	t.Cleanup(func() { exitFunc = old })
+	withArgs(t, "engram", "purge", "--project=-p", "--session=-s")
+	out, stderr := captureOutput(t, func() { cmdPurge(cfg) })
+	if exited != 0 || stderr != "" || !strings.Contains(out, "dash note") {
+		t.Fatalf("CLI rejected the printed form: exit=%d out=%q stderr=%q", exited, out, stderr)
 	}
 }

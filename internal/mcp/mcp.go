@@ -1798,9 +1798,26 @@ func handleDoctor(s *store.Store, cfg MCPConfig) server.ToolHandlerFunc {
 func PurgePreviewToolHandler(s *store.Store) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args := req.GetArguments()
-		str := func(k string) string { v, _ := args[k].(string); return v }
-		sel := store.PurgeSelector{Project: str("project"), SessionID: str("session"), Since: str("since"), Until: str("until")}
-		includePinned, _ := args["include_pinned"].(bool)
+		var sel store.PurgeSelector
+		for k, dst := range map[string]*string{"project": &sel.Project, "session": &sel.SessionID, "since": &sel.Since, "until": &sel.Until} {
+			v, present := args[k]
+			if !present || v == nil {
+				continue
+			}
+			sv, ok := v.(string)
+			if !ok {
+				return mcp.NewToolResultError(fmt.Sprintf("%s must be a string", k)), nil
+			}
+			*dst = sv
+		}
+		includePinned := false
+		if v, present := args["include_pinned"]; present && v != nil {
+			b, ok := v.(bool)
+			if !ok {
+				return mcp.NewToolResultError("include_pinned must be a boolean"), nil
+			}
+			includePinned = b
+		}
 		if err := store.ValidatePurgeSelector(sel); err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
@@ -1808,25 +1825,44 @@ func PurgePreviewToolHandler(s *store.Store) server.ToolHandlerFunc {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		cmd := "engram purge" + purgeFlag("--project", sel.Project) + purgeFlag("--session", sel.SessionID) +
-			purgeFlag("--since", sel.Since) + purgeFlag("--until", sel.Until)
-		if includePinned {
-			cmd += " --include-pinned"
+		text := store.RenderPurge(plan, nil)
+		if plan.Empty() {
+			return mcp.NewToolResultText(text + "Nothing was deleted."), nil
 		}
-		text := store.RenderPurge(plan, nil) +
-			"Nothing was deleted. Deleting is the person's step, from a terminal: " + cmd + " --yes"
+		text += "Nothing was deleted. Deleting is the person's step, from a terminal: "
+		if cmd, ok := purgeCommand(sel, includePinned); ok {
+			text += cmd
+		} else {
+			text += "run `engram purge` with the same selectors and --yes (the values are not echoed because they contain control characters)."
+		}
 		return mcp.NewToolResultText(text), nil
 	}
 }
 
-// purgeFlag renders " --name 'value'" for a non-empty selector, quoted so the
-// line can be pasted into a shell as is.
-func purgeFlag(name, value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return ""
+// purgeCommand builds the `engram purge ... --yes` line. The --flag='value'
+// form is always used because the CLI refuses a separate value that starts
+// with "-". ok is false when a value holds a control character: such a line
+// could not be pasted safely, so the caller does not echo it.
+func purgeCommand(sel store.PurgeSelector, includePinned bool) (string, bool) {
+	cmd := "engram purge"
+	for _, f := range []struct{ name, value string }{
+		{"--project", sel.Project}, {"--session", sel.SessionID}, {"--since", sel.Since}, {"--until", sel.Until},
+	} {
+		v := strings.TrimSpace(f.value)
+		if v == "" {
+			continue
+		}
+		for _, r := range v {
+			if r < 0x20 || r == 0x7f {
+				return "", false
+			}
+		}
+		cmd += " " + f.name + "='" + strings.ReplaceAll(v, "'", `'\''`) + "'"
 	}
-	return " " + name + " '" + strings.ReplaceAll(value, "'", `'\''`) + "'"
+	if includePinned {
+		cmd += " --include-pinned"
+	}
+	return cmd + " --yes", true
 }
 
 func handleTimeline(s *store.Store, cfg MCPConfig) server.ToolHandlerFunc {
