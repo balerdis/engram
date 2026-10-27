@@ -2,6 +2,7 @@ package redact
 
 import (
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -65,18 +66,75 @@ func TestComponentsSplitCamelCase(t *testing.T) {
 	}
 }
 
+// bestOf is the fastest of runs executions of f. The minimum filters out the
+// scheduler and GC noise of a loaded machine; it can only be too high, never
+// too low, so a ratio built from two minimums is stable.
+func bestOf(runs int, f func()) time.Duration {
+	best := time.Duration(1<<63 - 1)
+	for i := 0; i < runs; i++ {
+		start := time.Now()
+		f()
+		if d := time.Since(start); d < best {
+			best = d
+		}
+	}
+	return best
+}
+
+// requireLinear runs f on an input of size small and on one factor times
+// larger. A linear cost grows about factor times and a quadratic one about
+// factor squared, so a limit between the two tells them apart without any
+// absolute wall-clock limit. A loaded machine can still spoil one measurement
+// (the small run lucky, the large one preempted), so a measurement over the
+// limit is repeated: a real quadratic is over it every time, noise is not.
+func requireLinear(t *testing.T, name string, small, factor int, limit float64, f func(n int)) {
+	t.Helper()
+	const runs, attempts = 3, 4
+	f(small) // warm up caches and the regexp machinery
+	var ratio float64
+	for i := 1; i <= attempts; i++ {
+		runtime.GC()
+		ts := bestOf(runs, func() { f(small) })
+		tl := bestOf(runs, func() { f(factor * small) })
+		ratio = float64(tl) / float64(ts)
+		t.Logf("%s: attempt %d: n=%d %v, n=%d %v, ratio %.1f (limit %.0f)", name, i, small, ts, factor*small, tl, ratio, limit)
+		if ratio < limit {
+			return
+		}
+	}
+	t.Errorf("%s: %dx the input took %.1fx the time in all %d attempts; linear is about %dx, quadratic about %dx",
+		name, factor, ratio, attempts, factor, factor*factor)
+}
+
 func TestManyUnclosedPrivateTagsStayLinear(t *testing.T) {
-	start := time.Now()
-	_ = Redact(strings.Repeat("<private>", 28000))
-	_ = Redact(strings.Repeat("<private>\n", 28000))
-	_ = Redact(strings.Repeat("<private>\n\n", 20000))
 	// StripPrivate has no size cap (MCP mem_suggest_topic_key reaches it): the
 	// cost of unclosed tags must be linear. Quadratic took 5 s at 1 MB, 19 s at 2 MB.
-	_ = StripPrivate(strings.Repeat("<private>", 250000))
-	_ = StripPrivate(strings.Repeat("<private>  ", 200000))
-	_ = StripPrivate(strings.Repeat("<private> x\n", 150000))
-	if d := time.Since(start); d > 5*time.Second {
-		t.Fatalf("took %v", d)
+	// Its shapes grow 8x: linear is 8x, quadratic 64x, the limit sits at 24x.
+	for _, c := range []struct {
+		name  string
+		small int
+		f     func(n int)
+	}{
+		{"StripPrivate tag", 8000, func(n int) { _ = StripPrivate(strings.Repeat("<private>", n)) }},
+		{"StripPrivate tag+spaces", 7000, func(n int) { _ = StripPrivate(strings.Repeat("<private>  ", n)) }},
+		{"StripPrivate tag+text", 6000, func(n int) { _ = StripPrivate(strings.Repeat("<private> x\n", n)) }},
+	} {
+		requireLinear(t, c.name, c.small, 8, 24, c.f)
+	}
+	// Redact caps its input at the detection cap, so its sizes stay under it.
+	// Its detection pass is a little superlinear on its own (allocation and GC:
+	// about 12x for 8x the input), so its limit is looser (32x) and the sharp
+	// probe for a quadratic scanner is StripPrivate above.
+	for _, c := range []struct {
+		name  string
+		small int
+		f     func(n int)
+	}{
+		{"Redact tag", 3500, func(n int) { _ = Redact(strings.Repeat("<private>", n)) }},
+		{"Redact tag+nl", 3500, func(n int) { _ = Redact(strings.Repeat("<private>\n", n)) }},
+		{"Redact tag+blank", 2500, func(n int) { _ = Redact(strings.Repeat("<private>\n\n", n)) }},
+	} {
+		requireLinear(t, c.name, c.small, 8, 32, c.f)
 	}
 }
 
