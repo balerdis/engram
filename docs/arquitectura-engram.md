@@ -75,8 +75,26 @@ El fork tiene los issues y las discusiones deshabilitados, así que las plantill
 
 Las ideas se acumulan acá y se toman por release.
 
+- **Tres pruebas más con plazos de reloj que fallan con la máquina muy cargada.** `TestQuadraticShapesStayLinearWithoutPrefilters` (un límite de 10 s que tardó 14 s), `TestLinearTimeOnAdversarialInput/esc_quote_open` (tardó 6 s) y, en el plugin de hooks, `TestSessionStartDoesNotHoldStderrDuringTheImport` (retuvo la salida 2,8 s). El arreglo es el que ya usa `TestManyUnclosedPrivateTagsStayLinear`: comparar razones entre dos tamaños, no tiempos absolutos.
 
 ## Releases
+
+### 1.23.0
+
+Agrega una herramienta MCP y deja deterministas dos pruebas inestables. No cambia el esquema de la base ni el catálogo de credenciales.
+
+1. **`mem_purge_preview`, para que un agente vea qué borraría `purge` sin poder borrar.** Es una herramienta MCP diferida del perfil `agent`, de solo lectura: toma los mismos selectores que `engram purge` (`project`, `session`, `since`, `until`, y `include_pinned` opcional), con la misma validación y los mismos errores, y devuelve el mismo plan que el dry-run (conteos por tabla y una muestra corta).
+   - Sale del mismo código que la CLI: la validación pasó a `ValidatePurgeSelector` y el texto del plan a `RenderPurge`, ambos en el store.
+   - Nunca borra, no escribe backup ni toca la base.
+   - Cierra con el comando `engram purge --flag='valor' … --yes` para que la persona lo corra desde una terminal. No lo repite si algún valor tiene caracteres de control, ni cuando no hay nada que borrar, y un argumento de tipo equivocado es un error en vez de ignorarse.
+   - La decisión de no exponer `purge` como herramienta que borra no cambia.
+2. **Dos pruebas inestables con la máquina cargada pasan a ser deterministas.**
+   - `TestWatcherRunsImmediatelyThenTicks` ya no exige un primer ciclo en menos de 5 ms: el watcher tiene un ticker inyectable (campo no exportado `newTicker`, que en producción es un `time.Ticker`) y la prueba lo maneja con un canal, y comprueba que el primer ciclo corre sin ninguna marca y que cada marca produce exactamente un ciclo.
+   - `TestManyUnclosedPrivateTagsStayLinear` deja el límite de reloj y compara la razón entre dos tamaños de entrada (8 veces más texto debe costar bastante menos de 24 veces más tiempo, con la mejor de varias corridas y reintentos). Un escáner cuadrático sigue fallando.
+   - No cambia código de producción más que ese campo.
+3. **Plugins:** Claude Code 0.3.3, porque cambió `skills/memory/SKILL.md`. El de Codex (0.2.3) y el de OpenCode no cambiaron.
+
+Para publicarla: igual que la 1.22.3, sin catálogo nuevo. No hace falta correr `redact --scan`.
 
 ### 1.22.3
 
