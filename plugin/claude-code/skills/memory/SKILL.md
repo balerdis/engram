@@ -25,7 +25,7 @@ again and restart Claude Code. Setup repairs the durable MCP config and
 permissions allowlist for both current (`mcp__engram__...`) and older
 plugin-scoped (`mcp__plugin_engram_engram__...`) server ids.
 
-Also deferred (load with ToolSearch if needed): `mem_capture_passive`
+Also deferred (load with ToolSearch if needed): `mem_capture_passive`, `mem_purge_preview` (read-only: shows what `engram purge` would delete; deleting is the person's step in a terminal)
 
 The plugin's `UserPromptSubmit` hook records each user prompt automatically (for `mem_save`
 prompt attachment); you do not need to call `mem_save_prompt` for ordinary prompts.

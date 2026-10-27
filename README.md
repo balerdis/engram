@@ -125,7 +125,7 @@ Full details on session lifecycle, topic keys, and memory hygiene → [docs/ARCH
 | **Session Lifecycle**  | `mem_session_start`, `mem_session_end`, `mem_session_summary`                                                    |
 | **Conflict Surfacing** | `mem_judge`, `mem_compare`                                                                                       |
 | **Lifecycle Review**   | `mem_review`                                                                                                      |
-| **Utilities**          | `mem_save_prompt`, `mem_stats`, `mem_capture_passive`, `mem_merge_projects`, `mem_current_project`, `mem_doctor` |
+| **Utilities**          | `mem_save_prompt`, `mem_stats`, `mem_capture_passive`, `mem_merge_projects`, `mem_current_project`, `mem_doctor`, `mem_purge_preview` |
 
 Full tool reference with parameters → [DOCS.md#mcp-tools-20-tools](DOCS.md#mcp-tools-20-tools)
 

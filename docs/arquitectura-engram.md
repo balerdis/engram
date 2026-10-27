@@ -75,7 +75,6 @@ El fork tiene los issues y las discusiones deshabilitados, así que las plantill
 
 Las ideas se acumulan acá y se toman por release.
 
-- **Una herramienta para agentes que solo muestre qué borraría `purge`**, sin borrar nunca, por si hace falta que un agente ayude a encontrar lo que sobra.
 - **Prueba inestable de `internal/obsidian`** (`TestWatcherRunsImmediatelyThenTicks`, con una ventana de menos de 5 ms): falla a veces con la máquina cargada. Ya estaba antes de la 1.22.0.
 
 ## Releases

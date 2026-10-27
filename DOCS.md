@@ -604,6 +604,10 @@ Detect the current project from the working directory. Returns `project`, `proje
 
 Run read-only operational diagnostics. Returns the same JSON report shape as `engram doctor --json`, with optional `project` and `check` filters. The optional `project` override is validated with read-project resolution before diagnostics run.
 
+### mem_purge_preview
+
+Show what `engram purge` would delete, without deleting. Takes the same selectors (`project`, `session`, `since`, `until`; at least one, combined with AND, same validation and errors) plus optional `include_pinned`. Returns the same plan as the `engram purge` dry-run (counts per table and a short sample) and ends with the line to run from a terminal: `engram purge <selectors> --yes`. It never deletes, never writes a backup, and is deferred (agent profile).
+
 ### mem_judge
 
 Record a verdict on a pending memory conflict. When `mem_save` returns `candidates[]` and `judgment_required: true`, the agent inspects the candidates and calls `mem_judge` to mark the relation between the saved memory and a candidate.
