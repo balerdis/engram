@@ -27,6 +27,26 @@ type PurgeSelector struct {
 	Until     string `json:"until,omitempty"`
 }
 
+// ErrPurgeNoSelector is returned when a purge (or its preview) gets no
+// selector at all. The message is the one `engram purge` prints.
+var ErrPurgeNoSelector = errors.New("purge needs at least one selector (--project, --session, --since, --until)")
+
+// IsEmpty reports whether no selector field has a value.
+func (sel PurgeSelector) IsEmpty() bool {
+	return strings.TrimSpace(sel.Project) == "" && strings.TrimSpace(sel.SessionID) == "" &&
+		strings.TrimSpace(sel.Since) == "" && strings.TrimSpace(sel.Until) == ""
+}
+
+// ValidatePurgeSelector is the check every entry point runs before opening
+// the store: at least one selector, parseable dates, since not after until.
+// It touches no database. A refusal wraps ErrPurgeRefused.
+func ValidatePurgeSelector(sel PurgeSelector) error {
+	if sel.IsEmpty() {
+		return ErrPurgeNoSelector
+	}
+	return ValidatePurgeBounds(sel.Since, sel.Until)
+}
+
 // PurgeOptions tunes what a purge may touch.
 type PurgeOptions struct {
 	// IncludePinned allows pinned observations to be part of the selection.

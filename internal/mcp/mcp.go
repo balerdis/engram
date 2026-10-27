@@ -115,6 +115,7 @@ var ProfileAgent = map[string]bool{
 	"mem_judge":             true, // record verdict on a pending memory conflict (REQ-003, Phase D)
 	"mem_compare":           true, // persist an agent-judged semantic verdict via JudgeBySemantic (REQ-011, Phase G)
 	"mem_doctor":            true, // read-only operational diagnostics for agents
+	"mem_purge_preview":     true, // read-only: what `engram purge` would delete; never deletes
 	"mem_review":            true, // list/mark observations whose review_after lifecycle is stale
 	"mem_pin":               true, // local pin for context priority
 	"mem_unpin":             true, // local unpin for context priority
@@ -207,7 +208,7 @@ CORE TOOLS (always available — use without ToolSearch):
 
 DEFERRED TOOLS (use ToolSearch when needed):
   mem_update, mem_review, mem_pin, mem_unpin, mem_suggest_topic_key, mem_session_start, mem_session_end,
-  mem_stats, mem_delete, mem_timeline, mem_capture_passive, mem_merge_projects
+  mem_stats, mem_delete, mem_timeline, mem_capture_passive, mem_merge_projects, mem_purge_preview
 
 PROACTIVE SAVE RULE (only the agent talking with the person, not launched subagents): Call mem_save immediately after ANY decision, bug fix, discovery, or convention — not just when asked.
 
@@ -839,6 +840,27 @@ Duplicates are automatically detected and skipped — safe to call multiple time
 				mcp.WithString("check", mcp.Description("Optional diagnostic check code to run")),
 			),
 			handleDoctor(s, cfg),
+		)
+	}
+
+	// ─── mem_purge_preview (profile: agent, deferred) ───────────────────
+	if shouldRegister("mem_purge_preview", allowlist) {
+		srv.AddTool(
+			mcp.NewTool("mem_purge_preview",
+				mcp.WithDescription("Show what `engram purge` would delete for the same selectors (counts and a short sample). Read-only: it never deletes; deleting is a terminal step for the person."),
+				mcp.WithDeferLoading(true),
+				mcp.WithTitleAnnotation("Preview Purge"),
+				mcp.WithReadOnlyHintAnnotation(true),
+				mcp.WithDestructiveHintAnnotation(false),
+				mcp.WithIdempotentHintAnnotation(true),
+				mcp.WithOpenWorldHintAnnotation(false),
+				mcp.WithString("project", mcp.Description("Project name")),
+				mcp.WithString("session", mcp.Description("Session id")),
+				mcp.WithString("since", mcp.Description("Created at or after (YYYY-MM-DD or RFC3339)")),
+				mcp.WithString("until", mcp.Description("Created at or before (YYYY-MM-DD or RFC3339)")),
+				mcp.WithBoolean("include_pinned", mcp.Description("Include pinned observations (otherwise they refuse the plan)")),
+			),
+			PurgePreviewToolHandler(s),
 		)
 	}
 
@@ -1768,6 +1790,43 @@ func handleDoctor(s *store.Store, cfg MCPConfig) server.ToolHandlerFunc {
 		}
 		return result, nil
 	}
+}
+
+// PurgePreviewToolHandler returns the handler for mem_purge_preview. It builds
+// the plan with the same validation and Store.PurgePlan that `engram purge`
+// uses without --yes, and never deletes or writes a backup.
+func PurgePreviewToolHandler(s *store.Store) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		args := req.GetArguments()
+		str := func(k string) string { v, _ := args[k].(string); return v }
+		sel := store.PurgeSelector{Project: str("project"), SessionID: str("session"), Since: str("since"), Until: str("until")}
+		includePinned, _ := args["include_pinned"].(bool)
+		if err := store.ValidatePurgeSelector(sel); err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		plan, err := s.PurgePlan(sel, store.PurgeOptions{IncludePinned: includePinned})
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		cmd := "engram purge" + purgeFlag("--project", sel.Project) + purgeFlag("--session", sel.SessionID) +
+			purgeFlag("--since", sel.Since) + purgeFlag("--until", sel.Until)
+		if includePinned {
+			cmd += " --include-pinned"
+		}
+		text := store.RenderPurge(plan, nil) +
+			"Nothing was deleted. Deleting is the person's step, from a terminal: " + cmd + " --yes"
+		return mcp.NewToolResultText(text), nil
+	}
+}
+
+// purgeFlag renders " --name 'value'" for a non-empty selector, quoted so the
+// line can be pasted into a shell as is.
+func purgeFlag(name, value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	return " " + name + " '" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
 
 func handleTimeline(s *store.Store, cfg MCPConfig) server.ToolHandlerFunc {

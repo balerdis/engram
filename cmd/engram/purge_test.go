@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -10,7 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Gentleman-Programming/engram/internal/mcp"
 	"github.com/Gentleman-Programming/engram/internal/store"
+	mcppkg "github.com/mark3labs/mcp-go/mcp"
 )
 
 func seedPurgeCLI(t *testing.T, cfg store.Config) {
@@ -468,5 +471,96 @@ func TestSyncStillWorksAfterSyncLeftoversCleanup(t *testing.T) {
 	stdout, stderr, rec = captureOutputAndRecover(t, func() { cmdSync(importCfg) })
 	if rec != nil || stderr != "" || !strings.Contains(stdout, "Imported 1 new chunk") || !strings.Contains(stdout, "Observations: 1") {
 		t.Fatalf("import of a new chunk after cleanup: %v %q %q", rec, stderr, stdout)
+	}
+}
+
+func callPurgePreview(t *testing.T, cfg store.Config, args map[string]any) (text string, isErr bool) {
+	t.Helper()
+	s, err := storeNew(cfg)
+	if err != nil {
+		t.Fatalf("storeNew: %v", err)
+	}
+	defer s.Close()
+	res, err := mcp.PurgePreviewToolHandler(s)(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: args}})
+	if err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	if len(res.Content) != 1 {
+		t.Fatalf("expected one content item, got %d", len(res.Content))
+	}
+	return res.Content[0].(mcppkg.TextContent).Text, res.IsError
+}
+
+func TestPurgePreviewToolMatchesCLIDryRun(t *testing.T) {
+	cfg := testConfig(t)
+	seedPurgeCLI(t, cfg)
+
+	withArgs(t, "engram", "purge", "--project", "LAB")
+	cli, _ := captureOutput(t, func() { cmdPurge(cfg) })
+	withArgs(t, "engram", "purge", "--project", "LAB", "--json")
+	cliJSON, _ := captureOutput(t, func() { cmdPurge(cfg) })
+
+	text, isErr := callPurgePreview(t, cfg, map[string]any{"project": "LAB"})
+	if isErr {
+		t.Fatalf("unexpected error: %q", text)
+	}
+	if !strings.HasPrefix(text, cli) {
+		t.Fatalf("tool plan differs from the CLI dry-run\ntool: %q\ncli:  %q", text, cli)
+	}
+	rest := strings.TrimPrefix(text, cli)
+	if rest != "Nothing was deleted. Deleting is the person's step, from a terminal: engram purge --project 'LAB' --yes" {
+		t.Fatalf("closing line = %q", rest)
+	}
+	if !strings.Contains(cliJSON, `"observations": 1`) || !strings.Contains(text, "observations") {
+		t.Fatalf("sanity: %q / %q", cliJSON, text)
+	}
+}
+
+func TestPurgePreviewToolNoSelectorSameErrorAsCLI(t *testing.T) {
+	cfg := testConfig(t)
+	exited := 0
+	old := exitFunc
+	exitFunc = func(code int) { exited = code }
+	t.Cleanup(func() { exitFunc = old })
+	withArgs(t, "engram", "purge")
+	_, stderr := captureOutput(t, func() { cmdPurge(cfg) })
+	cliMsg := strings.TrimSpace(strings.SplitN(strings.TrimPrefix(stderr, "error: "), "\n", 2)[0])
+
+	text, isErr := callPurgePreview(t, cfg, map[string]any{})
+	if exited != 1 || !isErr || text != cliMsg {
+		t.Fatalf("exit=%d isErr=%v tool=%q cli=%q", exited, isErr, text, cliMsg)
+	}
+}
+
+func TestPurgePreviewToolLeavesDatabaseAndBackupsUntouched(t *testing.T) {
+	cfg := testConfig(t)
+	seedPurgeCLI(t, cfg)
+	counts := func() map[string]int {
+		s, err := storeNew(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer s.Close()
+		out := map[string]int{}
+		for _, tb := range []string{"sessions", "observations", "user_prompts", "memory_relations", "sync_mutations"} {
+			var n int
+			if err := s.DB().QueryRow("SELECT COUNT(*) FROM " + tb).Scan(&n); err != nil {
+				t.Fatal(err)
+			}
+			out[tb] = n
+		}
+		return out
+	}
+	before := counts()
+	for _, args := range []map[string]any{{"project": "lab"}, {"project": "lab", "include_pinned": true}, {"session": "s-keep"}} {
+		if _, isErr := callPurgePreview(t, cfg, args); isErr {
+			t.Fatalf("unexpected error for %v", args)
+		}
+	}
+	if after := counts(); fmt.Sprint(before) != fmt.Sprint(after) {
+		t.Fatalf("rows changed: %v -> %v", before, after)
+	}
+	if entries, err := os.ReadDir(filepath.Join(cfg.DataDir, "backups")); err == nil && len(entries) > 0 {
+		t.Fatalf("preview wrote backups: %v", entries)
 	}
 }

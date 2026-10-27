@@ -1564,6 +1564,7 @@ func TestResolveToolsAgentProfile(t *testing.T) {
 		"mem_review",          // lifecycle review list/maintenance
 		"mem_pin",             // local context priority
 		"mem_unpin",           // local context priority
+		"mem_purge_preview",   // read-only preview of what engram purge would delete
 	}
 	for _, tool := range expectedTools {
 		if !result[tool] {
@@ -1615,6 +1616,7 @@ func TestResolveToolsCombinedProfiles(t *testing.T) {
 		"mem_suggest_topic_key", "mem_capture_passive", "mem_save_prompt",
 		"mem_update", "mem_delete", "mem_stats", "mem_timeline", "mem_merge_projects",
 		"mem_current_project", "mem_judge", "mem_compare", "mem_doctor", "mem_review", "mem_pin", "mem_unpin",
+		"mem_purge_preview",
 	}
 	for _, tool := range allTools {
 		if !result[tool] {
@@ -2201,7 +2203,7 @@ func TestNewServerWithToolsNilRegistersAll(t *testing.T) {
 		"mem_suggest_topic_key", "mem_capture_passive", "mem_save_prompt",
 		"mem_update", "mem_delete", "mem_stats", "mem_timeline", "mem_merge_projects",
 		"mem_current_project", "mem_judge", "mem_compare", "mem_doctor", "mem_review",
-		"mem_pin", "mem_unpin",
+		"mem_pin", "mem_unpin", "mem_purge_preview",
 	}
 
 	for _, name := range allTools {
@@ -2306,14 +2308,14 @@ func TestNewServerBackwardsCompatible(t *testing.T) {
 	srv := NewServer(s)
 	tools := srv.ListTools()
 
-	// 18 agent + 4 admin = 22 total.
-	if len(tools) != 22 {
-		t.Errorf("NewServer should register all 22 tools, got %d", len(tools))
+	// 19 agent + 4 admin = 23 total.
+	if len(tools) != 23 {
+		t.Errorf("NewServer should register all 23 tools, got %d", len(tools))
 	}
 }
 
 func TestProfileConsistency(t *testing.T) {
-	// Verify that agent + admin = all 22 tools
+	// Verify that agent + admin = all 23 tools
 	combined := make(map[string]bool)
 	for tool := range ProfileAgent {
 		combined[tool] = true
@@ -2322,9 +2324,9 @@ func TestProfileConsistency(t *testing.T) {
 		combined[tool] = true
 	}
 
-	// 18 agent + 4 admin = 22 total.
-	if len(combined) != 22 {
-		t.Errorf("agent + admin should cover all 22 tools, got %d", len(combined))
+	// 19 agent + 4 admin = 23 total.
+	if len(combined) != 23 {
+		t.Errorf("agent + admin should cover all 23 tools, got %d", len(combined))
 	}
 
 	// Verify no overlap between profiles
@@ -2643,9 +2645,9 @@ func TestNewServerWithConfig(t *testing.T) {
 		t.Fatal("expected MCP server instance")
 	}
 	tools := srv.ListTools()
-	// Should have all 22 tools (18 agent + 4 admin).
-	if len(tools) != 22 {
-		t.Errorf("NewServerWithConfig should register all 22 tools, got %d", len(tools))
+	// Should have all 23 tools (19 agent + 4 admin).
+	if len(tools) != 23 {
+		t.Errorf("NewServerWithConfig should register all 23 tools, got %d", len(tools))
 	}
 }
 
@@ -7507,5 +7509,86 @@ func TestMemSave_ExplicitProjectCanonicalizingToConfiguredProjectIsAccepted(t *t
 	obs, err := s.Search("configured", store.SearchOptions{Project: "my-repo", Limit: 10})
 	if err != nil || len(obs) != 2 {
 		t.Fatalf("expected 2 observations in my-repo, got %d err=%v", len(obs), err)
+	}
+}
+
+func TestMemPurgePreviewRegisteredDeferredAndReadOnly(t *testing.T) {
+	s := newMCPTestStore(t)
+	srv := NewServerWithTools(s, ResolveTools("agent"))
+	tool := srv.ListTools()["mem_purge_preview"]
+	if tool == nil {
+		t.Fatal("expected mem_purge_preview in the agent profile")
+	}
+	if !tool.Tool.DeferLoading {
+		t.Error("mem_purge_preview must be deferred")
+	}
+	if ro := tool.Tool.Annotations.ReadOnlyHint; ro == nil || !*ro {
+		t.Error("mem_purge_preview must carry the read-only hint")
+	}
+	if len(tool.Tool.Description) > 220 {
+		t.Errorf("description too long (%d chars)", len(tool.Tool.Description))
+	}
+	if ResolveTools("reader")["mem_purge_preview"] || ResolveTools("admin")["mem_purge_preview"] {
+		t.Error("mem_purge_preview belongs to the agent profile only")
+	}
+}
+
+func TestMemPurgePreviewNoSelectorAndBadDates(t *testing.T) {
+	s := newMCPTestStore(t)
+	h := PurgePreviewToolHandler(s)
+	call := func(args map[string]any) *mcppkg.CallToolResult {
+		res, err := h(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: args}})
+		if err != nil {
+			t.Fatalf("handler: %v", err)
+		}
+		return res
+	}
+	res := call(map[string]any{})
+	if !res.IsError || callResultText(t, res) != store.ErrPurgeNoSelector.Error() {
+		t.Fatalf("no selector: IsError=%v text=%q", res.IsError, callResultText(t, res))
+	}
+	res = call(map[string]any{"since": "2026-02-01", "until": "2026-01-01"})
+	if !res.IsError || !strings.Contains(callResultText(t, res), "--since is after --until") {
+		t.Fatalf("inverted range: %q", callResultText(t, res))
+	}
+	res = call(map[string]any{"since": "nope"})
+	if !res.IsError || !strings.Contains(callResultText(t, res), "invalid date") {
+		t.Fatalf("bad date: %q", callResultText(t, res))
+	}
+}
+
+func TestMemPurgePreviewShowsPlanAndNeverWrites(t *testing.T) {
+	s := newMCPTestStore(t)
+	if err := s.CreateSession("s-lab", "lab", "/w/lab"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddObservation(store.AddObservationParams{SessionID: "s-lab", Type: "decision", Title: "lab note", Content: "disposable", Project: "lab", Scope: "project"}); err != nil {
+		t.Fatal(err)
+	}
+	count := func(q string) int {
+		var n int
+		if err := s.DB().QueryRow(q).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	before := [3]int{count(`SELECT COUNT(*) FROM sessions`), count(`SELECT COUNT(*) FROM observations`), count(`SELECT COUNT(*) FROM sync_mutations`)}
+
+	res, err := PurgePreviewToolHandler(s)(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{"project": "lab", "since": "2020-01-01"}}})
+	if err != nil || res.IsError {
+		t.Fatalf("preview: err=%v res=%v", err, res)
+	}
+	text := callResultText(t, res)
+	if !strings.Contains(text, "lab note") || !strings.Contains(text, "dry-run") {
+		t.Fatalf("plan missing: %q", text)
+	}
+	lines := strings.Split(strings.TrimSpace(text), "\n")
+	want := "Nothing was deleted. Deleting is the person's step, from a terminal: engram purge --project 'lab' --since '2020-01-01' --yes"
+	if lines[len(lines)-1] != want {
+		t.Fatalf("last line = %q, want %q", lines[len(lines)-1], want)
+	}
+	after := [3]int{count(`SELECT COUNT(*) FROM sessions`), count(`SELECT COUNT(*) FROM observations`), count(`SELECT COUNT(*) FROM sync_mutations`)}
+	if before != after {
+		t.Fatalf("row counts changed: %v -> %v", before, after)
 	}
 }
