@@ -22,6 +22,14 @@ type Watcher struct {
 	exporter Exportable
 	interval time.Duration
 	logf     func(format string, args ...any) // injectable; defaults to log.Printf
+	// newTicker returns the tick channel and its stop func. Tests replace it
+	// with a channel they control; production uses a real time.Ticker.
+	newTicker func(d time.Duration) (<-chan time.Time, func())
+}
+
+func realTicker(d time.Duration) (<-chan time.Time, func()) {
+	t := time.NewTicker(d)
+	return t.C, t.Stop
 }
 
 // WatcherConfig holds constructor parameters for Watcher.
@@ -44,6 +52,8 @@ func NewWatcher(cfg WatcherConfig) *Watcher {
 		exporter: cfg.Exporter,
 		interval: cfg.Interval,
 		logf:     logf,
+
+		newTicker: realTicker,
 	}
 }
 
@@ -68,8 +78,8 @@ func (w *Watcher) Run(ctx context.Context) error {
 	w.exporter.SetGraphConfig(GraphConfigSkip)
 
 	// ── Ticker loop ───────────────────────────────────────────────────────────
-	ticker := time.NewTicker(w.interval)
-	defer ticker.Stop()
+	ticks, stop := w.newTicker(w.interval)
+	defer stop()
 
 	_ = originalGraphConfig // used above; keep reference for clarity
 
@@ -77,7 +87,7 @@ func (w *Watcher) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-ticker.C:
+		case <-ticks:
 			w.runCycle()
 		}
 	}

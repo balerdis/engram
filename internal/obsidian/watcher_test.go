@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -22,6 +23,7 @@ type fakeExporter struct {
 	errOnCycle   map[int]error // 1-indexed: return this error on the Nth call
 	result       *ExportResult // returned on success (defaults to zero ExportResult)
 	config       ExportConfig  // mutable config for SetGraphConfig access
+	onExport     func(n int)   // optional: called after each Export with its 1-indexed call number
 }
 
 func newFakeExporter() *fakeExporter {
@@ -37,6 +39,9 @@ func (f *fakeExporter) Export() (*ExportResult, error) {
 	f.callCount++
 	f.callTimes = append(f.callTimes, time.Now())
 	f.graphConfigs = append(f.graphConfigs, f.config.GraphConfig)
+	if f.onExport != nil {
+		defer f.onExport(f.callCount)
+	}
 	if err, ok := f.errOnCycle[f.callCount]; ok {
 		return nil, err
 	}
@@ -81,44 +86,79 @@ func (f *fakeExporter) GraphConfigs() []GraphConfigMode {
 // ─── Task 3.1: TestWatcherRunsImmediatelyThenTicks ────────────────────────────
 
 // TestWatcherRunsImmediatelyThenTicks verifies REQ-WATCH-03:
-// - first cycle fires immediately (before first tick)
-// - subsequent cycles fire on ticker interval
-// - with 10ms interval and 55ms timeout, we expect at least 3 cycles
+//   - the first cycle fires immediately, before any tick
+//   - each later cycle fires on a tick, and only on a tick
+//
+// The ticker is driven by the test, so nothing depends on wall-clock timing.
 func TestWatcherRunsImmediatelyThenTicks(t *testing.T) {
+	const wait = 30 * time.Second // generous: only reached when the code is broken
+
 	fe := newFakeExporter()
 	fe.config.GraphConfig = GraphConfigForce
+	cycles := make(chan int, 16)
+	fe.onExport = func(n int) { cycles <- n }
 
-	before := time.Now()
-	ctx, cancel := context.WithTimeout(context.Background(), 55*time.Millisecond)
+	ticks := make(chan time.Time)
+	var stopped atomic.Bool
+	w := NewWatcher(WatcherConfig{Exporter: fe, Interval: time.Hour, Logf: func(string, ...any) {}})
+	w.newTicker = func(time.Duration) (<-chan time.Time, func()) {
+		return ticks, func() { stopped.Store(true) }
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- w.Run(ctx) }()
 
-	w := NewWatcher(WatcherConfig{
-		Exporter: fe,
-		Interval: 10 * time.Millisecond,
-	})
-
-	err := w.Run(ctx)
-	if err != context.DeadlineExceeded && err != context.Canceled {
-		t.Errorf("Run() returned unexpected error: %v (want context.DeadlineExceeded or Canceled)", err)
+	waitCycle := func(want int) {
+		t.Helper()
+		select {
+		case got := <-cycles:
+			if got != want {
+				t.Fatalf("cycle %d ran, want %d", got, want)
+			}
+		case <-time.After(wait):
+			t.Fatalf("cycle %d never ran", want)
+		}
+	}
+	noCycle := func(msg string) {
+		t.Helper()
+		select {
+		case got := <-cycles:
+			t.Fatalf("%s: cycle %d ran without a tick", msg, got)
+		default:
+		}
 	}
 
-	count := fe.Count()
-	if count < 3 {
-		t.Errorf("expected at least 3 cycles in 55ms with 10ms interval, got %d", count)
+	// Immediate: no tick has been sent yet.
+	waitCycle(1)
+	noCycle("after the first cycle")
+
+	// Then one cycle per tick (the send blocks until Run is back in its select).
+	for want := 2; want <= 4; want++ {
+		select {
+		case ticks <- time.Now():
+		case <-time.After(wait):
+			t.Fatalf("Run never took tick %d", want-1)
+		}
+		waitCycle(want)
 	}
 
-	times := fe.Times()
-	if len(times) < 1 {
-		t.Fatal("no call times recorded")
+	cancel()
+	select {
+	case err := <-done:
+		if err != context.Canceled {
+			t.Errorf("Run() = %v, want context.Canceled", err)
+		}
+	case <-time.After(wait):
+		t.Fatal("Run did not return after cancel")
 	}
-
-	// First cycle must happen before the first tick (within ~2ms of start)
-	firstCallDelay := times[0].Sub(before)
-	if firstCallDelay > 5*time.Millisecond {
-		t.Errorf("first cycle not immediate: fired after %v (want < 5ms)", firstCallDelay)
+	if !stopped.Load() {
+		t.Error("ticker was not stopped")
 	}
-
-	t.Logf("total cycles: %d, first call delay: %v", count, firstCallDelay)
+	if n := fe.Count(); n != 4 {
+		t.Errorf("exporter ran %d times, want 4", n)
+	}
 }
 
 // ─── Task 3.3: TestWatcherLogsCycleResults ────────────────────────────────────
