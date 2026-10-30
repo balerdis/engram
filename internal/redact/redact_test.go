@@ -63,56 +63,54 @@ func TestOversizeDropsRemainder(t *testing.T) {
 	}
 }
 
+// Each shape is built for a byte budget n; the test runs it at a quarter of the
+// detection cap and at the cap (requireLinear: 4x the input is about 4x the
+// time when linear, about 16x when quadratic, limit 10x). No absolute limit:
+// a loaded machine slows both sizes alike.
 func TestLinearTimeOnAdversarialInput(t *testing.T) {
-	n := MaxDetectBytes()
-	inputs := map[string]string{
-		"chain_eq":          strings.Repeat("a=", n/2),
-		"token_chain":       strings.Repeat("token=", n/6),
-		"token_angle":       strings.Repeat("token=<", n/7),
-		"token_call":        strings.Repeat("token=f(", n/8),
-		"ident_run_eq":      "-" + strings.Repeat("a", n/2) + `="bbbb"`,
-		"ident_run_unq":     "-" + strings.Repeat("a", n/2) + "=bbbbbbbb",
-		"scheme_run":        "-" + strings.Repeat("a", n/2) + "://u:pppppppppp@h",
-		"scheme_run_nourl":  strings.Repeat("a", n),
-		"scheme_sep_chain":  strings.Repeat("a://", n/4),
-		"header_run":        "-" + strings.Repeat("a", n/2) + "-token: vvvvvvvvvv",
-		"header_name_chain": strings.Repeat("x-token ", n/8),
-		"private_open":      strings.Repeat("<private>", n/9),
-		"private_named":     strings.Repeat("<private>A=", n/11),
-		"key_block_open":    strings.Repeat("-----BEGIN PRIVATE KEY-----", n/27),
-		"quotes":            strings.Repeat(`token="`, n/7),
-		"json_keys":         strings.Repeat(`"token": "`, n/10),
-		"spaces":            "token" + strings.Repeat(" ", n/2) + "=",
-		"token_call_250k":   strings.Repeat("token=f(", 31000),
-		"a_eq_250k":         strings.Repeat("a=", 125000),
-		"skipped_real_pair": strings.Repeat("token=getX(password=hunter2hunter2 ", 5000),
-		"unclosed_one_line": strings.Repeat("<private> ", 25000),
-		"unclosed_paras":    strings.Repeat("<private>\n\n", 20000),
-		"many_names": func() string {
+	inputs := map[string]func(n int) string{
+		"chain_eq":          func(n int) string { return strings.Repeat("a=", n/2) },
+		"token_chain":       func(n int) string { return strings.Repeat("token=", n/6) },
+		"token_angle":       func(n int) string { return strings.Repeat("token=<", n/7) },
+		"token_call":        func(n int) string { return strings.Repeat("token=f(", n/8) },
+		"ident_run_eq":      func(n int) string { return "-" + strings.Repeat("a", n/2) + `="bbbb"` },
+		"ident_run_unq":     func(n int) string { return "-" + strings.Repeat("a", n/2) + "=bbbbbbbb" },
+		"scheme_run":        func(n int) string { return "-" + strings.Repeat("a", n/2) + "://u:pppppppppp@h" },
+		"scheme_run_nourl":  func(n int) string { return strings.Repeat("a", n) },
+		"scheme_sep_chain":  func(n int) string { return strings.Repeat("a://", n/4) },
+		"header_run":        func(n int) string { return "-" + strings.Repeat("a", n/2) + "-token: vvvvvvvvvv" },
+		"header_name_chain": func(n int) string { return strings.Repeat("x-token ", n/8) },
+		"private_open":      func(n int) string { return strings.Repeat("<private>", n/9) },
+		"private_named":     func(n int) string { return strings.Repeat("<private>A=", n/11) },
+		"key_block_open":    func(n int) string { return strings.Repeat("-----BEGIN PRIVATE KEY-----", n/27) },
+		"quotes":            func(n int) string { return strings.Repeat(`token="`, n/7) },
+		"json_keys":         func(n int) string { return strings.Repeat(`"token": "`, n/10) },
+		"spaces":            func(n int) string { return "token" + strings.Repeat(" ", n/2) + "=" },
+		"skipped_real_pair": func(n int) string { return strings.Repeat("token=getX(password=hunter2hunter2 ", n/35) },
+		"unclosed_one_line": func(n int) string { return strings.Repeat("<private> ", n/10) },
+		"unclosed_paras":    func(n int) string { return strings.Repeat("<private>\n\n", n/11) },
+		"many_names": func(n int) string {
 			var b strings.Builder
-			for i := 0; i < 6000; i++ {
+			for i := 0; i < n/40; i++ {
 				fmt.Fprintf(&b, "password=abcdefg%d ", i)
 			}
 			return b.String()
-		}(),
-		"begin_no_end": strings.Repeat("-----BEGIN PRIVATE KEY-----", 9000),
-		"long_ws_run":  "a" + strings.Repeat(" ", 200000) + "=x",
+		},
+		"begin_no_end": func(n int) string { return strings.Repeat("-----BEGIN PRIVATE KEY-----", n/27) },
+		"long_ws_run":  func(n int) string { return "a" + strings.Repeat(" ", n*4/5) + "=x" },
 		// 7.9.2 shapes: escaped quotes without a close, tags with long padding.
-		"esc_quote_open":    strings.Repeat(`password=\"`, n/11),
-		"esc_json_keys":     strings.Repeat(`\"token\":\"`, n/12),
-		"esc_backslashes":   `password=\"` + strings.Repeat(`\\`, n/2),
-		"tag_pad":           "<" + strings.Repeat(" ", n-20) + "private>",
-		"tag_open_pad":      strings.Repeat("< ", n/2),
-		"known_prefix_runs": "token=aaaaaaa1 " + strings.Repeat("a", n-20),
+		"esc_quote_open":    func(n int) string { return strings.Repeat(`password=\"`, n/11) },
+		"esc_json_keys":     func(n int) string { return strings.Repeat(`\"token\":\"`, n/12) },
+		"esc_backslashes":   func(n int) string { return `password=\"` + strings.Repeat(`\\`, n/2) },
+		"tag_pad":           func(n int) string { return "<" + strings.Repeat(" ", n-20) + "private>" },
+		"tag_open_pad":      func(n int) string { return strings.Repeat("< ", n/2) },
+		"known_prefix_runs": func(n int) string { return "token=aaaaaaa1 " + strings.Repeat("a", n-20) },
 	}
-	for name, in := range inputs {
-		in := in
+	n := MaxDetectBytes()
+	for name, build := range inputs {
+		build := build
 		t.Run(name, func(t *testing.T) {
-			start := time.Now()
-			_ = Redact(in)
-			if d := time.Since(start); d > 5*time.Second {
-				t.Fatalf("took %v on %d bytes", d, len(in))
-			}
+			requireLinear(t, name, n/4, 4, 10, func(size int) { _ = Redact(build(size)) })
 		})
 	}
 }

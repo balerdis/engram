@@ -5,7 +5,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -85,15 +87,48 @@ func TestSessionStartSaysWhyTheImportWasSkipped(t *testing.T) {
 
 // The backgrounded import must not hold the hook's stderr pipe: a caller that
 // waits for its stdio to close (as exec.Cmd.Run does here) would otherwise wait
-// for the whole import.
+// for the whole import. No time threshold: the fake `sync` blocks on a gate file
+// that only this test creates, so a hook that returns while the import is still
+// running (its recorded pid alive) cannot have waited for it. If the hook did
+// hold the pipe it would return only when the script's own import timeout kills
+// the import, and the pid would be dead.
 func TestSessionStartDoesNotHoldStderrDuringTheImport(t *testing.T) {
-	slowImport := strings.Replace(fakeEngramBody, "  sync) ;;", "  sync) sleep 3 ;;", 1)
 	for _, dir := range pluginDirs {
+		state := t.TempDir()
+		gate := filepath.Join(state, "gate")
+		pidFile := filepath.Join(state, "pid")
+		release := func() {
+			if f, err := os.Create(gate); err == nil {
+				_ = f.Close()
+			}
+		}
+		t.Cleanup(release)
+		blockedImport := strings.Replace(fakeEngramBody, "  sync) ;;",
+			"  sync) echo $$ > '"+pidFile+".tmp' && mv '"+pidFile+".tmp' '"+pidFile+"'; while [ ! -e '"+gate+"' ]; do sleep 0.02; done ;;", 1)
 		in := hookInput(t, map[string]string{"session_id": "s1", "cwd": importCwd(t)})
-		start := time.Now()
-		runHook(t, "session-start.sh", in, hookOpts{plugin: dir, engram: slowImport, env: []string{"XDG_RUNTIME_DIR=" + t.TempDir()}})
-		if took := time.Since(start); took >= 2500*time.Millisecond {
-			t.Fatalf("%s: the hook held its stdio for %v, until the import ended", dir, took)
+		runHook(t, "session-start.sh", in, hookOpts{plugin: dir, engram: blockedImport, env: []string{"XDG_RUNTIME_DIR=" + t.TempDir()}})
+
+		// The hook has returned. The import starts in the background, maybe a
+		// moment later: wait for its pid, then it must still be blocked on the gate.
+		var pid int
+		for i := 0; i < 1500 && pid == 0; i++ {
+			if b, err := os.ReadFile(pidFile); err == nil {
+				pid, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+			}
+			if pid == 0 {
+				time.Sleep(20 * time.Millisecond)
+			}
+		}
+		if pid == 0 {
+			t.Fatalf("%s: the import never started", dir)
+		}
+		proc, err := os.FindProcess(pid)
+		if err != nil || proc.Signal(syscall.Signal(0)) != nil {
+			t.Fatalf("%s: the hook returned only after the import ended (pid %d gone): it held its stdio", dir, pid)
+		}
+		release()
+		for i := 0; i < 1500 && proc.Signal(syscall.Signal(0)) == nil; i++ {
+			time.Sleep(20 * time.Millisecond)
 		}
 	}
 }

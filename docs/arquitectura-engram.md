@@ -75,9 +75,14 @@ El fork tiene los issues y las discusiones deshabilitados, así que las plantill
 
 Las ideas se acumulan acá y se toman por release.
 
-- **Tres pruebas más con plazos de reloj que fallan con la máquina muy cargada.** `TestQuadraticShapesStayLinearWithoutPrefilters` (un límite de 10 s que tardó 14 s), `TestLinearTimeOnAdversarialInput/esc_quote_open` (tardó 6 s) y, en el plugin de hooks, `TestSessionStartDoesNotHoldStderrDuringTheImport` (retuvo la salida 2,8 s). El arreglo es el que ya usa `TestManyUnclosedPrivateTagsStayLinear`: comparar razones entre dos tamaños, no tiempos absolutos.
-
 ## Releases
+
+### Después de la 1.23.0, sin release
+
+Tres pruebas más con plazos de reloj quedan deterministas. Como solo cambian pruebas, no hay binario nuevo.
+
+- `TestQuadraticShapesStayLinearWithoutPrefilters` y `TestLinearTimeOnAdversarialInput` (todas sus formas, entre ellas `esc_quote_open`) usan `requireLinear`: cada forma se corre a un cuarto y a la totalidad del tope de detección, y 4 veces más entrada debe costar menos de 10 veces más tiempo (lineal ronda 4x, cuadrático 16x).
+- `TestSessionStartDoesNotHoldStderrDuringTheImport` ya no mide segundos: el `sync` falso se bloquea en un archivo que solo crea la prueba y deja su pid; si el hook volvió con ese pid vivo, no esperó al import. Con el pipe retenido el hook volvería recién cuando el timeout propio mata el import, y el pid estaría muerto.
 
 ### 1.23.0
 

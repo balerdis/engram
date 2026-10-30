@@ -139,21 +139,22 @@ func TestManyUnclosedPrivateTagsStayLinear(t *testing.T) {
 }
 
 // Linear even when no prefilter helps (they are only an optimisation): the
-// shapes that were quadratic, with the prefilters off.
+// shapes that were quadratic, with the prefilters off. Each grows 4x: linear is
+// about 4x, quadratic about 16x, the limit sits at 10x.
 func TestQuadraticShapesStayLinearWithoutPrefilters(t *testing.T) {
 	disableGates = true
 	defer func() { disableGates = false }()
-	start := time.Now()
-	for _, in := range []string{
-		strings.Repeat("a=", 125000),
-		strings.Repeat("token=f(", 31000),
-		strings.Repeat("token=getX(password=hunter2hunter2 ", 5000),
-		strings.Repeat("-----BEGIN PRIVATE KEY-----", 9000),
-		"a" + strings.Repeat(" ", 200000) + "=x",
+	for _, c := range []struct {
+		name  string
+		small int
+		f     func(n int)
+	}{
+		{"a=", 31000, func(n int) { _ = Redact(strings.Repeat("a=", n)) }},
+		{"token=f(", 7700, func(n int) { _ = Redact(strings.Repeat("token=f(", n)) }},
+		{"token=getX(password=", 1200, func(n int) { _ = Redact(strings.Repeat("token=getX(password=hunter2hunter2 ", n)) }},
+		{"begin key", 2200, func(n int) { _ = Redact(strings.Repeat("-----BEGIN PRIVATE KEY-----", n)) }},
+		{"long spaces", 50000, func(n int) { _ = Redact("a" + strings.Repeat(" ", n) + "=x") }},
 	} {
-		_ = Redact(in)
-	}
-	if d := time.Since(start); d > 10*time.Second {
-		t.Fatalf("took %v", d)
+		requireLinear(t, c.name, c.small, 4, 10, c.f)
 	}
 }
