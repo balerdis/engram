@@ -42,7 +42,6 @@
 | `internal/setup/setup.go` | Integration installation. |
 | `internal/tui/` | Bubbletea TUI. |
 | `internal/diagnostic/` | Operational checks/repair. |
-| `internal/llm/` | Runners for semantic scanning with agent CLIs. |
 | `internal/obsidian/` | Obsidian beta export/watch/hub. |
 | `plugin/opencode/engram.ts` | OpenCode adapter. |
 | `plugin/claude-code/` | Claude Code plugin, hooks, and skill. |

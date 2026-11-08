@@ -51,7 +51,7 @@ Varios engram comparten la misma `~/.engram/engram.db`, por ejemplo el de OpenCo
 2. Antes de estrenar una versión que toca la base, se hace un backup con la API de backup de sqlite, por ejemplo `sqlite3 engram.db ".backup engram-<fecha>.db"`. Copiar el archivo mientras engram corre no sirve, porque la base usa WAL.
 3. Todos los engram que abren la misma base pasan juntos a la versión nueva.
 
-Tablas aditivas desde la 1.24.0: `observation_versions` (`id`, `observation_id` con FK en cascada, `title`, `content`, `type`, `topic_key`, `replaced_at`, e índice `idx_obs_versions_obs`). Guarda el estado anterior de una observación cuando un upsert por `topic_key` o `mem_update` cambia el título o el contenido, con tope de 20 por observación. No viaja en los chunks de `engram sync`, `redact --scan` la cubre y `purge` la borra por la cascada. Un binario viejo la ignora.
+Tablas aditivas desde la 1.24.0: `observation_versions` (`id`, `observation_id` con FK en cascada, `title`, `content`, `type`, `topic_key`, `replaced_at`, e índice `idx_obs_versions_obs`). Guarda el estado anterior de una observación cuando cualquier camino que pisa título o contenido (upsert por `topic_key`, `mem_update`, `engram sync --import`) cambia el título o el contenido, con tope de 20 por observación. No viaja en los chunks de `engram sync`, `redact --scan` la cubre y `purge` la borra por la cascada. Un binario viejo la ignora.
 
 ## Conexiones de red del binario
 
@@ -92,6 +92,7 @@ Las ideas se acumulan acá y se toman por release. Son las que la revisión del 
 - La watermark del export de chunks.
 - TUI: tope de `DetailScroll` y fondo en terminales claras.
 - Excluir `not_conflict` de las vistas de conflictos si ensucia.
+- En `FindCandidates` el límite se aplica antes de descartar los pares ya relacionados, así que un re-guardado puede no mostrar candidatos nuevos que estén después de los N primeros.
 
 ## Releases
 
@@ -102,7 +103,7 @@ Toma las correcciones de una revisión del original, quita el scan semántico y 
 1. **El driver SQLite pasa a 1.59.0 (SQLite 3.51.3 o más nueva).** Esas versiones corrigen el bug de reinicio del WAL, que podía corromper la base con varias conexiones. Es la más nueva con `go 1.25.0` (de la 1.60 en adelante pide go 1.26). `TestSQLiteVersionHasWALResetFix` falla con un SQLite más viejo.
 2. **Los pragmas viajan en el DSN y las transacciones son `IMMEDIATE`.**
    - `busy_timeout(5000)`, `journal_mode(WAL)`, `synchronous(NORMAL)` y `foreign_keys(1)` van como `_pragma` del DSN, y `New` hace `Ping`. Antes se aplicaban a una conexión y las demás del pool arrancaban sin ellos.
-   - `_txlock=immediate`: `Begin` toma el lock de escritura al empezar, así que dos escritores no se bloquean a mitad de transacción. Las lecturas no usan transacción.
+   - `_txlock=immediate`: `Begin` toma el lock de escritura al empezar, así que dos escritores no se bloquean a mitad de transacción. Las lecturas van sin transacción, salvo los planes de `purge` (`PurgePlan`, `SyncLeftoversPlan`), que abren una transacción de solo lectura y por eso toman el lock de escritura un instante.
    - `TestEveryNewConnectionHasPragmas` y `TestBeginTakesWriteLockImmediately`. La prueba de purge que simulaba un lector con `Begin()` usa ahora `BeginTx` de solo lectura.
 3. **Los prompts que la persona no escribió no se guardan.** `AddPrompt` descarta los que empiezan con `<task-notification>` o `<agent-message` (sin espacios iniciales) y devuelve `(0, nil)`, como un repetido absorbido, así el hook no falla. Los imports no filtran.
    - **Evidencia:** en la base real, 865 prompts `<task-notification>` y 922 `<agent-message` sobre 12 624.
@@ -119,7 +120,7 @@ Toma las correcciones de una revisión del original, quita el scan semántico y 
    - La reescritura de `redact --scan` no guarda versiones.
 8. **Las instrucciones MCP salen del perfil.** `buildServerInstructions(allowlist)` nombra solo las herramientas registradas: `WHO SAVES` las lista, `PROACTIVE SAVE` aparece solo con `mem_save`, `CONFLICT SURFACING` solo con `mem_save` y `mem_judge`, y el perfil `reader` las omite y dice que es de solo lectura. **Evidencia:** con `--tools=agent` las instrucciones nombraban `mem_delete`, `mem_stats`, `mem_timeline` y `mem_merge_projects`. La marca `[preview]` cuenta runas en vez de bytes.
 9. **`engram export --help` e `import --help`.** Imprimen el uso y salen con 0 sin abrir la base; antes `export --help` creaba un archivo llamado `--help`. Cualquier otro flag desconocido sale con 1.
-10. **Se quita el scan semántico.** Se van el paquete `internal/llm`, `cmd/engram/llm.go`, los flags `--semantic`, `--concurrency`, `--timeout-per-call` y `--max-semantic` de `conflicts scan`, `ENGRAM_AGENT_CLI`, `SetRunnerFactory`, `SetPromptBuilder`, la rama semántica de `ScanProject`, `store/runner.go` y los campos `semantic_*` de la respuesta de `POST /conflicts/scan`.
+10. **Se quita el scan semántico.** Se van el paquete `internal/llm`, `cmd/engram/llm.go`, los flags `--semantic`, `--concurrency`, `--timeout-per-call`, `--max-semantic` y `--yes` (que solo confirmaba el costo del scan semántico) de `conflicts scan`, `ENGRAM_AGENT_CLI`, `SetRunnerFactory`, `SetPromptBuilder`, la rama semántica de `ScanProject`, `store/runner.go` y los campos `semantic_*` de la respuesta de `POST /conflicts/scan`.
     - **Evidencia:** se usó una sola vez (2026-06-24, antes del fork), frente a 462 veredictos de agentes con `mem_judge`.
     - Quien pasa un flag quitado recibe un error, y `POST /conflicts/scan` con `"semantic": true` responde 400 ("the semantic scan was removed in 1.24.0"), en vez de correr un scan común sin avisar.
     - Se queda `conflicts scan` sin modelo, `JudgeBySemantic` (lo usan `mem_compare` y `POST /conflicts/compare`) y `mem_judge`. `marked_by_model` y los datos históricos no se tocan.

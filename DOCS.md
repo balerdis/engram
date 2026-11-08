@@ -109,7 +109,7 @@ Engram serves one runtime: `engram serve` (JSON on `127.0.0.1:7437`). Local SQLi
 
 ### Prompts
 
-- `POST /prompts` — Save user prompt. Body: `{session_id, content, project?}`
+- `POST /prompts` — Save user prompt. Body: `{session_id, content, project?}`. Answers `201 {"id", "status":"saved"}`, or `200 {"id":0, "status":"skipped"}` when the text is a client-generated message (`<task-notification>`, `<agent-message`) that is not stored
 - `GET /prompts/recent` — Recent prompts. Query: `?project=X&limit=N`
 - `GET /prompts/search` — Search prompts. Query: `?q=QUERY&project=X&limit=N`
 - `DELETE /prompts/{id}` — Delete prompt
@@ -231,7 +231,7 @@ Response:
 { "sync_id": "rel-abc123" }
 ```
 
-`not_conflict` is a no-op verdict and returns an empty `sync_id`.
+`not_conflict` is persisted like any other verdict and returns the `sync_id` of its row, so the pair is not proposed again as a candidate.
 
 Status codes:
 
@@ -625,7 +625,7 @@ Behavior:
 
 - Persists a relation row via `JudgeBySemantic` with system provenance (`marked_by_kind="system"`, `marked_by_actor="engram"`)
 - Idempotent: the same `(source_id, target_id)` pair updates the existing row rather than inserting a duplicate
-- `not_conflict` verdicts are no-ops — acknowledged but not persisted, matching the scan flow contract
+- `not_conflict` verdicts are persisted like any other: the row records that the pair was judged, so `FindCandidates` does not propose it again
 - Cross-project relations are rejected with an error
 
 ---
