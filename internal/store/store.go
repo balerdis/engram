@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -527,6 +528,35 @@ func (s *Store) commitHook(tx *sql.Tx) error {
 	return tx.Commit()
 }
 
+// storeDSN builds the modernc.org/sqlite DSN with the session pragmas as
+// _pragma parameters. The driver applies them, in this order, to every physical
+// connection it opens, so a replacement pool connection keeps busy_timeout and
+// foreign_keys. busy_timeout comes first so that the journal_mode=WAL switch of
+// a cold start waits for another process that is writing instead of failing.
+//
+// _txlock=immediate makes every Begin() a BEGIN IMMEDIATE. That is safe here
+// because the store only calls Begin() from withTx, which wraps writes (all
+// reads use db.Query directly, outside a transaction). A deferred transaction
+// that reads and then writes can fail with SQLITE_BUSY_SNAPSHOT, which skips
+// busy_timeout; IMMEDIATE takes the write lock up front so busy_timeout queues
+// the writers across processes.
+func storeDSN(dbPath string) string {
+	q := url.Values{}
+	for _, p := range []string{
+		"busy_timeout(5000)",
+		"journal_mode(WAL)",
+		"synchronous(NORMAL)",
+		"foreign_keys(1)",
+	} {
+		q.Add("_pragma", p)
+	}
+	q.Set("_txlock", "immediate")
+	if filepath.Separator == '/' {
+		return (&url.URL{Scheme: "file", Path: dbPath}).String() + "?" + q.Encode()
+	}
+	return dbPath + "?" + q.Encode()
+}
+
 func New(cfg Config) (*Store, error) {
 	if !filepath.IsAbs(cfg.DataDir) {
 		return nil, fmt.Errorf("engram: data directory must be an absolute path, got %q — set ENGRAM_DATA_DIR or ensure your home directory is resolvable", cfg.DataDir)
@@ -538,23 +568,16 @@ func New(cfg Config) (*Store, error) {
 	dbPath := filepath.Join(cfg.DataDir, "engram.db")
 	precreateDB(dbPath)
 	tightenDBFiles(dbPath)
-	db, err := openDB("sqlite", dbPath)
+	db, err := openDB("sqlite", storeDSN(dbPath))
 	if err != nil {
 		return nil, fmt.Errorf("engram: open database: %w", err)
 	}
 	db.SetMaxOpenConns(1)
-
-	// SQLite performance pragmas
-	pragmas := []string{
-		"PRAGMA journal_mode = WAL",
-		"PRAGMA busy_timeout = 5000",
-		"PRAGMA synchronous = NORMAL",
-		"PRAGMA foreign_keys = ON",
-	}
-	for _, p := range pragmas {
-		if _, err := db.Exec(p); err != nil {
-			return nil, fmt.Errorf("engram: pragma %q: %w", p, err)
-		}
+	// The pragmas travel in the DSN, so they run while the first physical
+	// connection opens: surface a failure here instead of on the first query.
+	if err := db.Ping(); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("engram: open database: %w", err)
 	}
 
 	s := &Store{db: db, cfg: cfg, hooks: defaultStoreHooks()}

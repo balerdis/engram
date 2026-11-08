@@ -1,6 +1,8 @@
 package store
 
 import (
+	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"strings"
@@ -168,7 +170,7 @@ func TestPurgeSyncLeftoversVacuumRefusedWhenAnotherProcessHoldsTheDB(t *testing.
 		t.Fatal(err)
 	}
 	defer other.Close()
-	tx, err := other.db.Begin()
+	tx, err := other.db.BeginTx(context.Background(), &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		t.Fatal(err)
 	}
