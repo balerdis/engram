@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gentleman-Programming/engram/internal/llm"
 	"github.com/Gentleman-Programming/engram/internal/store"
 )
 
@@ -43,8 +42,6 @@ func printConflictsUsage() {
 	fmt.Fprintln(os.Stderr, "  show       <relation_id>")
 	fmt.Fprintln(os.Stderr, "  stats      [--project P]")
 	fmt.Fprintln(os.Stderr, "  scan       [--project P]  [--since RFC3339]  [--dry-run]  [--apply]  [--max-insert N]")
-	fmt.Fprintln(os.Stderr, "             [--semantic]  [--concurrency N]  [--timeout-per-call SECONDS]")
-	fmt.Fprintln(os.Stderr, "             [--max-semantic N]  [--yes]")
 }
 
 // resolveConflictsProject returns the explicit project if non-empty, otherwise falls
@@ -304,13 +301,6 @@ func cmdConflictsScan(cfg store.Config) {
 	apply := false
 	maxInsert := 100
 
-	// Phase 4 semantic flags (parsed here; wired into ScanOptions below).
-	semantic := false
-	concurrency := 5
-	timeoutPerCall := 60
-	yesFlag := false
-	maxSemantic := 100
-
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--project":
@@ -336,44 +326,16 @@ func cmdConflictsScan(cfg store.Config) {
 				}
 				i++
 			}
-		case "--semantic":
-			semantic = true
-		case "--concurrency":
-			if i+1 < len(args) {
-				if n, err := strconv.Atoi(args[i+1]); err == nil {
-					concurrency = n
-				}
-				i++
-			}
-		case "--timeout-per-call":
-			if i+1 < len(args) {
-				if n, err := strconv.Atoi(args[i+1]); err == nil {
-					timeoutPerCall = n
-				}
-				i++
-			}
-		case "--yes":
-			yesFlag = true
-		case "--max-semantic":
-			if i+1 < len(args) {
-				if n, err := strconv.Atoi(args[i+1]); err == nil {
-					maxSemantic = n
-				}
-				i++
-			}
+		case "--semantic", "--concurrency", "--timeout-per-call", "--max-semantic":
+			fmt.Fprintf(os.Stderr, "error: %s was removed in 1.24.0: the semantic scan no longer launches a model; judge the candidates with mem_judge\n", args[i])
+			exitFunc(1)
+			return
 		}
 	}
 
 	// Explicit mutex enforcement
 	if dryRun && apply {
 		fmt.Fprintln(os.Stderr, "error: --dry-run and --apply are mutually exclusive")
-		exitFunc(1)
-		return
-	}
-
-	// Concurrency range validation (1–20).
-	if concurrency < 1 || concurrency > 20 {
-		fmt.Fprintf(os.Stderr, "error: --concurrency must be between 1 and 20; got %d\n", concurrency)
 		exitFunc(1)
 		return
 	}
@@ -398,45 +360,6 @@ func cmdConflictsScan(cfg store.Config) {
 		MaxInsert: maxInsert,
 	}
 
-	// Wire semantic runner when --semantic is set.
-	if semantic {
-		runner, err := resolveAgentRunner()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			exitFunc(1)
-			return
-		}
-
-		// Cost estimate and confirmation prompt (skipped on --yes).
-		if !yesFlag {
-			inToks, outToks := llm.EstimateScanCost(maxSemantic)
-			fmt.Printf("Semantic scan will make up to %d LLM calls (~%d input tokens, ~%d output tokens).\n",
-				maxSemantic, inToks, outToks)
-			fmt.Println("Subscription users: counts against your quota.")
-			fmt.Print("Continue? [y/N] ")
-			var answer string
-			fmt.Scanln(&answer) //nolint:errcheck
-			if strings.ToLower(strings.TrimSpace(answer)) != "y" {
-				fmt.Println("Aborted.")
-				return
-			}
-		}
-
-		buildPrompt := func(a, b store.ObservationSnippet) string {
-			return llm.BuildPrompt(
-				llm.ObservationSnippet{ID: a.SyncID, Title: a.Title, Type: a.Type, Content: a.Content},
-				llm.ObservationSnippet{ID: b.SyncID, Title: b.Title, Type: b.Type, Content: b.Content},
-			)
-		}
-
-		opts.Semantic = true
-		opts.Concurrency = concurrency
-		opts.TimeoutPerCall = time.Duration(timeoutPerCall) * time.Second
-		opts.MaxSemantic = maxSemantic
-		opts.Runner = runner
-		opts.BuildPrompt = buildPrompt
-	}
-
 	s, err := storeNew(cfg)
 	if err != nil {
 		fatal(err)
@@ -457,17 +380,7 @@ func cmdConflictsScan(cfg store.Config) {
 	fmt.Printf("  inserted:         %d\n", result.RelationsInserted)
 	fmt.Printf("  dry_run:          %v\n", result.DryRun)
 
-	if semantic {
-		fmt.Printf("  semantic_judged:  %d\n", result.SemanticJudged)
-		fmt.Printf("  semantic_skipped: %d\n", result.SemanticSkipped)
-		fmt.Printf("  semantic_errors:  %d\n", result.SemanticErrors)
-	}
-
 	if result.Capped {
-		if semantic {
-			fmt.Printf("WARNING: max-semantic cap of %d reached — stopped early. Re-run to continue.\n", maxSemantic)
-		} else {
-			fmt.Printf("WARNING: max-insert cap of %d reached — stopped early. Re-run to continue.\n", maxInsert)
-		}
+		fmt.Printf("WARNING: max-insert cap of %d reached — stopped early. Re-run to continue.\n", maxInsert)
 	}
 }

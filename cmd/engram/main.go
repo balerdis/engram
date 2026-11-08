@@ -126,10 +126,6 @@ var (
 
 	// newObsidianWatcher is injectable for testing.
 	newObsidianWatcher = obsidian.NewWatcher
-
-	// agentRunnerFactory is injectable for testing. In production it delegates to
-	// llm.NewRunner; tests substitute a fake to avoid real CLI invocations.
-	agentRunnerFactory = defaultAgentRunnerFactory
 )
 
 func main() {
@@ -332,13 +328,6 @@ func cmdServe(cfg store.Config) {
 
 	srv := newHTTPServer(s, port)
 	srv.SetVersion(version)
-
-	// Wire the semantic runner factory and prompt builder for POST /conflicts/scan.
-	// Both live in cmd/engram so internal/server avoids a direct dependency on internal/llm.
-	srv.SetRunnerFactory(agentRunnerFactory)
-	srv.SetPromptBuilder(func(a, b store.ObservationSnippet) string {
-		return llmBuildPrompt(a, b)
-	})
 
 	// Graceful shutdown on SIGINT/SIGTERM.
 	sigCh := make(chan os.Signal, 1)
@@ -2113,8 +2102,6 @@ Commands:
                        show     <relation_id>
                        stats    [--project P]
                        scan     [--project P]  [--since RFC3339]  [--dry-run]  [--apply]  [--max-insert N]
-                                [--semantic]  [--concurrency N]  [--timeout-per-call SECONDS]
-                                [--max-semantic N]  [--yes]
   doctor             Run read-only operational diagnostics [--json] [--project P] [--check CODE]
   context [project]  Show recent context from previous sessions
   stats              Show memory system statistics
@@ -2164,7 +2151,6 @@ Environment:
                      Falls back to system local time when unset or invalid.
   ENGRAM_NO_UPDATE_CHECK
                      Set to 1, true or yes to skip the update check (no network request)
-  ENGRAM_AGENT_CLI   LLM runner for conflicts scan --semantic (claude or opencode)
 
 MCP Configuration (add to your agent's config):
   {

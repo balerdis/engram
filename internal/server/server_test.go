@@ -2,7 +2,6 @@ package server
 
 import (
 	"bytes"
-	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -1175,29 +1174,39 @@ func TestHandleConflictByID_InvalidID(t *testing.T) {
 	}
 }
 
-// ─── Phase F — POST /conflicts/scan semantic params ──────────────────────────
+// ─── POST /conflicts/scan: the semantic scan was removed in 1.24.0 ────────────
 
-// mockSemanticRunner is a fake store.SemanticRunner for HTTP tests.
-type mockSemanticRunner struct {
-	verdict store.SemanticVerdict
-	err     error
-}
-
-func (m *mockSemanticRunner) Compare(_ context.Context, _ string) (store.SemanticVerdict, error) {
-	return m.verdict, m.err
-}
-
-// TestHandleScanConflicts_SemanticFalse_CountersZero verifies that when semantic=false
-// (or omitted), the response includes semantic_judged=0, semantic_skipped=0,
-// semantic_errors=0.
-func TestHandleScanConflicts_SemanticFalse_CountersZero(t *testing.T) {
+// TestHandleScanConflicts_SemanticTrue_400 verifies that a client asking for the
+// removed semantic scan gets a clear 400 instead of a silent plain scan.
+func TestHandleScanConflicts_SemanticTrue_400(t *testing.T) {
 	st, _ := conflictsTestStore(t)
-	srv := New(st, 0)
-	h := srv.Handler()
+	h := New(st, 0).Handler()
 
-	seedConflictsSession(t, st, "semfalseproj")
+	seedConflictsSession(t, st, "semremovedproj")
 
-	body := `{"project":"semfalseproj","apply":false}`
+	body := `{"project":"semremovedproj","semantic":true}`
+	req := httptest.NewRequest(http.MethodPost, "/conflicts/scan", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "the semantic scan was removed in 1.24.0") {
+		t.Fatalf("expected the removal message, got %s", rec.Body.String())
+	}
+}
+
+// TestHandleScanConflicts_NoSemanticFields verifies the plain scan response no
+// longer carries the semantic_* counters.
+func TestHandleScanConflicts_NoSemanticFields(t *testing.T) {
+	st, _ := conflictsTestStore(t)
+	h := New(st, 0).Handler()
+
+	seedConflictsSession(t, st, "plainscanproj")
+
+	body := `{"project":"plainscanproj","apply":false,"semantic":false}`
 	req := httptest.NewRequest(http.MethodPost, "/conflicts/scan", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -1206,158 +1215,13 @@ func TestHandleScanConflicts_SemanticFalse_CountersZero(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
-
 	var resp map[string]any
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-
-	// All three semantic counters must be present and zero.
-	for _, field := range []string{"semantic_judged", "semantic_skipped", "semantic_errors"} {
-		val, ok := resp[field]
-		if !ok {
-			t.Errorf("expected %q field in response; got keys: %v", field, resp)
-			continue
-		}
-		if val != float64(0) {
-			t.Errorf("expected %q=0 when semantic=false, got %v", field, val)
-		}
-	}
-}
-
-// TestHandleScanConflicts_SemanticTrue_NoEnv_500 verifies that when semantic=true
-// and the runnerFactory is not configured (nil), the server returns 500 with a
-// clear error body.
-func TestHandleScanConflicts_SemanticTrue_NoFactory_500(t *testing.T) {
-	st, _ := conflictsTestStore(t)
-	srv := New(st, 0)
-	// No runner factory set → should fail.
-	h := srv.Handler()
-
-	seedConflictsSession(t, st, "semnoenvproj")
-
-	body := `{"project":"semnoenvproj","semantic":true}`
-	req := httptest.NewRequest(http.MethodPost, "/conflicts/scan", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500 when no runner factory set, got %d: %s", rec.Code, rec.Body.String())
-	}
-
-	var resp map[string]any
-	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode error body: %v", err)
-	}
-	errMsg, ok := resp["error"].(string)
-	if !ok || errMsg == "" {
-		t.Errorf("expected non-empty 'error' field in 500 response; got: %v", resp)
-	}
-}
-
-// TestHandleScanConflicts_SemanticTrue_WithMockRunner verifies that when semantic=true
-// and a mock runner factory is injected, the response includes non-zero counters.
-func TestHandleScanConflicts_SemanticTrue_WithMockRunner(t *testing.T) {
-	st, _ := conflictsTestStore(t)
-	srv := New(st, 0)
-
-	// Inject a factory that returns a fake runner returning "compatible".
-	srv.SetRunnerFactory(func(name string) (store.SemanticRunner, error) {
-		return &mockSemanticRunner{
-			verdict: store.SemanticVerdict{
-				Relation:   "compatible",
-				Confidence: 0.9,
-				Reasoning:  "test",
-				Model:      "test-model",
-			},
-		}, nil
-	})
-	h := srv.Handler()
-
-	// Seed enough observations that FTS5 finds candidates.
-	if err := st.CreateSession("ses-semtrue", "semtrueproj", "/tmp"); err != nil {
-		t.Fatalf("CreateSession: %v", err)
-	}
-	titles := []string{
-		"JWT authentication token session management policy",
-		"Session token JWT authentication management approach",
-		"Authentication JWT session token policy decision",
-	}
-	for _, title := range titles {
-		if _, err := st.AddObservation(store.AddObservationParams{
-			SessionID: "ses-semtrue", Type: "decision",
-			Title: title, Content: "JWT auth content for " + title,
-			Project: "semtrueproj", Scope: "project",
-		}); err != nil {
-			t.Fatalf("AddObservation: %v", err)
-		}
-	}
-
-	body := `{"project":"semtrueproj","semantic":true,"concurrency":2,"max_semantic":10}`
-	req := httptest.NewRequest(http.MethodPost, "/conflicts/scan", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200 with mock runner, got %d: %s", rec.Code, rec.Body.String())
-	}
-
-	var resp map[string]any
-	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-
-	// semantic_judged + semantic_skipped + semantic_errors should be present (values depend on FTS).
-	for _, field := range []string{"semantic_judged", "semantic_skipped", "semantic_errors"} {
-		if _, ok := resp[field]; !ok {
-			t.Errorf("expected %q field in semantic=true response; got: %v", field, resp)
-		}
-	}
-}
-
-// TestHandleScanConflicts_InvalidConcurrency_400 verifies that concurrency out of
-// [1,20] range returns 400 before any work is done.
-func TestHandleScanConflicts_InvalidConcurrency_400(t *testing.T) {
-	st, _ := conflictsTestStore(t)
-	srv := New(st, 0)
-	// Runner factory not needed — validation happens before runner is resolved.
-	h := srv.Handler()
-
-	seedConflictsSession(t, st, "badconcproj")
-
-	for _, badConcurrency := range []int{0, 21, -1, 100} {
-		body := fmt.Sprintf(`{"project":"badconcproj","semantic":true,"concurrency":%d}`, badConcurrency)
-		req := httptest.NewRequest(http.MethodPost, "/conflicts/scan", strings.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, req)
-
-		if rec.Code != http.StatusBadRequest {
-			t.Errorf("expected 400 for concurrency=%d, got %d: %s", badConcurrency, rec.Code, rec.Body.String())
-		}
-	}
-}
-
-// TestHandleScanConflicts_InvalidTimeout_400 verifies that timeout_per_call_seconds
-// out of [1,600] range returns 400 before any work is done.
-func TestHandleScanConflicts_InvalidTimeout_400(t *testing.T) {
-	st, _ := conflictsTestStore(t)
-	srv := New(st, 0)
-	h := srv.Handler()
-
-	seedConflictsSession(t, st, "badtmoproj")
-
-	for _, badTimeout := range []int{0, 601, -5} {
-		body := fmt.Sprintf(`{"project":"badtmoproj","semantic":true,"timeout_per_call_seconds":%d}`, badTimeout)
-		req := httptest.NewRequest(http.MethodPost, "/conflicts/scan", strings.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, req)
-
-		if rec.Code != http.StatusBadRequest {
-			t.Errorf("expected 400 for timeout_per_call_seconds=%d, got %d: %s", badTimeout, rec.Code, rec.Body.String())
+	for k := range resp {
+		if strings.HasPrefix(k, "semantic") {
+			t.Errorf("unexpected field %q in scan response", k)
 		}
 	}
 }

@@ -1,22 +1,9 @@
 package store
 
 import (
-	"context"
 	"errors"
 	"testing"
 )
-
-// ─── Fake SemanticRunner ──────────────────────────────────────────────────────
-
-// fakeSemanticRunner is a test-only SemanticRunner that returns a fixed verdict.
-type fakeSemanticRunner struct {
-	verdict SemanticVerdict
-	err     error
-}
-
-func (f *fakeSemanticRunner) Compare(_ context.Context, _ string) (SemanticVerdict, error) {
-	return f.verdict, f.err
-}
 
 // ─── C.2a — TestJudgeBySemantic_InsertsWithSystemProvenance ──────────────────
 

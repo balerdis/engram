@@ -8,9 +8,7 @@ package main
 // Relations seeded via store.SaveRelation (public API, status='pending').
 
 import (
-	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"path/filepath"
 	"strconv"
@@ -21,36 +19,6 @@ import (
 	versioncheck "github.com/Gentleman-Programming/engram/internal/version"
 	_ "modernc.org/sqlite"
 )
-
-// ─── mock runner for D.2 tests ────────────────────────────────────────────────
-
-// mockSemanticRunner is a test double for store.SemanticRunner.
-// It records whether Compare was called and returns a configurable verdict/error.
-type mockSemanticRunner struct {
-	called  bool
-	verdict store.SemanticVerdict
-	err     error
-}
-
-func (m *mockSemanticRunner) Compare(_ context.Context, _ string) (store.SemanticVerdict, error) {
-	m.called = true
-	return m.verdict, m.err
-}
-
-// stubAgentRunnerFactory replaces agentRunnerFactory for a test and restores it
-// on cleanup. The provided runner is returned for any name; factoryErr is returned
-// when non-nil.
-func stubAgentRunnerFactory(t *testing.T, runner store.SemanticRunner, factoryErr error) {
-	t.Helper()
-	old := agentRunnerFactory
-	agentRunnerFactory = func(_ string) (store.SemanticRunner, error) {
-		if factoryErr != nil {
-			return nil, factoryErr
-		}
-		return runner, nil
-	}
-	t.Cleanup(func() { agentRunnerFactory = old })
-}
 
 // versionCheckResult returns a stub versioncheck.CheckResult that is up-to-date
 // (no update banner noise in output).
@@ -456,172 +424,18 @@ func TestG1_ConflictsScan_CapWarning(t *testing.T) {
 	}
 }
 
-// ─── D.2 RED tests — agentRunnerFactory + resolveAgentRunner ─────────────────
+// ─── The semantic scan flags were removed in 1.24.0 ──────────────────────────
 
-// TestResolveAgentRunner_EnvNotSet verifies that resolveAgentRunner returns a
-// clear error naming ENGRAM_AGENT_CLI when the env var is empty.
-func TestResolveAgentRunner_EnvNotSet(t *testing.T) {
-	t.Setenv("ENGRAM_AGENT_CLI", "")
-	_, err := resolveAgentRunner()
-	if err == nil {
-		t.Fatal("expected error when ENGRAM_AGENT_CLI is empty; got nil")
-	}
-	if !strings.Contains(err.Error(), "ENGRAM_AGENT_CLI") {
-		t.Errorf("error should name ENGRAM_AGENT_CLI; got: %q", err.Error())
-	}
-}
-
-// TestResolveAgentRunner_EnvClaude verifies that resolveAgentRunner calls the
-// factory with "claude" when ENGRAM_AGENT_CLI=claude.
-func TestResolveAgentRunner_EnvClaude(t *testing.T) {
-	t.Setenv("ENGRAM_AGENT_CLI", "claude")
-
-	calledWith := ""
-	mock := &mockSemanticRunner{}
-	old := agentRunnerFactory
-	agentRunnerFactory = func(name string) (store.SemanticRunner, error) {
-		calledWith = name
-		return mock, nil
-	}
-	t.Cleanup(func() { agentRunnerFactory = old })
-
-	runner, err := resolveAgentRunner()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if runner == nil {
-		t.Fatal("expected non-nil runner")
-	}
-	if calledWith != "claude" {
-		t.Errorf("factory called with %q; want \"claude\"", calledWith)
-	}
-}
-
-// TestResolveAgentRunner_EnvOpencode verifies that resolveAgentRunner calls the
-// factory with "opencode" when ENGRAM_AGENT_CLI=opencode.
-func TestResolveAgentRunner_EnvOpencode(t *testing.T) {
-	t.Setenv("ENGRAM_AGENT_CLI", "opencode")
-
-	calledWith := ""
-	mock := &mockSemanticRunner{}
-	old := agentRunnerFactory
-	agentRunnerFactory = func(name string) (store.SemanticRunner, error) {
-		calledWith = name
-		return mock, nil
-	}
-	t.Cleanup(func() { agentRunnerFactory = old })
-
-	runner, err := resolveAgentRunner()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if runner == nil {
-		t.Fatal("expected non-nil runner")
-	}
-	if calledWith != "opencode" {
-		t.Errorf("factory called with %q; want \"opencode\"", calledWith)
-	}
-}
-
-// TestResolveAgentRunner_InvalidName verifies that resolveAgentRunner propagates
-// the error returned by the factory when an unknown runner name is given.
-func TestResolveAgentRunner_InvalidName(t *testing.T) {
-	t.Setenv("ENGRAM_AGENT_CLI", "somethingelse")
-
-	factoryErr := errors.New("unsupported runner: somethingelse")
-	old := agentRunnerFactory
-	agentRunnerFactory = func(_ string) (store.SemanticRunner, error) {
-		return nil, factoryErr
-	}
-	t.Cleanup(func() { agentRunnerFactory = old })
-
-	_, err := resolveAgentRunner()
-	if err == nil {
-		t.Fatal("expected error for invalid runner name; got nil")
-	}
-	if !errors.Is(err, factoryErr) {
-		t.Errorf("expected wrapped factoryErr; got: %v", err)
-	}
-}
-
-// TestCmdConflictsScan_SemanticFlagNoEnv verifies that --semantic without
-// ENGRAM_AGENT_CLI set fails fast with a non-zero exit and a message naming the
-// env var. No LLM calls should be made.
-func TestCmdConflictsScan_SemanticFlagNoEnv(t *testing.T) {
-	cfg := testConfig(t)
-	t.Setenv("ENGRAM_AGENT_CLI", "")
-
-	// factory must NOT be called when env is empty.
-	factoryCalled := false
-	old := agentRunnerFactory
-	agentRunnerFactory = func(name string) (store.SemanticRunner, error) {
-		factoryCalled = true
-		return nil, errors.New("should not be reached")
-	}
-	t.Cleanup(func() { agentRunnerFactory = old })
-
-	withArgs(t, "engram", "conflicts", "scan", "--project", "noproj", "--semantic")
-	stubExitWithPanic(t)
-	_, stderr, _ := captureOutputAndRecover(t, func() { cmdConflicts(cfg) })
-
-	if !strings.Contains(stderr, "ENGRAM_AGENT_CLI") {
-		t.Errorf("expected ENGRAM_AGENT_CLI in error message; got: %q", stderr)
-	}
-	if factoryCalled {
-		t.Error("factory should not be called when env is not set")
-	}
-}
-
-// TestCmdConflictsScan_SemanticFlagWithEnv verifies that --semantic with
-// ENGRAM_AGENT_CLI=claude injects the mock runner via the factory override
-// and passes Semantic=true to ScanProject.
-func TestCmdConflictsScan_SemanticFlagWithEnv(t *testing.T) {
-	cfg := testConfig(t)
-	t.Setenv("ENGRAM_AGENT_CLI", "claude")
-
-	mock := &mockSemanticRunner{
-		verdict: store.SemanticVerdict{Relation: "not_conflict", Confidence: 0.9},
-	}
-	stubAgentRunnerFactory(t, mock, nil)
-
-	mustSeedObservation(t, cfg, "ses-sem1", "semproj", "decision", "A", "content alpha", "project")
-	mustSeedObservation(t, cfg, "ses-sem1", "semproj", "decision", "B", "content alpha duplicate", "project")
-
-	withArgs(t, "engram", "conflicts", "scan", "--project", "semproj", "--semantic", "--yes")
-	stdout, stderr := captureOutput(t, func() { cmdConflicts(cfg) })
-	if stderr != "" {
-		t.Fatalf("unexpected stderr: %q", stderr)
-	}
-	// The output should contain the semantic counter fields.
-	if !strings.Contains(stdout, "semantic") {
-		t.Errorf("expected semantic fields in output; got: %q", stdout)
-	}
-}
-
-// TestCmdConflictsScan_NoSemanticFlag verifies that when --semantic is absent,
-// the scan behaves as Phase 3: no factory call, output lacks semantic counters
-// or contains them as zero.
-func TestCmdConflictsScan_NoSemanticFlag(t *testing.T) {
-	cfg := testConfig(t)
-
-	factoryCalled := false
-	old := agentRunnerFactory
-	agentRunnerFactory = func(name string) (store.SemanticRunner, error) {
-		factoryCalled = true
-		return nil, nil
-	}
-	t.Cleanup(func() { agentRunnerFactory = old })
-
-	mustSeedObservation(t, cfg, "ses-nosem", "nosemproj", "decision", "A", "content alpha plain", "project")
-	mustSeedObservation(t, cfg, "ses-nosem", "nosemproj", "decision", "B", "content alpha plain dup", "project")
-
-	withArgs(t, "engram", "conflicts", "scan", "--project", "nosemproj")
-	stdout, stderr := captureOutput(t, func() { cmdConflicts(cfg) })
-	if stderr != "" {
-		t.Fatalf("unexpected stderr: %q", stderr)
-	}
-	_ = stdout
-	if factoryCalled {
-		t.Error("agentRunnerFactory must not be called when --semantic is absent")
+// TestCmdConflictsScan_RemovedSemanticFlags verifies that the removed flags fail
+// loudly instead of running a plain scan.
+func TestCmdConflictsScan_RemovedSemanticFlags(t *testing.T) {
+	for _, flag := range []string{"--semantic", "--concurrency", "--timeout-per-call", "--max-semantic"} {
+		cfg := testConfig(t)
+		withArgs(t, "engram", "conflicts", "scan", "--project", "noproj", flag)
+		stubExitWithPanic(t)
+		_, stderr, _ := captureOutputAndRecover(t, func() { cmdConflicts(cfg) })
+		if !strings.Contains(stderr, flag+" was removed in 1.24.0") {
+			t.Errorf("%s: expected the removal message; got %q", flag, stderr)
+		}
 	}
 }

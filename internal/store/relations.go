@@ -1,25 +1,12 @@
 package store
 
 import (
-	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"log"
 	"strings"
-	"sync"
 	"time"
 )
-
-// ─── Sentinel errors (Phase 4 / C.6) ─────────────────────────────────────────
-
-// ErrSemanticRunnerRequired is returned by ScanProject when ScanOptions.Semantic
-// is true but ScanOptions.Runner is nil.
-var ErrSemanticRunnerRequired = errors.New("semantic scan requires a non-nil Runner")
-
-// ErrSemanticPromptBuilderRequired is returned by ScanProject when
-// ScanOptions.Semantic is true but ScanOptions.BuildPrompt is nil.
-var ErrSemanticPromptBuilderRequired = errors.New("semantic scan requires a non-nil BuildPrompt function")
 
 // ─── Relation vocabulary (locked) ─────────────────────────────────────────────
 
@@ -134,24 +121,6 @@ type ScanResult struct {
 	RelationsInserted int    `json:"inserted"`
 	Capped            bool   `json:"capped"`
 	DryRun            bool   `json:"dry_run"`
-
-	// Semantic counters — populated only when ScanOptions.Semantic is true.
-	// Zero-value is safe for existing JSON consumers.
-	SemanticJudged int `json:"semantic_judged"`
-	// SemanticSkipped is always 0: not_conflict verdicts are now persisted and
-	// counted in SemanticJudged. Kept so the JSON shape does not change.
-	SemanticSkipped int `json:"semantic_skipped"`
-	SemanticErrors  int `json:"semantic_errors"`
-}
-
-// ObservationSnippet carries the fields needed by BuildPrompt to construct an
-// LLM comparison prompt without importing internal/llm from this package.
-type ObservationSnippet struct {
-	ID      int64
-	SyncID  string
-	Title   string
-	Type    string
-	Content string
 }
 
 // ScanOptions controls a ScanProject call.
@@ -166,22 +135,6 @@ type ScanOptions struct {
 	// MaxInsert caps the number of new relation rows inserted in a single Apply run.
 	// Default 100 when 0 or negative.
 	MaxInsert int
-
-	// Semantic controls whether the worker pool LLM-judge step runs.
-	// When false (default), ScanProject behaves exactly as Phase 3.
-	Semantic bool
-	// Concurrency is the worker pool size for semantic calls. Default 5 if 0.
-	Concurrency int
-	// TimeoutPerCall is the per-pair context timeout for runner.Compare.
-	// Default 60s if zero.
-	TimeoutPerCall time.Duration
-	// MaxSemantic caps the number of LLM calls in a single semantic scan. Default 100 if 0.
-	MaxSemantic int
-	// Runner is the SemanticRunner used for LLM comparison. Required when Semantic=true.
-	Runner SemanticRunner
-	// BuildPrompt constructs the LLM prompt for a given (a, b) pair.
-	// Required when Semantic=true.
-	BuildPrompt func(a, b ObservationSnippet) string
 }
 
 // JudgeBySemanticParams holds the inputs for JudgeBySemantic.
@@ -460,18 +413,6 @@ func (s *Store) FindCandidates(savedID int64, opts CandidateOptions) ([]Candidat
 	}
 
 	return candidates, nil
-}
-
-// relationJudged reports whether the pair has a row (either direction) that is
-// already judged or ignored, i.e. a verdict exists for it.
-func (s *Store) relationJudged(a, b string) bool {
-	var one int
-	err := s.db.QueryRow(`
-		SELECT 1 FROM memory_relations
-		WHERE ((source_id = ? AND target_id = ?) OR (source_id = ? AND target_id = ?))
-		  AND judgment_status IN ('judged', 'ignored')
-		LIMIT 1`, a, b, b, a).Scan(&one)
-	return err == nil
 }
 
 // ─── SaveRelation ─────────────────────────────────────────────────────────────
@@ -1098,39 +1039,12 @@ func (s *Store) GetRelationStats(project string) (RelationStats, error) {
 // is true and below MaxInsert cap, each new candidate pair is inserted as a
 // pending relation (after a pre-check to skip already-related pairs).
 //
-// Phase 4 extension: when ScanOptions.Semantic is true, after the FTS5 candidate
-// collection a bounded worker pool calls Runner.Compare on each pair and persists
-// verdicts (including not_conflict) via JudgeBySemantic. Semantic=false (zero value)
-// preserves Phase 3 behaviour exactly.
-//
 // Returns a ScanResult with counts of inspected observations, candidates found,
 // already-related pairs skipped, relations inserted, and whether the cap was hit.
 func (s *Store) ScanProject(opts ScanOptions) (ScanResult, error) {
-	// ── Semantic flag validation (Phase 4) ────────────────────────────────────
-	if opts.Semantic {
-		if opts.Runner == nil {
-			return ScanResult{}, ErrSemanticRunnerRequired
-		}
-		if opts.BuildPrompt == nil {
-			return ScanResult{}, ErrSemanticPromptBuilderRequired
-		}
-	}
-
 	maxInsert := opts.MaxInsert
 	if maxInsert <= 0 {
 		maxInsert = 100
-	}
-	maxSemantic := opts.MaxSemantic
-	if maxSemantic <= 0 {
-		maxSemantic = 100
-	}
-	concurrency := opts.Concurrency
-	if concurrency <= 0 {
-		concurrency = 5
-	}
-	timeoutPerCall := opts.TimeoutPerCall
-	if timeoutPerCall <= 0 {
-		timeoutPerCall = 60 * time.Second
 	}
 
 	result := ScanResult{
@@ -1176,14 +1090,6 @@ func (s *Store) ScanProject(opts ScanOptions) (ScanResult, error) {
 		return result, fmt.Errorf("ScanProject: obs rows error: %w", err)
 	}
 
-	// ── Phase 4: collect all (source, candidate) pairs for semantic scan ──────
-	// candidatePair represents a source+candidate pair to be semantically judged.
-	type candidatePair struct {
-		sourceSnippet    ObservationSnippet
-		candidateSnippet ObservationSnippet
-	}
-	var semanticPairs []candidatePair
-
 	for _, obs := range observations {
 		result.Inspected++
 
@@ -1200,56 +1106,7 @@ func (s *Store) ScanProject(opts ScanOptions) (ScanResult, error) {
 		}
 		result.CandidatesFound += len(candidates)
 
-		if opts.Semantic {
-			// In semantic mode, accumulate pairs for the worker pool.
-			// We need the full content for prompt building — fetch from DB.
-			var srcTitle, srcType, srcContent string
-			_ = s.db.QueryRow(
-				`SELECT title, type, ifnull(content,'') FROM observations WHERE sync_id = ?`, obs.syncID,
-			).Scan(&srcTitle, &srcType, &srcContent)
-			srcSnippet := ObservationSnippet{
-				ID:      obs.id,
-				SyncID:  obs.syncID,
-				Title:   srcTitle,
-				Type:    srcType,
-				Content: srcContent,
-			}
-
-			for _, c := range candidates {
-				// Skip pairs already judged (any verdict, either direction): they
-				// would only waste a model call. Pending rows are still sent.
-				if s.relationJudged(obs.syncID, c.SyncID) {
-					result.AlreadyRelated++
-					continue
-				}
-				if len(semanticPairs) >= maxSemantic {
-					// Cap reached — stop adding pairs.
-					result.Capped = true
-					break
-				}
-				var candTitle, candType, candContent string
-				_ = s.db.QueryRow(
-					`SELECT title, type, ifnull(content,'') FROM observations WHERE sync_id = ?`, c.SyncID,
-				).Scan(&candTitle, &candType, &candContent)
-				semanticPairs = append(semanticPairs, candidatePair{
-					sourceSnippet: srcSnippet,
-					candidateSnippet: ObservationSnippet{
-						ID:      c.ID,
-						SyncID:  c.SyncID,
-						Title:   candTitle,
-						Type:    candType,
-						Content: candContent,
-					},
-				})
-			}
-			if result.Capped {
-				log.Printf("[store] ScanProject: MaxSemantic cap (%d) reached; some pairs skipped", maxSemantic)
-				break
-			}
-			continue
-		}
-
-		// Phase 3 path: Apply inserts pending rows.
+		// Apply inserts pending rows.
 		if !opts.Apply {
 			continue
 		}
@@ -1293,86 +1150,6 @@ func (s *Store) ScanProject(opts ScanOptions) (ScanResult, error) {
 			return result, nil
 		}
 	}
-
-	// ── Phase 4: semantic worker pool ─────────────────────────────────────────
-	if !opts.Semantic || len(semanticPairs) == 0 {
-		return result, nil
-	}
-
-	type pairResult struct {
-		judged  int
-		skipped int
-		errors  int
-	}
-
-	pairCh := make(chan candidatePair, len(semanticPairs))
-	for _, p := range semanticPairs {
-		pairCh <- p
-	}
-	close(pairCh)
-
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-
-	for i := 0; i < concurrency; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-
-			for pair := range pairCh {
-				func() {
-					// Recover from panics in runner.Compare.
-					defer func() {
-						if r := recover(); r != nil {
-							log.Printf("[store] ScanProject: runner.Compare panic pair=(%s,%s): %v",
-								pair.sourceSnippet.SyncID, pair.candidateSnippet.SyncID, r)
-							mu.Lock()
-							result.SemanticErrors++
-							mu.Unlock()
-						}
-					}()
-
-					callCtx, cancel := context.WithTimeout(context.Background(), timeoutPerCall)
-					defer cancel()
-
-					prompt := opts.BuildPrompt(pair.sourceSnippet, pair.candidateSnippet)
-					verdict, err := opts.Runner.Compare(callCtx, prompt)
-					if err != nil {
-						log.Printf("[store] ScanProject: runner.Compare pair=(%s,%s) error: %v",
-							pair.sourceSnippet.SyncID, pair.candidateSnippet.SyncID, err)
-						mu.Lock()
-						result.SemanticErrors++
-						mu.Unlock()
-						return
-					}
-
-					// Persist the verdict, including not_conflict.
-					_, judgeErr := s.JudgeBySemantic(JudgeBySemanticParams{
-						SourceID:   pair.sourceSnippet.SyncID,
-						TargetID:   pair.candidateSnippet.SyncID,
-						Relation:   verdict.Relation,
-						Confidence: verdict.Confidence,
-						Reasoning:  verdict.Reasoning,
-						Model:      verdict.Model,
-					})
-					if judgeErr != nil {
-						log.Printf("[store] ScanProject: JudgeBySemantic pair=(%s,%s) error: %v",
-							pair.sourceSnippet.SyncID, pair.candidateSnippet.SyncID, judgeErr)
-						mu.Lock()
-						result.SemanticErrors++
-						mu.Unlock()
-						return
-					}
-
-					mu.Lock()
-					result.SemanticJudged++
-					mu.Unlock()
-				}()
-			}
-		}()
-	}
-
-	wg.Wait()
 
 	return result, nil
 }

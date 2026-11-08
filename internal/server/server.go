@@ -29,15 +29,6 @@ var loadServerStats = func(s *store.Store) (*store.Stats, error) {
 	return s.Stats()
 }
 
-// SemanticRunnerFactory is a function that resolves a store.SemanticRunner by name.
-// It is injected from cmd/engram/main.go so that internal/server does not depend on
-// internal/llm directly (preserving the import-cycle boundary).
-type SemanticRunnerFactory func(name string) (store.SemanticRunner, error)
-
-// SemanticPromptBuilder constructs the LLM prompt for a given pair of observation
-// snippets. Injected from cmd/engram/main.go alongside SemanticRunnerFactory.
-type SemanticPromptBuilder func(a, b store.ObservationSnippet) string
-
 type Server struct {
 	store   *store.Store
 	mux     *http.ServeMux
@@ -52,13 +43,6 @@ type Server struct {
 	selfUID func() int
 	uidOf   func(*http.Request) (int, error)
 	handler http.Handler
-
-	// runnerFactory resolves a SemanticRunner by CLI name (read from ENGRAM_AGENT_CLI).
-	// When nil, semantic=true requests fail with 500.
-	runnerFactory SemanticRunnerFactory
-	// promptBuilder constructs LLM prompts for semantic scan pairs.
-	// When nil and semantic=true, a no-op builder is used (returns empty string).
-	promptBuilder SemanticPromptBuilder
 }
 
 func New(s *store.Store, port int) *Server {
@@ -79,18 +63,6 @@ func (s *Server) SetVersion(v string) {
 // SetOnWrite configures a callback invoked after every successful local write.
 func (s *Server) SetOnWrite(fn func()) {
 	s.onWrite = fn
-}
-
-// SetRunnerFactory configures the semantic runner factory used by POST /conflicts/scan
-// when semantic=true. When not set, semantic=true requests fail with 500.
-func (s *Server) SetRunnerFactory(fn SemanticRunnerFactory) {
-	s.runnerFactory = fn
-}
-
-// SetPromptBuilder configures the LLM prompt builder for semantic scan pairs.
-// When not set, an empty-string builder is used (valid for tests, not production).
-func (s *Server) SetPromptBuilder(fn SemanticPromptBuilder) {
-	s.promptBuilder = fn
 }
 
 // notifyWrite calls the onWrite callback if configured (best-effort, non-blocking).
@@ -1022,22 +994,16 @@ func (s *Server) handleConflictsStats(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleScanConflicts serves POST /conflicts/scan
-// Body: {"project":"X","since":"...","apply":bool,"max_insert":int,
-//
-//	"semantic":bool,"concurrency":int,"timeout_per_call_seconds":int,"max_semantic":int}
+// Body: {"project":"X","since":"...","apply":bool,"max_insert":int}
+// The semantic scan was removed in 1.24.0; "semantic": true is rejected.
 func (s *Server) handleScanConflicts(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Project   string `json:"project"`
 		Since     string `json:"since"`
 		Apply     bool   `json:"apply"`
 		MaxInsert int    `json:"max_insert"`
-
-		// Phase 4 semantic fields — all optional, defaults match CLI.
-		// Pointer types so absent fields are nil (use default) vs. explicit 0 (invalid).
-		Semantic              bool `json:"semantic"`
-		Concurrency           *int `json:"concurrency"`
-		TimeoutPerCallSeconds *int `json:"timeout_per_call_seconds"`
-		MaxSemantic           *int `json:"max_semantic"`
+		// Semantic is only read to reject it: the scan no longer launches a model.
+		Semantic bool `json:"semantic"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		jsonError(w, http.StatusBadRequest, "invalid json: "+err.Error())
@@ -1048,35 +1014,10 @@ func (s *Server) handleScanConflicts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve semantic params: validate explicit values, apply defaults for absent fields.
-	concurrency := 5
-	timeoutPerCallSeconds := 60
-	maxSemantic := 100
-
 	if body.Semantic {
-		if body.Concurrency != nil {
-			concurrency = *body.Concurrency
-		}
-		if body.TimeoutPerCallSeconds != nil {
-			timeoutPerCallSeconds = *body.TimeoutPerCallSeconds
-		}
-		if body.MaxSemantic != nil {
-			maxSemantic = *body.MaxSemantic
-		}
-
-		// Validate concurrency range [1, 20].
-		if concurrency < 1 || concurrency > 20 {
-			jsonError(w, http.StatusBadRequest,
-				fmt.Sprintf("concurrency must be between 1 and 20; got %d", concurrency))
-			return
-		}
-
-		// Validate timeout range [1, 600].
-		if timeoutPerCallSeconds < 1 || timeoutPerCallSeconds > 600 {
-			jsonError(w, http.StatusBadRequest,
-				fmt.Sprintf("timeout_per_call_seconds must be between 1 and 600; got %d", timeoutPerCallSeconds))
-			return
-		}
+		jsonError(w, http.StatusBadRequest,
+			"the semantic scan was removed in 1.24.0; judge the candidates with mem_judge or POST /conflicts/judge")
+		return
 	}
 
 	opts := store.ScanOptions{
@@ -1093,36 +1034,6 @@ func (s *Server) handleScanConflicts(w http.ResponseWriter, r *http.Request) {
 		opts.Since = t
 	}
 
-	// Wire semantic options when requested.
-	if body.Semantic {
-		if s.runnerFactory == nil {
-			jsonError(w, http.StatusInternalServerError,
-				"ENGRAM_AGENT_CLI not set: server runnerFactory is not configured")
-			return
-		}
-
-		name := os.Getenv("ENGRAM_AGENT_CLI")
-		runner, err := s.runnerFactory(name)
-		if err != nil {
-			jsonError(w, http.StatusInternalServerError,
-				"failed to resolve agent runner: "+err.Error())
-			return
-		}
-
-		promptBuilder := s.promptBuilder
-		if promptBuilder == nil {
-			// Fallback: empty prompt (adequate for tests without LLM).
-			promptBuilder = func(a, b store.ObservationSnippet) string { return "" }
-		}
-
-		opts.Semantic = true
-		opts.Concurrency = concurrency
-		opts.TimeoutPerCall = time.Duration(timeoutPerCallSeconds) * time.Second
-		opts.MaxSemantic = maxSemantic
-		opts.Runner = runner
-		opts.BuildPrompt = promptBuilder
-	}
-
 	result, err := s.store.ScanProject(opts)
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
@@ -1137,10 +1048,6 @@ func (s *Server) handleScanConflicts(w http.ResponseWriter, r *http.Request) {
 		"inserted":         result.RelationsInserted,
 		"capped":           result.Capped,
 		"dry_run":          result.DryRun,
-		// Semantic counters — always present; zero when semantic=false.
-		"semantic_judged":  result.SemanticJudged,
-		"semantic_skipped": result.SemanticSkipped,
-		"semantic_errors":  result.SemanticErrors,
 	}
 	if result.Capped {
 		resp["warning"] = "cap reached: not all candidates were inserted"
