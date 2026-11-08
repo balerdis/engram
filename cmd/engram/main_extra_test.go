@@ -1095,3 +1095,42 @@ func TestCmdMCP(t *testing.T) {
 		assertFatal(t, stderr, recovered, "stdio failed")
 	})
 }
+
+// export/import must treat -h/--help as help and any other dash argument as an
+// unknown flag; neither may create a file or touch the store.
+func TestCmdExportImportHelpAndUnknownFlags(t *testing.T) {
+	workDir := t.TempDir()
+	withCwd(t, workDir)
+	cfg := testConfig(t)
+	stubExitWithPanic(t)
+
+	for _, tc := range []struct {
+		name string
+		run  func()
+	}{
+		{"export", func() { cmdExport(cfg) }},
+		{"import", func() { cmdImport(cfg) }},
+	} {
+		for _, help := range []string{"--help", "-h"} {
+			withArgs(t, "engram", tc.name, help)
+			stdout, stderr, recovered := captureOutputAndRecover(t, tc.run)
+			if recovered != nil || stderr != "" || !strings.Contains(stdout, "usage: engram "+tc.name) {
+				t.Fatalf("%s %s: panic=%v stdout=%q stderr=%q", tc.name, help, recovered, stdout, stderr)
+			}
+		}
+		for _, flag := range []string{"--bogus", "-x"} {
+			withArgs(t, "engram", tc.name, flag)
+			_, stderr, recovered := captureOutputAndRecover(t, tc.run)
+			if _, ok := recovered.(exitCode); !ok || !strings.Contains(stderr, "unknown flag") || !strings.Contains(stderr, flag) {
+				t.Fatalf("%s %s: want usage error, panic=%v stderr=%q", tc.name, flag, recovered, stderr)
+			}
+		}
+	}
+	entries, err := os.ReadDir(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("help/unknown flags created files: %v", entries)
+	}
+}

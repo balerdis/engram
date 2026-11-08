@@ -850,10 +850,40 @@ func cmdStats(cfg store.Config) {
 	fmt.Printf("  Database:     %s/engram.db\n", cfg.DataDir)
 }
 
-func cmdExport(cfg store.Config) {
-	outFile := "engram-export.json"
+const (
+	exportUsage = "usage: engram export [file.json]"
+	importUsage = "usage: engram import <file.json>"
+)
+
+// backupFileArg handles the arguments of export/import before anything is
+// opened or written. -h/--help prints the usage and reports done (exit 0);
+// any other argument starting with "-" is an unknown flag (usage error).
+// Otherwise it returns the first positional argument ("" if none).
+func backupFileArg(usage string) (file string, done bool) {
+	for _, arg := range os.Args[2:] {
+		if arg == "-h" || arg == "--help" {
+			fmt.Println(usage)
+			return "", true
+		}
+		if strings.HasPrefix(arg, "-") {
+			fmt.Fprintf(os.Stderr, "error: unknown flag %q\n%s\n", arg, usage)
+			exitFunc(1)
+			return "", true
+		}
+	}
 	if len(os.Args) > 2 {
-		outFile = os.Args[2]
+		return os.Args[2], false
+	}
+	return "", false
+}
+
+func cmdExport(cfg store.Config) {
+	outFile, done := backupFileArg(exportUsage)
+	if done {
+		return
+	}
+	if outFile == "" {
+		outFile = "engram-export.json"
 	}
 
 	s, err := storeNew(cfg)
@@ -888,12 +918,15 @@ func cmdExport(cfg store.Config) {
 }
 
 func cmdImport(cfg store.Config) {
-	if len(os.Args) < 3 {
-		fmt.Fprintln(os.Stderr, "usage: engram import <file.json>")
-		exitFunc(1)
+	inFile, done := backupFileArg(importUsage)
+	if done {
+		return
 	}
-
-	inFile := os.Args[2]
+	if inFile == "" {
+		fmt.Fprintln(os.Stderr, importUsage)
+		exitFunc(1)
+		return
+	}
 	raw, err := os.ReadFile(inFile)
 	if err != nil {
 		fatal(fmt.Errorf("read %s: %w", inFile, err))
