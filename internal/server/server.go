@@ -585,6 +585,13 @@ func (s *Server) handleAddPrompt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// AddPrompt returns id 0 only when it skipped a synthetic prompt; an
+	// absorbed duplicate returns the id of the row already stored.
+	if id == 0 {
+		jsonResponse(w, http.StatusOK, map[string]any{"id": 0, "status": "skipped"})
+		return
+	}
+
 	s.notifyWrite()
 	jsonResponse(w, http.StatusCreated, map[string]any{"id": id, "status": "saved"})
 }

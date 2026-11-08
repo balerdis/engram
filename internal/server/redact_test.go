@@ -105,3 +105,21 @@ func redactItoa(n int64) string {
 	b, _ := json.Marshal(n)
 	return string(b)
 }
+
+func TestPostPromptReportsSkippedSyntheticPrompt(t *testing.T) {
+	st := newServerTestStore(t)
+	h := New(st, 0).Handler()
+	redactPostJSON(t, h, "/sessions", map[string]any{"id": "s1", "project": "p"})
+
+	rec := redactPostJSON(t, h, "/prompts", map[string]any{"session_id": "s1", "project": "p", "content": "<task-notification>done</task-notification>"})
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"status":"skipped"`) {
+		t.Fatalf("synthetic prompt: want 200 skipped, got %d %s", rec.Code, rec.Body.String())
+	}
+	// A duplicate inside the dedupe window still reports the stored id as saved.
+	body := map[string]any{"session_id": "s1", "project": "p", "content": "real prompt"}
+	first := redactPostJSON(t, h, "/prompts", body)
+	second := redactPostJSON(t, h, "/prompts", body)
+	if first.Code != http.StatusCreated || second.Code != http.StatusCreated || first.Body.String() != second.Body.String() || strings.Contains(second.Body.String(), `"id":0`) {
+		t.Fatalf("duplicate: %d %s / %d %s", first.Code, first.Body.String(), second.Code, second.Body.String())
+	}
+}

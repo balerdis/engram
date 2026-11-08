@@ -326,7 +326,7 @@ func cmdConflictsScan(cfg store.Config) {
 				}
 				i++
 			}
-		case "--semantic", "--concurrency", "--timeout-per-call", "--max-semantic":
+		case "--semantic", "--concurrency", "--timeout-per-call", "--max-semantic", "--yes":
 			fmt.Fprintf(os.Stderr, "error: %s was removed in 1.24.0: the semantic scan no longer launches a model; judge the candidates with mem_judge\n", args[i])
 			exitFunc(1)
 			return

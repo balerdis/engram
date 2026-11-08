@@ -1763,13 +1763,20 @@ func handleSavePrompt(s *store.Store, cfg MCPConfig, activity *SessionActivity) 
 		// Ensure the implicit MCP session exists with the current working directory.
 		_ = ensureImplicitSessionWithCWD(s, sessionID, project)
 
-		_, err = s.AddPrompt(store.AddPromptParams{
+		promptID, err := s.AddPrompt(store.AddPromptParams{
 			SessionID: sessionID,
 			Content:   content,
 			Project:   project,
 		})
 		if err != nil {
 			return mcp.NewToolResultError("Failed to save prompt: " + err.Error()), nil
+		}
+
+		// id 0 means the store skipped a synthetic prompt (a client-generated
+		// message, not the person's). Do not report it as saved or record it.
+		if promptID == 0 {
+			detRes.Project = project
+			return respondWithProject(detRes, "Prompt not saved: the text is a client-generated message, not something the person wrote.", nil), nil
 		}
 
 		if activity != nil {

@@ -7682,3 +7682,27 @@ func TestGetObservationIncludeHistory(t *testing.T) {
 		t.Fatalf("current content missing: %q", withHistory)
 	}
 }
+
+func TestHandleSavePromptSkipsSyntheticPrompt(t *testing.T) {
+	s := newMCPTestStore(t)
+	activity := NewSessionActivity(10 * time.Minute)
+	h := handleSavePrompt(s, MCPConfig{}, activity)
+
+	res, err := h(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
+		"content": "<task-notification>done</task-notification>",
+		"project": "engram",
+	}}})
+	if err != nil || res.IsError {
+		t.Fatalf("unexpected result: err=%v", err)
+	}
+	text := callResultText(t, res)
+	if strings.Contains(text, "Prompt saved") || !strings.Contains(text, "not saved") {
+		t.Fatalf("a skipped prompt must not be reported as saved: %s", text)
+	}
+	if _, ok := activity.CurrentPrompt(defaultSessionID("engram"), "engram"); ok {
+		t.Fatal("a skipped prompt must not be recorded as activity")
+	}
+	if prompts, _ := s.RecentPrompts("engram", 5); len(prompts) != 0 {
+		t.Fatalf("synthetic prompt stored: %d", len(prompts))
+	}
+}

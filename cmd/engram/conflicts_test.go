@@ -429,7 +429,7 @@ func TestG1_ConflictsScan_CapWarning(t *testing.T) {
 // TestCmdConflictsScan_RemovedSemanticFlags verifies that the removed flags fail
 // loudly instead of running a plain scan.
 func TestCmdConflictsScan_RemovedSemanticFlags(t *testing.T) {
-	for _, flag := range []string{"--semantic", "--concurrency", "--timeout-per-call", "--max-semantic"} {
+	for _, flag := range []string{"--semantic", "--concurrency", "--timeout-per-call", "--max-semantic", "--yes"} {
 		cfg := testConfig(t)
 		withArgs(t, "engram", "conflicts", "scan", "--project", "noproj", flag)
 		stubExitWithPanic(t)
