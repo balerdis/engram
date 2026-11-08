@@ -137,7 +137,9 @@ type ScanResult struct {
 
 	// Semantic counters — populated only when ScanOptions.Semantic is true.
 	// Zero-value is safe for existing JSON consumers.
-	SemanticJudged  int `json:"semantic_judged"`
+	SemanticJudged int `json:"semantic_judged"`
+	// SemanticSkipped is always 0: not_conflict verdicts are now persisted and
+	// counted in SemanticJudged. Kept so the JSON shape does not change.
 	SemanticSkipped int `json:"semantic_skipped"`
 	SemanticErrors  int `json:"semantic_errors"`
 }
@@ -189,7 +191,7 @@ type JudgeBySemanticParams struct {
 	// TargetID is the TEXT sync_id of the target observation (required).
 	TargetID string
 	// Relation is the verdict verb (required); must be in validRelationVerbs.
-	// Passing "not_conflict" is a no-op: no row is inserted and no error is returned.
+	// "not_conflict" is persisted like any other verdict so the pair is not proposed again.
 	Relation string
 	// Confidence is the LLM's self-reported confidence score [0.0, 1.0].
 	Confidence float64
@@ -420,18 +422,31 @@ func (s *Store) FindCandidates(savedID int64, opts CandidateOptions) ([]Candidat
 		return nil, fmt.Errorf("FindCandidates: get source sync_id: %w", err)
 	}
 
-	// Insert a pending relation row for each candidate.
+	// Insert a pending relation row for each candidate whose pair has no live
+	// relation yet (pending or judged, either direction). Without this, every
+	// re-save (e.g. a topic_key upsert that reuses the observation id) would
+	// propose again the pairs the agent already judged. The NOT EXISTS makes
+	// check and insert one statement.
 	candidates := make([]Candidate, 0, len(raw))
 	for _, rc := range raw {
 		judgmentID := newSyncID("rel")
-		_, err := s.db.Exec(`
+		res, err := s.db.Exec(`
 			INSERT INTO memory_relations
 				(sync_id, source_id, target_id, relation, judgment_status, created_at, updated_at)
-			VALUES (?, ?, ?, 'pending', 'pending', datetime('now'), datetime('now'))
-		`, judgmentID, sourceSyncID, rc.syncID)
+			SELECT ?, ?, ?, 'pending', 'pending', datetime('now'), datetime('now')
+			WHERE NOT EXISTS (
+				SELECT 1 FROM memory_relations
+				WHERE ((source_id = ? AND target_id = ?) OR (source_id = ? AND target_id = ?))
+				  AND judgment_status != 'orphaned'
+			)
+		`, judgmentID, sourceSyncID, rc.syncID,
+			sourceSyncID, rc.syncID, rc.syncID, sourceSyncID)
 		if err != nil {
 			// Log and skip — don't fail the whole detection.
 			continue
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			continue // pair already has a live relation
 		}
 		candidates = append(candidates, Candidate{
 			ID:         rc.id,
@@ -445,6 +460,18 @@ func (s *Store) FindCandidates(savedID int64, opts CandidateOptions) ([]Candidat
 	}
 
 	return candidates, nil
+}
+
+// relationJudged reports whether the pair has a row (either direction) that is
+// already judged or ignored, i.e. a verdict exists for it.
+func (s *Store) relationJudged(a, b string) bool {
+	var one int
+	err := s.db.QueryRow(`
+		SELECT 1 FROM memory_relations
+		WHERE ((source_id = ? AND target_id = ?) OR (source_id = ? AND target_id = ?))
+		  AND judgment_status IN ('judged', 'ignored')
+		LIMIT 1`, a, b, b, a).Scan(&one)
+	return err == nil
 }
 
 // ─── SaveRelation ─────────────────────────────────────────────────────────────
@@ -645,8 +672,8 @@ func validateCrossProjectGuard(tx *sql.Tx, sourceID, targetID string) error {
 // the memory_relations table with system provenance (marked_by_kind="system",
 // marked_by_actor="engram", marked_by_model=params.Model).
 //
-// When params.Relation is "not_conflict" the call is a no-op: no row is inserted
-// and an empty sync_id is returned without error.
+// A "not_conflict" verdict is persisted like any other: the row records that the
+// pair was evaluated, so FindCandidates does not propose it again.
 //
 // Idempotency: if a row already exists for (source_id, target_id) in either
 // direction, the existing row is updated (UPSERT). The returned sync_id is
@@ -668,11 +695,6 @@ func (s *Store) JudgeBySemantic(p JudgeBySemanticParams) (string, error) {
 	}
 	if p.Confidence < 0.0 || p.Confidence > 1.0 {
 		return "", fmt.Errorf("JudgeBySemantic: confidence %v is out of range [0.0, 1.0]", p.Confidence)
-	}
-
-	// not_conflict is a no-op.
-	if p.Relation == RelationNotConflict {
-		return "", nil
 	}
 
 	var resultSyncID string
@@ -894,7 +916,8 @@ func sanitizeFTSCandidates(title string) string {
 	for _, w := range words {
 		w = strings.Trim(w, `"`)
 		if w != "" {
-			quoted = append(quoted, `"`+w+`"`)
+			// FTS5 string literals escape an inner double quote by doubling it.
+			quoted = append(quoted, `"`+strings.ReplaceAll(w, `"`, `""`)+`"`)
 		}
 	}
 	return strings.Join(quoted, " OR ")
@@ -1077,7 +1100,7 @@ func (s *Store) GetRelationStats(project string) (RelationStats, error) {
 //
 // Phase 4 extension: when ScanOptions.Semantic is true, after the FTS5 candidate
 // collection a bounded worker pool calls Runner.Compare on each pair and persists
-// non-"not_conflict" verdicts via JudgeBySemantic. Semantic=false (zero value)
+// verdicts (including not_conflict) via JudgeBySemantic. Semantic=false (zero value)
 // preserves Phase 3 behaviour exactly.
 //
 // Returns a ScanResult with counts of inspected observations, candidates found,
@@ -1193,6 +1216,12 @@ func (s *Store) ScanProject(opts ScanOptions) (ScanResult, error) {
 			}
 
 			for _, c := range candidates {
+				// Skip pairs already judged (any verdict, either direction): they
+				// would only waste a model call. Pending rows are still sent.
+				if s.relationJudged(obs.syncID, c.SyncID) {
+					result.AlreadyRelated++
+					continue
+				}
 				if len(semanticPairs) >= maxSemantic {
 					// Cap reached — stop adding pairs.
 					result.Capped = true
@@ -1317,14 +1346,7 @@ func (s *Store) ScanProject(opts ScanOptions) (ScanResult, error) {
 						return
 					}
 
-					if verdict.Relation == RelationNotConflict {
-						mu.Lock()
-						result.SemanticSkipped++
-						mu.Unlock()
-						return
-					}
-
-					// Persist non-not_conflict verdict.
+					// Persist the verdict, including not_conflict.
 					_, judgeErr := s.JudgeBySemantic(JudgeBySemanticParams{
 						SourceID:   pair.sourceSnippet.SyncID,
 						TargetID:   pair.candidateSnippet.SyncID,

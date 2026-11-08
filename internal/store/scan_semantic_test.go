@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -13,9 +14,11 @@ import (
 // verdictRunner returns a fixed SemanticVerdict for every Compare call.
 type verdictRunner struct {
 	verdict SemanticVerdict
+	calls   atomic.Int32
 }
 
 func (r *verdictRunner) Compare(_ context.Context, _ string) (SemanticVerdict, error) {
+	r.calls.Add(1)
 	return r.verdict, nil
 }
 
@@ -146,9 +149,9 @@ func TestScanProject_Semantic_HappyPath(t *testing.T) {
 
 // ─── C.5b — TestScanProject_Semantic_NotConflictSkipped ──────────────────────
 
-// TestScanProject_Semantic_NotConflictSkipped verifies that verdicts of
-// "not_conflict" are counted in SemanticSkipped and do NOT produce relation rows.
-func TestScanProject_Semantic_NotConflictSkipped(t *testing.T) {
+// TestScanProject_Semantic_NotConflictPersisted verifies that "not_conflict"
+// verdicts are persisted as judged rows and counted in SemanticJudged.
+func TestScanProject_Semantic_NotConflictPersisted(t *testing.T) {
 	s := newTestStore(t)
 	seedSimilarPair(t, s, "sem-skip-project")
 
@@ -175,19 +178,30 @@ func TestScanProject_Semantic_NotConflictSkipped(t *testing.T) {
 		t.Fatalf("ScanProject: %v", err)
 	}
 
-	if result.SemanticSkipped == 0 {
-		t.Errorf("SemanticSkipped: want > 0; got 0 (CandidatesFound=%d)", result.CandidatesFound)
-	}
-	if result.SemanticJudged != 0 {
-		t.Errorf("SemanticJudged: want 0; got %d", result.SemanticJudged)
+	if result.SemanticJudged == 0 {
+		t.Errorf("SemanticJudged: want > 0; got 0 (CandidatesFound=%d)", result.CandidatesFound)
 	}
 
 	var count int
-	_ = s.db.QueryRow(
-		`SELECT count(*) FROM memory_relations WHERE marked_by_actor = 'engram'`,
-	).Scan(&count)
-	if count != 0 {
-		t.Errorf("expected no 'engram' relation rows for not_conflict; got %d", count)
+	if err := s.db.QueryRow(
+		`SELECT count(*) FROM memory_relations WHERE relation = 'not_conflict' AND judgment_status = 'judged'`,
+	).Scan(&count); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected exactly 1 judged not_conflict row for the pair; got %d", count)
+	}
+
+	// A second scan must not send the already-judged pair to the runner again.
+	runner.calls.Store(0)
+	if _, err := s.ScanProject(ScanOptions{
+		Project: "sem-skip-project", Apply: true, Semantic: true, Concurrency: 1,
+		TimeoutPerCall: 5 * time.Second, MaxSemantic: 10, Runner: runner, BuildPrompt: identityPromptBuilder,
+	}); err != nil {
+		t.Fatalf("second ScanProject: %v", err)
+	}
+	if n := runner.calls.Load(); n != 0 {
+		t.Errorf("second scan re-compared a judged pair %d times", n)
 	}
 }
 
