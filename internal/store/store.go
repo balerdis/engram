@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	projectpkg "github.com/Gentleman-Programming/engram/internal/project"
@@ -766,6 +767,23 @@ func (s *Store) migrate() error {
 		return err
 	}
 
+	// Replaced titles and contents of observations (topic_key upserts and
+	// edits). Additive; the cascade removes the history with its observation.
+	if _, err := s.execHook(s.db, `
+		CREATE TABLE IF NOT EXISTS observation_versions (
+			id             INTEGER PRIMARY KEY AUTOINCREMENT,
+			observation_id INTEGER NOT NULL REFERENCES observations(id) ON DELETE CASCADE,
+			title          TEXT    NOT NULL,
+			content        TEXT    NOT NULL,
+			type           TEXT    NOT NULL,
+			topic_key      TEXT,
+			replaced_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+		);
+		CREATE INDEX IF NOT EXISTS idx_obs_versions_obs ON observation_versions(observation_id, id);
+	`); err != nil {
+		return err
+	}
+
 	// Project-scoped sync: add project column to sync_mutations and enrollment table.
 	if err := s.addColumnIfNotExists("sync_mutations", "project", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
@@ -1319,6 +1337,9 @@ func (s *Store) AddObservation(p AddObservationParams) (int64, error) {
 				topicKey, nullableString(p.Project), scope,
 			).Scan(&existingID)
 			if err == nil {
+				if err := s.saveObservationVersionTx(tx, existingID, title, content); err != nil {
+					return err
+				}
 				if _, err := s.execHook(tx,
 					`UPDATE observations
 					 SET type = ?,
@@ -1583,6 +1604,13 @@ func (s *Store) AddPrompt(p AddPromptParams) (int64, error) {
 
 	content := s.preparePromptContent(p.Content)
 
+	// Text the person did not write (a task notification, a subagent report) is
+	// not a prompt. It returns like an absorbed duplicate: no error and no new
+	// row (id 0), so a hook does not fail.
+	if isSyntheticPrompt(p.Content) {
+		return 0, nil
+	}
+
 	var promptID int64
 	err := s.withTx(func(tx *sql.Tx) error {
 		// Two clients can capture the same prompt; the latest prompt of the session,
@@ -1625,6 +1653,21 @@ func (s *Store) AddPrompt(p AddPromptParams) (int64, error) {
 		return 0, err
 	}
 	return promptID, nil
+}
+
+// syntheticPromptPrefixes are the fixed protocol markers of the messages Claude
+// Code sends to the prompt hook that the person did not type. Only the observed
+// ones are listed.
+var syntheticPromptPrefixes = []string{"<task-notification>", "<agent-message"}
+
+func isSyntheticPrompt(content string) bool {
+	trimmed := strings.TrimLeftFunc(content, unicode.IsSpace)
+	for _, prefix := range syntheticPromptPrefixes {
+		if strings.HasPrefix(trimmed, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Store) AddPromptIfMissing(p AddPromptParams) (int64, bool, error) {
@@ -1895,6 +1938,10 @@ func (s *Store) UpdateObservation(id int64, p UpdateObservationParams) (*Observa
 			topicKey = normalizeTopicKey(sanitizeStored(*p.TopicKey, 0))
 		}
 
+		if err := s.saveObservationVersionTx(tx, id, title, content); err != nil {
+			return err
+		}
+
 		if _, err := s.execHook(tx,
 			`UPDATE observations
 			 SET type = ?,
@@ -1929,6 +1976,92 @@ func (s *Store) UpdateObservation(id int64, p UpdateObservationParams) (*Observa
 		return nil, err
 	}
 	return updated, nil
+}
+
+// maxObservationVersions bounds the history kept per observation.
+const maxObservationVersions = 20
+
+// ObservationVersion is a title and content an observation had before an
+// upsert or an edit replaced them.
+type ObservationVersion struct {
+	ID            int64   `json:"id"`
+	ObservationID int64   `json:"observation_id"`
+	Title         string  `json:"title"`
+	Content       string  `json:"content"`
+	Type          string  `json:"type"`
+	TopicKey      *string `json:"topic_key,omitempty"`
+	ReplacedAt    string  `json:"replaced_at"`
+}
+
+// saveObservationVersionTx stores the current title, content, type and topic_key
+// of the observation as a version, only when the new title or content differ,
+// and keeps the newest maxObservationVersions. The rows it stores come from the
+// observation, which is already redacted; a rewrite by `redact --scan` goes
+// through its own UPDATE, never through here, so it saves nothing.
+func (s *Store) saveObservationVersionTx(tx *sql.Tx, id int64, newTitle, newContent string) error {
+	var title, content, typ string
+	var topicKey sql.NullString
+	err := tx.QueryRow(`SELECT title, content, type, topic_key FROM observations WHERE id = ?`, id).Scan(&title, &content, &typ, &topicKey)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if title == newTitle && content == newContent {
+		return nil
+	}
+	if _, err := s.execHook(tx,
+		`INSERT INTO observation_versions (observation_id, title, content, type, topic_key) VALUES (?, ?, ?, ?, ?)`,
+		id, title, content, typ, topicKey,
+	); err != nil {
+		return fmt.Errorf("save observation version: %w", err)
+	}
+	if _, err := s.execHook(tx,
+		`DELETE FROM observation_versions
+		 WHERE observation_id = ?
+		   AND id NOT IN (SELECT id FROM observation_versions WHERE observation_id = ? ORDER BY id DESC LIMIT ?)`,
+		id, id, maxObservationVersions,
+	); err != nil {
+		return fmt.Errorf("prune observation versions: %w", err)
+	}
+	return nil
+}
+
+// ObservationVersions returns the versions an observation had before it was
+// replaced, newest first, with the total count. limit <= 0 means no limit.
+func (s *Store) ObservationVersions(observationID int64, limit, offset int) ([]ObservationVersion, int, error) {
+	var total int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM observation_versions WHERE observation_id = ?`, observationID).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	if limit <= 0 {
+		limit = -1
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	rows, err := s.queryItHook(s.db,
+		`SELECT id, observation_id, title, content, type, topic_key, replaced_at
+		 FROM observation_versions WHERE observation_id = ? ORDER BY id DESC LIMIT ? OFFSET ?`,
+		observationID, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	versions := []ObservationVersion{}
+	for rows.Next() {
+		var v ObservationVersion
+		var tk sql.NullString
+		if err := rows.Scan(&v.ID, &v.ObservationID, &v.Title, &v.Content, &v.Type, &tk, &v.ReplacedAt); err != nil {
+			return nil, 0, err
+		}
+		if tk.Valid {
+			v.TopicKey = &tk.String
+		}
+		versions = append(versions, v)
+	}
+	return versions, total, rows.Err()
 }
 
 func (s *Store) DeleteObservation(id int64, hardDelete bool) error {
@@ -2596,15 +2729,23 @@ func (s *Store) Import(data *ExportData) (*ImportResult, error) {
 	for _, p := range data.Prompts {
 		p.Project, _ = NormalizeProject(p.Project)
 		p.Content = s.preparePromptContent(p.Content)
-		_, err := s.execHook(tx,
+		// Idempotent by sync_id, like observations. A dump without sync_ids gets a
+		// key derived from the prompt itself, so importing it again finds it.
+		syncID := strings.TrimSpace(p.SyncID)
+		if syncID == "" {
+			syncID = stablePromptSyncID(p)
+		}
+		res, err := s.execHook(tx,
 			`INSERT INTO user_prompts (sync_id, session_id, content, project, created_at)
-			 VALUES (?, ?, ?, ?, ?)`,
-			normalizeExistingSyncID(p.SyncID, "prompt"), p.SessionID, p.Content, p.Project, p.CreatedAt,
+			 SELECT ?, ?, ?, ?, ?
+			 WHERE NOT EXISTS (SELECT 1 FROM user_prompts WHERE sync_id = ?)`,
+			syncID, p.SessionID, p.Content, p.Project, p.CreatedAt, syncID,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("import prompt %d: %w", p.ID, err)
 		}
-		result.PromptsImported++
+		n, _ := res.RowsAffected()
+		result.PromptsImported += int(n)
 	}
 
 	if err := s.commitHook(tx); err != nil {
@@ -3173,7 +3314,11 @@ func (s *Store) PruneProject(project string) (*PruneResult, error) {
 		}
 		result.PromptsDeleted, _ = res.RowsAffected()
 
-		res, err = s.execHook(tx, `DELETE FROM sessions WHERE project = ?`, project)
+		// Soft-deleted observations still point at their session (foreign key), and
+		// prune never hard-deletes observations, so those sessions stay.
+		res, err = s.execHook(tx,
+			`DELETE FROM sessions WHERE project = ?
+			   AND NOT EXISTS (SELECT 1 FROM observations o WHERE o.session_id = sessions.id)`, project)
 		if err != nil {
 			return fmt.Errorf("prune sessions: %w", err)
 		}
@@ -4317,6 +4462,14 @@ func newSyncID(prefix string) string {
 		return fmt.Sprintf("%s-%d", prefix, time.Now().UTC().UnixNano())
 	}
 	return prefix + "-" + hex.EncodeToString(b)
+}
+
+// stablePromptSyncID derives the sync_id of a prompt that came without one from
+// its session, project, creation time and content, so the same dump imported
+// twice maps each prompt to the same key instead of a random one.
+func stablePromptSyncID(p Prompt) string {
+	sum := sha256.Sum256([]byte(strings.Join([]string{p.SessionID, p.Project, p.CreatedAt, p.Content}, "\x00")))
+	return "prompt-" + hex.EncodeToString(sum[:16])
 }
 
 func normalizeExistingSyncID(existing, prefix string) string {
