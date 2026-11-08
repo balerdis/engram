@@ -536,8 +536,9 @@ func (s *Store) commitHook(tx *sql.Tx) error {
 // a cold start waits for another process that is writing instead of failing.
 //
 // _txlock=immediate makes every Begin() a BEGIN IMMEDIATE. That is safe here
-// because the store only calls Begin() from withTx, which wraps writes (all
-// reads use db.Query directly, outside a transaction). A deferred transaction
+// because Begin() is only called from withTx (writes) and from the purge plans
+// (PurgePlan, SyncLeftoversPlan), whose read-only transaction now takes the
+// write lock briefly; other reads use db.Query outside a transaction. A deferred transaction
 // that reads and then writes can fail with SQLITE_BUSY_SNAPSHOT, which skips
 // busy_timeout; IMMEDIATE takes the write lock up front so busy_timeout queues
 // the writers across processes.
@@ -3815,6 +3816,12 @@ func (s *Store) applyObservationUpsertTx(tx *sql.Tx, payload syncObservationPayl
 	}
 	if strings.TrimSpace(payload.UpdatedAt) == "" {
 		updatedAt = existing.UpdatedAt
+	}
+
+	// An import that overwrites title or content keeps the previous state as a
+	// version, like every other path that replaces them.
+	if err := s.saveObservationVersionTx(tx, existing.ID, payload.Title, payload.Content); err != nil {
+		return err
 	}
 
 	_, err = s.execHook(tx,

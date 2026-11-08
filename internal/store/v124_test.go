@@ -1,6 +1,8 @@
 package store
 
 import (
+	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -202,5 +204,30 @@ func TestRedactScanRetapsVersionsAndSavesNoneItself(t *testing.T) {
 	}
 	if after := purgeCount(t, s, `SELECT COUNT(*) FROM observation_versions`); after != before {
 		t.Fatalf("the redaction rewrite saved a version: %d -> %d", before, after)
+	}
+}
+
+func TestSyncImportKeepsObservationVersion(t *testing.T) {
+	s := v124Store(t)
+	id := v124Obs(t, s, "title", "local content", "topic/x")
+	obs, err := s.GetObservation(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proj := "p"
+	push := func(title, content string) {
+		raw, err := json.Marshal(syncObservationPayload{SyncID: obs.SyncID, SessionID: "s1", Type: "decision", Title: title, Content: content, Project: &proj, Scope: "project"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := SyncMutation{Entity: SyncEntityObservation, EntityKey: obs.SyncID, Op: SyncOpUpsert, Payload: string(raw), Source: SyncSourceRemote, Project: proj}
+		if err := s.withTx(func(tx *sql.Tx) error { return s.applyPulledMutationTx(tx, m) }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	push("title", "imported content")
+	push("title", "imported content") // unchanged: no version
+	if got := versionContents(t, s, id); strings.Join(got, ",") != "local content" {
+		t.Fatalf("want the overwritten content kept as a version, got %v", got)
 	}
 }
