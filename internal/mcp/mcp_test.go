@@ -7645,3 +7645,40 @@ func TestMemPurgePreviewClosingLineEdgeCases(t *testing.T) {
 		}
 	}
 }
+
+func TestGetObservationIncludeHistory(t *testing.T) {
+	s := newMCPTestStore(t)
+	if err := s.CreateSession("s-hist", "engram", "/tmp/engram"); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	save := func(content string) int64 {
+		id, err := s.AddObservation(store.AddObservationParams{SessionID: "s-hist", Type: "decision", Title: "Auth model", Content: content, Project: "engram", Scope: "project", TopicKey: "decision/auth"})
+		if err != nil {
+			t.Fatalf("add observation: %v", err)
+		}
+		return id
+	}
+	id := save("first version body")
+	save("second version body")
+
+	get := func(args map[string]any) string {
+		args["id"] = float64(id)
+		res, err := handleGetObservation(s, MCPConfig{})(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: args}})
+		if err != nil || res.IsError {
+			t.Fatalf("get observation: %v %v", err, res)
+		}
+		return callResultText(t, res)
+	}
+
+	plain := get(map[string]any{})
+	if strings.Contains(plain, "first version body") || strings.Contains(plain, "Earlier versions") {
+		t.Fatalf("history leaked without the flag: %q", plain)
+	}
+	withHistory := get(map[string]any{"include_history": true})
+	if !strings.Contains(withHistory, "first version body") || !strings.Contains(withHistory, "1 of 1 versions shown") {
+		t.Fatalf("history missing: %q", withHistory)
+	}
+	if !strings.Contains(withHistory, "second version body") {
+		t.Fatalf("current content missing: %q", withHistory)
+	}
+}
