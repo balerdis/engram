@@ -255,9 +255,7 @@ The `engram conflicts <sub-command>` command provides read and scan access to th
 
 When `--project` is omitted, the command falls back to the cwd-detected project (same resolution as all other `engram` commands).
 
-`engram conflicts scan` also supports `--semantic` for LLM-judge semantic detection beyond FTS5 lexical candidates. This catches vocabulary-different concepts that share no keywords (e.g., "Hexagonal Architecture" vs "Ports and Adapters"). Set `ENGRAM_AGENT_CLI=claude` or `ENGRAM_AGENT_CLI=opencode` before running. Additional flags: `--concurrency N` (default 5), `--timeout-per-call N` seconds (default 60), `--max-semantic N` (default 100), `--yes` (skip confirmation).
-
-> **Subscription note**: `--semantic` uses your existing agent CLI quota (Claude Pro/Max, OpenCode subscription). Engram itself adds no extra cost — you pay only what your LLM provider charges for the prompts.
+`engram conflicts scan` finds lexical (FTS5) candidates only; engram does not launch a model to judge them. The agent judges them with `mem_judge`. The `--semantic` flags and `ENGRAM_AGENT_CLI` were removed in 1.24.0.
 
 For the full HTTP API reference and CLI flag details, see [DOCS.md](../DOCS.md).
 

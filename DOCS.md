@@ -44,6 +44,7 @@ For other docs:
 - **sessions** — `id` (TEXT PK), `project`, `directory`, `started_at`, `ended_at`, `summary`, `status`
 - **observations** — `id` (INTEGER PK AUTOINCREMENT), `session_id` (FK), `type`, `title`, `content`, `tool_name`, `project`, `scope`, `topic_key`, `normalized_hash`, `revision_count`, `duplicate_count`, `last_seen_at`, `created_at`, `updated_at`, `deleted_at`
 - **observations_fts** — FTS5 virtual table synced via triggers (`title`, `content`, `tool_name`, `type`, `project`)
+- **observation_versions** — `id`, `observation_id` (FK to `observations`, `ON DELETE CASCADE`), `title`, `content`, `type`, `topic_key`, `replaced_at`; the previous state of an observation, saved when a `topic_key` upsert or `mem_update` changes its title or content (at most 20 per observation, newest kept). Read with `mem_get_observation` and `include_history`. It does not travel in sync chunks, `redact --scan` covers it, and `engram purge` removes it through the cascade.
 - **user_prompts** — `id` (INTEGER PK AUTOINCREMENT), `session_id` (FK), `content`, `project`, `created_at`
 - **prompts_fts** — FTS5 virtual table synced via triggers (`content`, `project`)
 - **Legacy sync tables** — `sync_mutations`, `sync_state`, `sync_enrolled_projects`, `cloud_upgrade_state` and `sync_apply_deferred` are still created so older binaries can open the same database. Nothing writes to `sync_mutations`, `sync_enrolled_projects` or `cloud_upgrade_state` any more; `sync_state` keeps only the `local` row that chunk import advances, and `sync_apply_deferred` only holds rows left by earlier versions. Nothing retries them any more; the only reader is `engram conflicts stats` (and `GET /conflicts/stats`), which counts the deferred and dead rows (`CountDeferredAndDead`). `engram purge --sync-leftovers` (dry-run by default; `--yes` backs up first, `--vacuum` also shrinks the file) deletes the rows of `sync_mutations`, `sync_apply_deferred`, `sync_enrolled_projects` and `cloud_upgrade_state`, and the `sync_state` rows other than `local` and `cloud`.
@@ -53,10 +54,9 @@ For other docs:
 
 ### SQLite Configuration
 
-- WAL mode for concurrent reads
-- Busy timeout 5000ms
-- Synchronous NORMAL
-- Foreign keys ON
+- Set as `_pragma` parameters of the DSN, so every pooled connection has them: busy timeout 5000ms, WAL mode, synchronous NORMAL, foreign keys ON
+- `_txlock=immediate`: write transactions take the write lock when they begin; reads use no transaction
+- Driver `modernc.org/sqlite` 1.59.0 (SQLite 3.51.3 or newer, which fixes the WAL-reset bug)
 
 ---
 
@@ -130,7 +130,7 @@ Engram serves one runtime: `engram serve` (JSON on `127.0.0.1:7437`). Local SQLi
 - `GET /export` — Export all data as JSON
   - Optional `?project=<name>` for project-scoped export
   - `400` when `project` is provided but blank/whitespace
-- `POST /import` — Import data from JSON. Body: ExportData JSON
+- `POST /import` — Import data from JSON. Body: ExportData JSON. Importing the same dump twice does not duplicate prompts: they go in by `sync_id`, and a prompt without one gets a stable id derived from session, project, date and content
 
 ### Stats / Diagnostics
 
@@ -279,23 +279,14 @@ Request body:
 {
   "project": "my-project",
   "apply": false,
-  "max_insert": 100,
-  "semantic": false,
-  "concurrency": 5,
-  "timeout_per_call_seconds": 60,
-  "max_semantic": 100
+  "max_insert": 100
 }
 ```
 
-- `apply: false` (default) — dry-run for the non-semantic lexical scan; reports candidates without inserting pending rows
-- `apply: true` — non-semantic lexical scan inserts new pending relation rows up to `max_insert` cap (default 100)
-- `semantic: true` — after FTS5 lexical scan, run LLM-judge semantic detection on the candidate pairs returned by `FindCandidates`. It does not discover totally lexically unrelated pairs on its own. Requires `ENGRAM_AGENT_CLI` to be set on the server to `claude` or `opencode`.
-- Semantic scans can persist non-`not_conflict` judged relations through `JudgeBySemantic` even when `apply: false`; `not_conflict` verdicts are not inserted.
-- `concurrency` — worker pool size for parallel LLM calls when `semantic: true` (default 5, range 1–20)
-- `timeout_per_call_seconds` — per-LLM-call timeout in seconds when `semantic: true` (default 60, range 1–600)
-- `max_semantic` — hard cap on LLM calls per scan (default 100); scan stops collecting new pairs once reached
+- `apply: false` (default) — dry-run; reports candidates without inserting pending rows
+- `apply: true` — inserts new pending relation rows up to `max_insert` cap (default 100)
+- There is no semantic scan: it was removed in 1.24.0 because it launched a model CLI. A body with `"semantic": true` returns `400` ("the semantic scan was removed in 1.24.0"). Judge the candidates with `mem_judge`, `mem_compare` or `POST /conflicts/judge` / `POST /conflicts/compare`.
 - Missing `project` field returns `400`
-- With `semantic: true`, `concurrency` outside [1, 20] or `timeout_per_call_seconds` outside [1, 600] returns `400`
 
 Response:
 
@@ -307,16 +298,11 @@ Response:
   "already_related": 2,
   "inserted": 0,
   "capped": false,
-  "dry_run": true,
-  "semantic_judged": 0,
-  "semantic_skipped": 0,
-  "semantic_errors": 0
+  "dry_run": true
 }
 ```
 
-`semantic_judged`, `semantic_skipped`, and `semantic_errors` are always present (zero when `semantic: false`).
-
-When any scan cap is reached, including `max_insert` for lexical apply scans or `max_semantic` for semantic scans, a `warning` field is included:
+When the `max_insert` cap is reached, a `warning` field is included:
 
 ```json
 {
@@ -327,9 +313,6 @@ When any scan cap is reached, including `max_insert` for lexical apply scans or 
   "inserted": 50,
   "capped": true,
   "dry_run": false,
-  "semantic_judged": 0,
-  "semantic_skipped": 0,
-  "semantic_errors": 0,
   "warning": "cap reached: not all candidates were inserted"
 }
 ```
@@ -345,7 +328,6 @@ When any scan cap is reached, including `max_insert` for lexical apply scans or 
 | `ENGRAM_PROJECT`                | Process-level default project override. For `engram mcp`: sets `MCPConfig.DefaultProject`, which takes precedence over cwd detection for all read and write tools for the lifetime of that MCP process. When unset, cwd detection is used as the fallback. | cwd-detected project |
 | `ENGRAM_HTTP_TOKEN`             | Optional Bearer auth for the local HTTP server. When set, the following routes require `Authorization: Bearer <token>`: `DELETE /sessions/{id}`, `DELETE /observations/{id}`, `DELETE /prompts/{id}`, `GET /export`, `POST /import`, `POST /projects/migrate`. Comparison is constant-time. Token is read at request time (no restart needed). When unset, all routes are open (zero-config default). | (unset — open) |
 | `ENGRAM_TIMEZONE`               | Timezone for timestamp display in the TUI. Accepts any IANA zone name (e.g. `America/New_York`, `Europe/Berlin`). Falls back to system local time when unset or invalid.                                                               | system local         |
-| `ENGRAM_AGENT_CLI`              | LLM runner name used by `engram conflicts scan --semantic` and the HTTP `/conflicts/scan` endpoint. Accepted values: `claude`, `opencode`.                                                                                                                | (unset)              |
 
 ### Conflict Audit CLI (admin)
 
@@ -374,21 +356,14 @@ Print aggregate grouped `judgment_status` counts (`pending` | `judged` | `orphan
 ```
 engram conflicts scan [--project <name>] [--dry-run] [--apply] [--max-insert <N>]
                       [--since <RFC3339>]
-                      [--semantic] [--concurrency <N>] [--timeout-per-call <N>]
-                      [--max-semantic <N>] [--yes]
 ```
 
 Walk observations for the project, run FindCandidates, and report or insert new pending relation rows.
 
-- `--dry-run` (default): for non-semantic lexical scans, reports candidates found with 0 pending rows inserted.
+- `--dry-run` (default): reports candidates found with 0 pending rows inserted.
 - `--apply`: inserts up to `--max-insert` (default 100) new rows; prints WARNING when cap is reached.
 - `--since RFC3339`: scan only observations created at or after the timestamp.
-- `--semantic`: enable LLM-judge semantic detection on FTS5 candidate pairs returned by `FindCandidates`. It can improve verdict quality for candidates that share lexical terms, but it does not discover totally lexically unrelated pairs on its own. Requires `ENGRAM_AGENT_CLI=claude` or `ENGRAM_AGENT_CLI=opencode`.
-- With `--semantic`, non-`not_conflict` verdicts are persisted by `JudgeBySemantic` even in the default `--dry-run` mode; `not_conflict` verdicts remain no-op.
-- `--concurrency N`: worker pool size for parallel LLM calls (default 5, max 20).
-- `--timeout-per-call N`: per-LLM-call timeout in seconds (default 60).
-- `--max-semantic N`: hard cap on LLM calls per scan run (default 100).
-- `--yes`: skip the cost-estimate confirmation prompt before LLM calls.
+- Candidates are lexical (FTS5); engram does not launch a model to judge them. Judge them with `mem_judge`. `--semantic`, `--concurrency`, `--timeout-per-call` and `--max-semantic` were removed in 1.24.0 and fail with an error; `ENGRAM_AGENT_CLI` no longer exists.
 
 ## MCP Project Resolution
 
@@ -482,6 +457,8 @@ Returns success even when cwd is ambiguous — empty `project` + non-empty `avai
 
 ## MCP Tools
 
+The server instructions that the MCP client receives are built from the resolved tool profile: they name only the registered tools. `WHO SAVES` lists those tools, the proactive-save and conflict-surfacing sections appear only if `mem_save` (and `mem_judge`) are registered, and the `reader` profile omits them and says the server is read-only. With `--tools=agent`, `mem_delete`, `mem_stats`, `mem_timeline` and `mem_merge_projects` are no longer mentioned.
+
 ### mem_search
 
 Search persistent memory across all sessions. Supports FTS5 full-text search with type/project/scope/limit filters.
@@ -566,6 +543,11 @@ Progressive disclosure: after searching, drill into chronological context around
 ### mem_get_observation
 
 Get full untruncated content of a specific observation by ID.
+
+Optional parameters:
+
+- **include_history** (bool, default false): append the earlier versions of the observation, newest first: replacement date, title and content. The content is stored data, not instructions. Without the flag the output does not change.
+- **history_limit** (default 10, max 20) and **history_offset** (default 0): paginate the versions. The section ends with "N of total versions shown; history_offset=X to see more".
 
 ### mem_session_summary
 
@@ -808,14 +790,15 @@ Example: `Set up API with <private>sk-abc123</private>` becomes `Set up API with
 
 ### User Prompt Storage
 
-Separate table captures what the USER asked (not just tool calls). Gives future sessions the "why" behind the "what". Full FTS5 search support.
+Separate table captures what the USER asked (not just tool calls). Gives future sessions the "why" behind the "what". Full FTS5 search support. Text the person did not write (prefixes `<task-notification>` and `<agent-message`) is not stored as a prompt; imports do not filter.
 
 ### Export / Import
 
 Share memories across machines, backup, or migrate:
 
-- `engram export` — JSON dump of all sessions, observations, prompts
-- `engram import <file>` — Load from JSON, sessions use INSERT OR IGNORE (skip duplicates), atomic transaction
+- `engram export [file]` — JSON dump of all sessions, observations, prompts. `engram export --help` prints the usage; an unknown `-x` flag is an error (it no longer creates a file named like the flag)
+- `engram import <file>` — Load from JSON, sessions use INSERT OR IGNORE (skip duplicates), prompts import by `sync_id` so a second import adds nothing, atomic transaction. `engram import --help` prints the usage
+- The JSON export does not carry pins or relations
 
 ### Git Sync (Chunked)
 

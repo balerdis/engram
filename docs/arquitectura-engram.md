@@ -14,7 +14,7 @@ Este documento reúne las decisiones, las reglas y las ideas del fork. Lo que es
 - engram es una dependencia opcional de Pegasus Harness y de DARQ, y no se distribuye por separado. No hay Homebrew, ni paquete npm, ni imagen Docker.
 - Al empujar una etiqueta `v*`, el workflow `release.yml` corre goreleaser. goreleaser publica en la release de GitHub los binarios para linux, darwin y windows, en amd64 y arm64, junto con `checksums.txt`.
 - Pegasus y DARQ fijan la versión, la URL del tar y su checksum en `content/mcp/engram.md`. Por eso cada release del fork va acompañada de una release de Pegasus y de DARQ.
-- El plugin de Claude Code se instala desde el marketplace del propio fork: `.claude-plugin/marketplace.json` apunta a `plugin/claude-code`, que está en la versión 0.3.1. El plugin busca `engram` en el PATH y no descarga nada.
+- El plugin de Claude Code se instala desde el marketplace del propio fork: `.claude-plugin/marketplace.json` apunta a `plugin/claude-code`, que está en la versión 0.3.4. El plugin busca `engram` en el PATH y no descarga nada.
 
 ## Decisiones
 
@@ -33,6 +33,8 @@ Este documento reúne las decisiones, las reglas y las ideas del fork. Lo que es
 | El puerto de engram es propio de cada usuario del sistema, con la regla que ya usa Pegasus. | Con un puerto fijo, el engram de un usuario atendía a los clientes de otro y mezclaba sus memorias. |
 | El servidor tapa las credenciales en todo texto libre que guarda, con el catálogo de Pegasus vendorizado. | Antes cada plugin decidía si taparlas; los prompts se guardaban tal cual. |
 | Solo guarda memorias el agente que habla con la persona; es una guía en el protocolo y un perfil `reader` opcional, no un bloqueo. | El servidor no distingue al orquestador de un subagente. |
+| Se quitó el scan semántico de conflictos (`conflicts scan --semantic` y `semantic` en `POST /conflicts/scan`). | Lanzaba un CLI de modelo (claude u opencode) desde engram. Se usó una sola vez, el 2026-06-24 y antes del fork, frente a 462 veredictos de agentes con `mem_judge`. El veredicto lo da el agente (`mem_judge`, `mem_compare`), no un proceso que engram lanza. |
+| Las instrucciones MCP salen del perfil de herramientas resuelto. | Con `--tools=agent` nombraban `mem_delete`, `mem_stats`, `mem_timeline` y `mem_merge_projects`, que ese perfil no registra. |
 
 ## La base de datos
 
@@ -49,6 +51,8 @@ Varios engram comparten la misma `~/.engram/engram.db`, por ejemplo el de OpenCo
 2. Antes de estrenar una versión que toca la base, se hace un backup con la API de backup de sqlite, por ejemplo `sqlite3 engram.db ".backup engram-<fecha>.db"`. Copiar el archivo mientras engram corre no sirve, porque la base usa WAL.
 3. Todos los engram que abren la misma base pasan juntos a la versión nueva.
 
+Tablas aditivas desde la 1.24.0: `observation_versions` (`id`, `observation_id` con FK en cascada, `title`, `content`, `type`, `topic_key`, `replaced_at`, e índice `idx_obs_versions_obs`). Guarda el estado anterior de una observación cuando un upsert por `topic_key` o `mem_update` cambia el título o el contenido, con tope de 20 por observación. No viaja en los chunks de `engram sync`, `redact --scan` la cubre y `purge` la borra por la cascada. Un binario viejo la ignora.
+
 ## Conexiones de red del binario
 
 | Qué | Cuándo |
@@ -56,6 +60,7 @@ Varios engram comparten la misma `~/.engram/engram.db`, por ejemplo el de OpenCo
 | El aviso de actualización (API de releases de GitHub, con 2 s de timeout) | En los comandos de CLI y al abrir la TUI. Nunca en `mcp`, `serve`, `protocol-mode`, `purge`, `port` ni `redact`, que son los modos que usan OpenCode y Claude Code o que se corren en scripts. |
 | La sincronización con la nube | Ninguna. Desde la 1.22.0 no hay cliente ni servidor de nube: `engram sync` solo exporta e importa chunks locales. |
 | Telemetría | No hay. |
+| Procesos de modelo | Ninguno. Desde la 1.24.0 engram no lanza claude ni opencode: se quitó el scan semántico y con él `ENGRAM_AGENT_CLI`. |
 
 ## Lo que todavía apunta al original
 
@@ -73,16 +78,57 @@ El fork tiene los issues y las discusiones deshabilitados, así que las plantill
 
 ## Ideas
 
-Las ideas se acumulan acá y se toman por release.
+Las ideas se acumulan acá y se toman por release. Son las que la revisión del original dejó diferidas en la 1.24.0.
+
+- El export JSON no lleva pins ni relaciones.
+- Gate de `user_version` + `PERSIST_WAL` para migraciones entre procesos.
+- `serve.log` con 0600 y `engram stop` verificado contra `/health`.
+- Tope en bytes del contexto de SessionStart y `LIMIT` de los pinned.
+- `mem_search_prompts` para el perfil `reader`.
+- `topic_key` en los resultados de `mem_search`.
+- Errores estructurados de sesión desconocida.
+- Obsidian: contención de rutas al borrar y notas huérfanas tras un purge.
+- Prompts en los chunks de `.engram/` solo con opt-in.
+- La watermark del export de chunks.
+- TUI: tope de `DetailScroll` y fondo en terminales claras.
+- Excluir `not_conflict` de las vistas de conflictos si ensucia.
 
 ## Releases
 
-### Después de la 1.23.0, sin release
+### 1.24.0
 
-Tres pruebas más con plazos de reloj quedan deterministas. Como solo cambian pruebas, no hay binario nuevo.
+Toma las correcciones de una revisión del original, quita el scan semántico y agrega el historial de versiones de una observación. Agrega una tabla (`observation_versions`) y no toca el catálogo de credenciales. Los datos son de la base real de la persona.
 
-- `TestQuadraticShapesStayLinearWithoutPrefilters` y `TestLinearTimeOnAdversarialInput` (todas sus formas, entre ellas `esc_quote_open`) usan `requireLinear`: cada forma se corre a un cuarto y a la totalidad del tope de detección, y 4 veces más entrada debe costar menos de 10 veces más tiempo (lineal ronda 4x, cuadrático 16x).
-- `TestSessionStartDoesNotHoldStderrDuringTheImport` ya no mide segundos: el `sync` falso se bloquea en un archivo que solo crea la prueba y deja su pid; si el hook volvió con ese pid vivo, no esperó al import. Con el pipe retenido el hook volvería recién cuando el timeout propio mata el import, y el pid estaría muerto.
+1. **El driver SQLite pasa a 1.59.0 (SQLite 3.51.3 o más nueva).** Esas versiones corrigen el bug de reinicio del WAL, que podía corromper la base con varias conexiones. Es la más nueva con `go 1.25.0` (de la 1.60 en adelante pide go 1.26). `TestSQLiteVersionHasWALResetFix` falla con un SQLite más viejo.
+2. **Los pragmas viajan en el DSN y las transacciones son `IMMEDIATE`.**
+   - `busy_timeout(5000)`, `journal_mode(WAL)`, `synchronous(NORMAL)` y `foreign_keys(1)` van como `_pragma` del DSN, y `New` hace `Ping`. Antes se aplicaban a una conexión y las demás del pool arrancaban sin ellos.
+   - `_txlock=immediate`: `Begin` toma el lock de escritura al empezar, así que dos escritores no se bloquean a mitad de transacción. Las lecturas no usan transacción.
+   - `TestEveryNewConnectionHasPragmas` y `TestBeginTakesWriteLockImmediately`. La prueba de purge que simulaba un lector con `Begin()` usa ahora `BeginTx` de solo lectura.
+3. **Los prompts que la persona no escribió no se guardan.** `AddPrompt` descarta los que empiezan con `<task-notification>` o `<agent-message` (sin espacios iniciales) y devuelve `(0, nil)`, como un repetido absorbido, así el hook no falla. Los imports no filtran.
+   - **Evidencia:** en la base real, 865 prompts `<task-notification>` y 922 `<agent-message` sobre 12 624.
+   - Solo están los dos prefijos observados, sin heurísticas sobre el texto.
+4. **Reimportar un volcado no duplica prompts.** El import usa `INSERT ... WHERE NOT EXISTS` por `sync_id`. Un prompt sin `sync_id` recibía uno aleatorio, así que cada import lo insertaba otra vez; ahora recibe `prompt-` + sha256(sesión, proyecto, fecha, contenido)[:16]. `PromptsImported` cuenta solo los insertados.
+5. **`prune` ya no falla por una sesión con observaciones borradas en blando.** Con `foreign_keys=ON` el `DELETE` de la sesión fallaba y revertía todo; ahora solo borra las sesiones que ninguna observación referencia.
+6. **Un par ya relacionado no se vuelve a proponer, y `not_conflict` se guarda.**
+   - **Evidencia:** 16 pares juzgados de 2 a 4 veces, o sea 23 juicios de más sobre 466.
+   - `FindCandidates` inserta con `WHERE NOT EXISTS` y saltea los pares con una relación en cualquier dirección y en cualquier estado salvo `orphaned`. `SkipInsert` no filtra.
+   - `JudgeBySemantic` persiste `not_conflict`.
+   - Las comillas internas de un título se duplican en la consulta FTS de candidatos: antes rompían la búsqueda.
+7. **Historial de versiones (`observation_versions`).** Ver "La base de datos". `ObservationVersions(id, limit, offset)` las devuelve de la más nueva a la más vieja, con el total.
+   - `mem_get_observation` suma `include_history` (por defecto false), `history_limit` (10 por defecto, máximo 20) e `history_offset`. Agrega al final las versiones anteriores (fecha de reemplazo, título y contenido) y la paginación. Es dato guardado, no instrucciones. Sin el flag la salida no cambia.
+   - La reescritura de `redact --scan` no guarda versiones.
+8. **Las instrucciones MCP salen del perfil.** `buildServerInstructions(allowlist)` nombra solo las herramientas registradas: `WHO SAVES` las lista, `PROACTIVE SAVE` aparece solo con `mem_save`, `CONFLICT SURFACING` solo con `mem_save` y `mem_judge`, y el perfil `reader` las omite y dice que es de solo lectura. **Evidencia:** con `--tools=agent` las instrucciones nombraban `mem_delete`, `mem_stats`, `mem_timeline` y `mem_merge_projects`. La marca `[preview]` cuenta runas en vez de bytes.
+9. **`engram export --help` e `import --help`.** Imprimen el uso y salen con 0 sin abrir la base; antes `export --help` creaba un archivo llamado `--help`. Cualquier otro flag desconocido sale con 1.
+10. **Se quita el scan semántico.** Se van el paquete `internal/llm`, `cmd/engram/llm.go`, los flags `--semantic`, `--concurrency`, `--timeout-per-call` y `--max-semantic` de `conflicts scan`, `ENGRAM_AGENT_CLI`, `SetRunnerFactory`, `SetPromptBuilder`, la rama semántica de `ScanProject`, `store/runner.go` y los campos `semantic_*` de la respuesta de `POST /conflicts/scan`.
+    - **Evidencia:** se usó una sola vez (2026-06-24, antes del fork), frente a 462 veredictos de agentes con `mem_judge`.
+    - Quien pasa un flag quitado recibe un error, y `POST /conflicts/scan` con `"semantic": true` responde 400 ("the semantic scan was removed in 1.24.0"), en vez de correr un scan común sin avisar.
+    - Se queda `conflicts scan` sin modelo, `JudgeBySemantic` (lo usan `mem_compare` y `POST /conflicts/compare`) y `mem_judge`. `marked_by_model` y los datos históricos no se tocan.
+11. **Pruebas deterministas**, sin cambio de código de producción:
+    - `TestQuadraticShapesStayLinearWithoutPrefilters` y `TestLinearTimeOnAdversarialInput` usan `requireLinear`: cada forma se corre a un cuarto y a la totalidad del tope de detección, y 4 veces más entrada debe costar menos de 10 veces más tiempo (lineal ronda 4x, cuadrático 16x).
+    - `TestSessionStartDoesNotHoldStderrDuringTheImport` ya no mide segundos: el `sync` falso se bloquea en un archivo que solo crea la prueba y deja su pid; si el hook volvió con ese pid vivo, no esperó al import.
+12. **Plugins:** Claude Code 0.3.4, porque `skills/memory/SKILL.md` menciona `include_history`. Codex y OpenCode no cambian.
+
+Para publicarla: hacer antes un backup con la API de backup de sqlite (la tabla nueva es aditiva, pero el binario nuevo actualiza la base) y pasar todos los engram que comparten la base a la vez. No hace falta correr `redact --scan`.
 
 ### 1.23.0
 
