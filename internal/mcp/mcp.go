@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Gentleman-Programming/engram/internal/diagnostic"
 	projectpkg "github.com/Gentleman-Programming/engram/internal/project"
@@ -186,33 +187,148 @@ func NewServer(s *store.Store) *server.MCPServer {
 	return NewServerWithConfig(s, MCPConfig{}, nil)
 }
 
-// serverInstructions tells MCP clients when to use Engram's tools.
-// 7 core tools are eager (always in context). The rest are deferred
-// and require ToolSearch to load.
-const serverInstructions = `Engram provides persistent memory that survives across sessions and compactions.
+// instructionTool describes one eager (core) tool in the server instructions.
+type instructionTool struct {
+	name string
+	desc string
+}
 
-WHO SAVES: only the agent talking with the person saves memories. If another agent launched you
-(you received a task brief, not a conversation with the user), do not call mem_save, mem_update,
-mem_session_summary, mem_save_prompt, mem_session_start/end or mem_judge unless your brief
-explicitly asks for it. You may use mem_search, mem_context and mem_get_observation. Put durable
-findings in your final reply; whoever launched you decides what to save.
+// coreInstructionTools are the eager tools (no WithDeferLoading): always in
+// the client's context. Order is the order shown to the agent.
+var coreInstructionTools = []instructionTool{
+	{"mem_save", "save decisions, bugs, discoveries, conventions PROACTIVELY (do not wait to be asked; only the agent talking with the person)"},
+	{"mem_search", "find past work, decisions, or context from previous sessions"},
+	{"mem_context", "get recent session history (call at session start or after compaction)"},
+	{"mem_session_summary", "save end-of-session summary (MANDATORY before saying \"done\" for the agent talking with the person)"},
+	{"mem_get_observation", "get full untruncated content of a search result by ID"},
+	{"mem_save_prompt", "save user prompt for context"},
+	{"mem_current_project", "detect current project from cwd (recommended first call)"},
+	{"mem_judge", "record a verdict on a pending memory conflict (judgment_required flow)"},
+	{"mem_compare", "persist a semantic verdict you have already judged externally"},
+}
 
-CORE TOOLS (always available — use without ToolSearch):
-  mem_save — save decisions, bugs, discoveries, conventions PROACTIVELY (do not wait to be asked; only the agent talking with the person)
-  mem_search — find past work, decisions, or context from previous sessions
-  mem_context — get recent session history (call at session start or after compaction)
-  mem_session_summary — save end-of-session summary (MANDATORY before saying "done" for the agent talking with the person)
-  mem_get_observation — get full untruncated content of a search result by ID
-  mem_save_prompt — save user prompt for context
-  mem_current_project — detect current project from cwd (recommended first call)
+// deferredInstructionTools are the tools registered with WithDeferLoading:
+// they need ToolSearch to load.
+var deferredInstructionTools = []string{
+	"mem_update", "mem_review", "mem_pin", "mem_unpin", "mem_suggest_topic_key",
+	"mem_session_start", "mem_session_end", "mem_doctor", "mem_capture_passive",
+	"mem_stats", "mem_delete", "mem_timeline", "mem_merge_projects", "mem_purge_preview",
+}
 
-DEFERRED TOOLS (use ToolSearch when needed):
-  mem_update, mem_review, mem_pin, mem_unpin, mem_suggest_topic_key, mem_session_start, mem_session_end,
-  mem_stats, mem_delete, mem_timeline, mem_capture_passive, mem_merge_projects, mem_purge_preview
+// memoryWritingTools are the tools that change memory state. A profile with
+// none of them registered is read-only.
+var memoryWritingTools = []string{
+	"mem_save", "mem_update", "mem_session_summary", "mem_save_prompt",
+	"mem_capture_passive", "mem_session_start", "mem_session_end",
+	"mem_judge", "mem_compare", "mem_pin", "mem_unpin", "mem_review",
+	"mem_delete", "mem_merge_projects",
+}
 
-PROACTIVE SAVE RULE (only the agent talking with the person, not launched subagents): Call mem_save immediately after ANY decision, bug fix, discovery, or convention — not just when asked.
+// joinOr renders "a, b or c" (or "a", or "a or b").
+func joinOr(items []string) string {
+	switch len(items) {
+	case 0:
+		return ""
+	case 1:
+		return items[0]
+	}
+	return strings.Join(items[:len(items)-1], ", ") + " or " + items[len(items)-1]
+}
 
-## CONFLICT SURFACING — when mem_save returns candidates
+// buildServerInstructions tells MCP clients when to use Engram's tools. It is
+// generated from the resolved allowlist so it never names a tool that is not
+// registered: core and deferred lists include only registered tools, and a
+// read-only profile (no writing tool registered) omits the saving guidance.
+func buildServerInstructions(allowlist map[string]bool) string {
+	var b strings.Builder
+	b.WriteString("Engram provides persistent memory that survives across sessions and compactions.\n\n")
+
+	canWrite := false
+	for _, t := range memoryWritingTools {
+		if shouldRegister(t, allowlist) {
+			canWrite = true
+			break
+		}
+	}
+
+	if !canWrite {
+		b.WriteString("This server profile is READ-ONLY: memories cannot be saved or changed from here. Only consult memory with the tools listed below.\n\n")
+	} else {
+		var writers []string
+		sessionTools := 0
+		for _, t := range []string{"mem_save", "mem_update", "mem_session_summary", "mem_save_prompt", "mem_session_start", "mem_session_end", "mem_judge"} {
+			if !shouldRegister(t, allowlist) {
+				continue
+			}
+			if t == "mem_session_start" || t == "mem_session_end" {
+				sessionTools++
+				continue
+			}
+			writers = append(writers, t)
+		}
+		if sessionTools == 2 {
+			// Keep the compact form after the other writers, before mem_judge.
+			if n := len(writers); n > 0 && writers[n-1] == "mem_judge" {
+				writers = append(writers[:n-1], "mem_session_start/end", "mem_judge")
+			} else {
+				writers = append(writers, "mem_session_start/end")
+			}
+		} else if sessionTools == 1 {
+			for _, t := range []string{"mem_session_start", "mem_session_end"} {
+				if shouldRegister(t, allowlist) {
+					writers = append(writers, t)
+				}
+			}
+		}
+		var readers []string
+		for _, t := range []string{"mem_search", "mem_context", "mem_get_observation"} {
+			if shouldRegister(t, allowlist) {
+				readers = append(readers, t)
+			}
+		}
+		b.WriteString("WHO SAVES: only the agent talking with the person saves memories. If another agent launched you\n(you received a task brief, not a conversation with the user)")
+		if len(writers) > 0 {
+			b.WriteString(", do not call " + joinOr(writers) + " unless your brief\nexplicitly asks for it")
+		}
+		b.WriteString(".")
+		if len(readers) > 0 {
+			b.WriteString(" You may use " + joinOr(readers) + ".")
+		}
+		b.WriteString(" Put durable\nfindings in your final reply; whoever launched you decides what to save.\n\n")
+	}
+
+	var core []string
+	for _, ct := range coreInstructionTools {
+		if shouldRegister(ct.name, allowlist) {
+			core = append(core, "  "+ct.name+" — "+ct.desc)
+		}
+	}
+	if len(core) > 0 {
+		b.WriteString("CORE TOOLS (always available — use without ToolSearch):\n" + strings.Join(core, "\n") + "\n\n")
+	}
+
+	var deferred []string
+	for _, name := range deferredInstructionTools {
+		if shouldRegister(name, allowlist) {
+			deferred = append(deferred, name)
+		}
+	}
+	if len(deferred) > 0 {
+		b.WriteString("DEFERRED TOOLS (use ToolSearch when needed):\n  " + strings.Join(deferred, ", ") + "\n\n")
+	}
+
+	if shouldRegister("mem_save", allowlist) {
+		b.WriteString("PROACTIVE SAVE RULE (only the agent talking with the person, not launched subagents): Call mem_save immediately after ANY decision, bug fix, discovery, or convention — not just when asked.\n\n")
+	}
+
+	if shouldRegister("mem_save", allowlist) && shouldRegister("mem_judge", allowlist) {
+		b.WriteString(conflictSurfacingInstructions)
+	}
+
+	return strings.TrimSpace(b.String())
+}
+
+const conflictSurfacingInstructions = `## CONFLICT SURFACING — when mem_save returns candidates
 
 After every mem_save call, check the response envelope for judgment_required.
 
@@ -243,6 +359,9 @@ IF judgment_required IS TRUE:
     explicit direction, include their words as the evidence field. This persists
     the verdict and closes the pending conflict row.`
 
+// serverInstructions is the instruction text for the full (default) profile.
+var serverInstructions = buildServerInstructions(nil)
+
 // NewServerWithTools creates an MCP server registering only the tools in
 // the allowlist. If allowlist is nil, all tools are registered.
 func NewServerWithTools(s *store.Store, allowlist map[string]bool) *server.MCPServer {
@@ -260,7 +379,7 @@ func newServerWithActivity(s *store.Store, cfg MCPConfig, allowlist map[string]b
 		"engram",
 		"0.1.0",
 		server.WithToolCapabilities(true),
-		server.WithInstructions(serverInstructions),
+		server.WithInstructions(buildServerInstructions(allowlist)),
 	)
 
 	registerTools(srv, s, cfg, allowlist, activity)
@@ -1102,7 +1221,7 @@ func handleSearch(s *store.Store, cfg MCPConfig, activity *SessionActivity) serv
 				projectDisplay = fmt.Sprintf(" | project: %s", *r.Project)
 			}
 			preview := truncate(r.Content, 300)
-			if len(r.Content) > 300 {
+			if utf8.RuneCountInString(r.Content) > 300 {
 				anyTruncated = true
 				preview += " [preview]"
 			}
