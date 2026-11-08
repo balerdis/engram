@@ -86,7 +86,7 @@ When the user asks to recall something — any variation of "remember", "recall"
 "how did we solve", or the equivalent in the user's language, or references to past work:
 1. First call `mem_context` — checks recent session history (fast, cheap)
 2. If not found, call `mem_search` with relevant keywords (FTS5 full-text search)
-3. If you find a match, use `mem_get_observation` for full untruncated content
+3. If you find a match, use `mem_get_observation` for full untruncated content (add `include_history: true` to also see its earlier versions)
 
 Also search memory PROACTIVELY when:
 - Starting work on something that might have been done before
