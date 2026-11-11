@@ -1,6 +1,6 @@
 # Arquitectura de engram (fork balerdis/engram)
 
-Este documento reúne las decisiones, las reglas y las ideas del fork. Lo que es de Pegasus Harness o de DARQ queda en su propia documentación. Ahí solo figura qué versión de engram descargan y desde dónde.
+Este documento reúne las decisiones y las reglas del fork. Lo que es de Pegasus Harness o de DARQ queda en su propia documentación. Ahí solo figura qué versión de engram descargan y desde dónde.
 
 ## Por qué existe el fork
 
@@ -76,24 +76,6 @@ Desde la 1.20.1, ningún flujo del binario ni del instalador lleva al original. 
 
 El fork tiene los issues y las discusiones deshabilitados, así que las plantillas de `.github/ISSUE_TEMPLATE/` no se usan. Dependabot tampoco corre en un fork hasta que se lo habilita a mano.
 
-## Ideas
-
-Las ideas se acumulan acá y se toman por release. Son las que la revisión del original dejó diferidas en la 1.24.0.
-
-- El export JSON no lleva pins ni relaciones.
-- Gate de `user_version` + `PERSIST_WAL` para migraciones entre procesos.
-- `serve.log` con 0600 y `engram stop` verificado contra `/health`.
-- Tope en bytes del contexto de SessionStart y `LIMIT` de los pinned.
-- `mem_search_prompts` para el perfil `reader`.
-- `topic_key` en los resultados de `mem_search`.
-- Errores estructurados de sesión desconocida.
-- Obsidian: contención de rutas al borrar y notas huérfanas tras un purge.
-- Prompts en los chunks de `.engram/` solo con opt-in.
-- La watermark del export de chunks.
-- TUI: tope de `DetailScroll` y fondo en terminales claras.
-- Excluir `not_conflict` de las vistas de conflictos si ensucia.
-- En `FindCandidates` el límite se aplica antes de descartar los pares ya relacionados, así que un re-guardado puede no mostrar candidatos nuevos que estén después de los N primeros.
-
 ## Releases
 
 ### 1.24.0
@@ -150,7 +132,7 @@ Para publicarla: igual que la 1.22.3, sin catálogo nuevo. No hace falta correr 
 
 ### 1.22.3
 
-Toma cinco ideas de la lista y resuelve del lado del servidor una deuda de Pegasus, la doble captura de prompts. No cambia el esquema de la base ni el catálogo de credenciales.
+Toma cinco ideas de la lista que el documento tenía entonces y resuelve del lado del servidor una deuda de Pegasus, la doble captura de prompts. No cambia el esquema de la base ni el catálogo de credenciales.
 
 1. **Un prompt que llega dos veces se guarda una.** Quien tiene en Claude Code los hooks de engram de Pegasus y además el plugin de hooks del fork manda cada prompt dos veces a `POST /prompts`: una ya tapada por el hook de Pegasus y otra cruda del plugin, que el servidor tapa al guardar con el mismo catálogo.
    - `AddPrompt` mira, dentro de la misma transacción y con el índice `idx_prompts_session`, el último prompt de la sesión. Si es del mismo proyecto, tiene exactamente el mismo contenido guardado y se creó hace 30 segundos o menos, devuelve su id sin insertar.
